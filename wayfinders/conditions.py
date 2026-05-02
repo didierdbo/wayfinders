@@ -1,5 +1,5 @@
-from partydirective.clock import create_recovery_clock, tick_clock
-from partydirective.models import Character, GameState
+from wayfinders.clock import create_recovery_clock, tick_clock
+from wayfinders.models import Character, GameState
 
 
 def apply_condition(gs: GameState, character: Character, condition_name: str) -> None:
@@ -10,6 +10,7 @@ def apply_condition(gs: GameState, character: Character, condition_name: str) ->
     clock = create_recovery_clock(clock_name)
     gs.active_recovery_clocks[clock.id] = clock
     character.recovery_clock_ids[condition_name] = clock.id
+
 
 def resolve_recovery(gs: GameState, character: Character) -> list[str]:
     """Call after ticking recovery clocks. Removes healed conditions."""
@@ -29,5 +30,3 @@ def tick_recovery_clocks(gs: GameState, character: Character, segments: int = 1)
     for clock_id in character.recovery_clock_ids.values():
         clock = gs.active_recovery_clocks[clock_id]
         tick_clock(clock, segments)
-
-

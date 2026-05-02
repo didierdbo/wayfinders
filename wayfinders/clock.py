@@ -1,6 +1,6 @@
 from slugify import slugify
 
-from partydirective.models import ActionCard, Clock
+from wayfinders.models import ActionCard, Clock
 
 
 def tick_clock(clock: Clock, segments: int) -> bool:
@@ -10,6 +10,7 @@ def tick_clock(clock: Clock, segments: int) -> bool:
     """
     clock.filled_segments = min(clock.total_segments, clock.filled_segments + segments)
     return clock.filled_segments == clock.total_segments
+
 
 def check_passive_tick(clock: Clock, hours_elapsed: int) -> int:
     """
@@ -31,23 +32,48 @@ def check_passive_tick(clock: Clock, hours_elapsed: int) -> int:
     return ticks_fired
 
 
-
 def create_mission_clock(action_card: ActionCard) -> Clock:
     """Create a mission clock from an action card's segment count."""
-    clock = Clock(id=action_card.id, name=action_card.name, clock_type="mission", total_segments=action_card.clock_segments, filled_segments=0, passive_tick_interval=None, hours_since_last_passive_tick=0)
+    clock = Clock(
+        id=action_card.id,
+        name=action_card.name,
+        clock_type="mission",
+        total_segments=action_card.clock_segments,
+        filled_segments=0,
+        passive_tick_interval=None,
+        hours_since_last_passive_tick=0,
+    )
     return clock
+
 
 def create_threat_clock(name: str, segments: int) -> Clock:
     """Create a threat clock with 6-hour passive ticking."""
-    clock = Clock(id=slugify(name), name=name, clock_type="threat", total_segments=segments, filled_segments=0, passive_tick_interval=6, hours_since_last_passive_tick=0)
+    clock = Clock(
+        id=slugify(name),
+        name=name,
+        clock_type="threat",
+        total_segments=segments,
+        filled_segments=0,
+        passive_tick_interval=6,
+        hours_since_last_passive_tick=0,
+    )
     return clock
+
 
 def create_recovery_clock(name: str) -> Clock:
     """Create a 4-segment recovery clock (no passive ticking)."""
-    clock = Clock(id=slugify(name), name=name, clock_type="recovery", total_segments=4, filled_segments=0, passive_tick_interval=None, hours_since_last_passive_tick=0)
+    clock = Clock(
+        id=slugify(name),
+        name=name,
+        clock_type="recovery",
+        total_segments=4,
+        filled_segments=0,
+        passive_tick_interval=None,
+        hours_since_last_passive_tick=0,
+    )
     return clock
+
 
 def parse_clock_tick(consequence: str) -> tuple[str, int]:
     splitted = consequence.split("+")
     return splitted[0], int(splitted[1])
-

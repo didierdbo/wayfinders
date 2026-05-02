@@ -1,6 +1,6 @@
-from partydirective.models import ActionCard, Background, Character, Item, Stat, Trait
-from partydirective.resolution import compute_modifiers, resolve_action
 from tests.conftest import FakeRNG
+from wayfinders.models import ActionCard, Background, Character, Item, Stat, Trait
+from wayfinders.resolution import compute_modifiers, resolve_action
 
 
 def test_full_success_with_high_stat(rng):

@@ -1,4 +1,4 @@
-from partydirective.models import Background, Stat
+from wayfinders.models import Background, Stat
 
 BACKGROUNDS_LIST: list[Background] = [
     Background(
@@ -13,7 +13,7 @@ BACKGROUNDS_LIST: list[Background] = [
         starting_equipment=["healer-s-kit", "herb-pouch", "walking-staff"],
         incapabilities=["Cannot wear heavy armor"],
     ),
-     Background(
+    Background(
         name="Disgraced Noble",
         stat_adjustments={Stat.WIS: 2, Stat.STR: -1},
         starting_equipment=["fine-clothes", "signet-ring", "purse"],
@@ -27,5 +27,4 @@ BACKGROUNDS_LIST: list[Background] = [
     ),
 ]
 
-BACKGROUNDS = { background.name: background for background in BACKGROUNDS_LIST }
-
+BACKGROUNDS = {background.name: background for background in BACKGROUNDS_LIST}

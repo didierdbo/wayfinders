@@ -88,9 +88,9 @@ class ActionCard:
     position: str
     effect: str
     max_characters: int
-    rewards_on_success: dict
-    consequences_on_failure: dict
-    consequences_on_partial: dict
+    rewards_on_success: dict[str, object]
+    consequences_on_failure: dict[str, object]
+    consequences_on_partial: dict[str, object]
     default_priority: int
 
 
@@ -148,7 +148,7 @@ class GameState:
     active_recovery_clocks: dict[str, Clock]
     game_hour: int
     action_templates: dict[str, ActionCard]
-    event_log: list[dict]
+    event_log: list[dict[str, object]]
 
 
 @dataclass(slots=True)

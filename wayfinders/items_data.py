@@ -1,6 +1,6 @@
-
-from partydirective.models import Item, Stat
 from slugify import slugify
+
+from wayfinders.models import Item, Stat
 
 _ITEMS_LIST: list[Item] = [
     Item(
@@ -8,10 +8,10 @@ _ITEMS_LIST: list[Item] = [
         name="Sword",
         category="Melee Weapons",
         stat_bonus={Stat.STR: 1},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=0,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -19,10 +19,10 @@ _ITEMS_LIST: list[Item] = [
         name="Hunting Knife",
         category="Melee Weapons",
         stat_bonus={Stat.DEX: 1},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=0,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -30,10 +30,10 @@ _ITEMS_LIST: list[Item] = [
         name="War Hammer",
         category="Melee Weapons",
         stat_bonus={Stat.STR: 2},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=0,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -41,10 +41,10 @@ _ITEMS_LIST: list[Item] = [
         name="Master-Crafted Blade",
         category="Melee Weapons",
         stat_bonus={Stat.STR: 2},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=0,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -52,10 +52,10 @@ _ITEMS_LIST: list[Item] = [
         name="Shortbow",
         category="Ranged Weapons",
         stat_bonus={Stat.DEX: 1},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=0,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -63,10 +63,10 @@ _ITEMS_LIST: list[Item] = [
         name="Longbow",
         category="Ranged Weapons",
         stat_bonus={Stat.DEX: 2},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=0,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -74,10 +74,10 @@ _ITEMS_LIST: list[Item] = [
         name="Elven Composite Bow",
         category="Ranged Weapons",
         stat_bonus={Stat.DEX: 3},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=0,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -85,10 +85,10 @@ _ITEMS_LIST: list[Item] = [
         name="Arrows",
         category="Ranged Weapons",
         stat_bonus={},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=0,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -96,10 +96,10 @@ _ITEMS_LIST: list[Item] = [
         name="Leather Armor",
         category="Armor",
         stat_bonus={},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=1,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -107,10 +107,10 @@ _ITEMS_LIST: list[Item] = [
         name="Chain Mail",
         category="Armor",
         stat_bonus={},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=2,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -118,10 +118,10 @@ _ITEMS_LIST: list[Item] = [
         name="Plate Armor",
         category="Armor",
         stat_bonus={},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=3,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -129,10 +129,10 @@ _ITEMS_LIST: list[Item] = [
         name="Shield",
         category="Shield",
         stat_bonus={},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=2,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -140,10 +140,10 @@ _ITEMS_LIST: list[Item] = [
         name="Trap Kit",
         category="Lockpick/Tools",
         stat_bonus={Stat.DEX: 1},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=0,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -151,10 +151,10 @@ _ITEMS_LIST: list[Item] = [
         name="Healer's Kit",
         category="Healer's Supplies",
         stat_bonus={Stat.WIS: 2},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=0,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -162,10 +162,10 @@ _ITEMS_LIST: list[Item] = [
         name="Herb Pouch",
         category="Healer's Supplies",
         stat_bonus={Stat.WIS: 1},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=0,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -173,10 +173,10 @@ _ITEMS_LIST: list[Item] = [
         name="Walking Staff",
         category="Melee Weapons",
         stat_bonus={Stat.DEX: 1},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=0,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -184,10 +184,10 @@ _ITEMS_LIST: list[Item] = [
         name="Fine Clothes",
         category="Trade Goods",
         stat_bonus={},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=0,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -195,10 +195,10 @@ _ITEMS_LIST: list[Item] = [
         name="Signet Ring",
         category="Trade Goods",
         stat_bonus={},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=0,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
     Item(
@@ -206,12 +206,12 @@ _ITEMS_LIST: list[Item] = [
         name="Purse",
         category="Trade Goods",
         stat_bonus={},
-        tier=1, #TODO adjust value
+        tier=1,  # TODO adjust value
         tags=[],
         armor_value=0,
-        uses_until_degradation=5, #TODO adjust value
+        uses_until_degradation=5,  # TODO adjust value
         is_provision=False,
     ),
 ]
 
-ITEMS = { item.id: item for item in _ITEMS_LIST }
+ITEMS = {item.id: item for item in _ITEMS_LIST}

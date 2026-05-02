@@ -1,14 +1,13 @@
-
-from partydirective.clock import (
+from tests.conftest import FakeRNG
+from wayfinders.clock import (
     create_mission_clock,
     create_threat_clock,
     parse_clock_tick,
     tick_clock,
 )
-from partydirective.conditions import apply_condition, resolve_recovery, tick_recovery_clocks
-from partydirective.models import ActionCard, Background, Character, GameState, Mission, Party, Stat
-from partydirective.resolution import compute_modifiers, resolve_action
-from tests.conftest import FakeRNG
+from wayfinders.conditions import apply_condition, resolve_recovery, tick_recovery_clocks
+from wayfinders.models import ActionCard, Background, Character, GameState, Mission, Party, Stat
+from wayfinders.resolution import compute_modifiers, resolve_action
 
 
 def create_kira_character():
@@ -32,6 +31,7 @@ def create_kira_character():
         recovery_clock_ids={},
         mission_history=[],
     )
+
 
 def create_games_state(character: Character):
 
@@ -60,8 +60,8 @@ def create_games_state(character: Character):
         effect="minor",
         max_characters=1,
         rewards_on_success={"gold": 10},
-        consequences_on_failure= {"threat_clock_tick": "ruins-collapse+2"},
-        consequences_on_partial = {"apply_condition": "sprained_ankle"},
+        consequences_on_failure={"threat_clock_tick": "ruins-collapse+2"},
+        consequences_on_partial={"apply_condition": "sprained_ankle"},
         default_priority=1,
     )
 
@@ -71,20 +71,32 @@ def create_games_state(character: Character):
         id="kira1",
         action_card=thornwood_ruin_ac,
         clock=clock,
-    assigned_characters=[character.name],
-    primary_actor_id=character.id,
-    hours_elapsed=0,
-    is_complete=False,
-    is_aborted=False,
-    support_bonuses={}
+        assigned_characters=[character.name],
+        primary_actor_id=character.id,
+        hours_elapsed=0,
+        is_complete=False,
+        is_aborted=False,
+        support_bonuses={},
     )
-    gs = GameState(party=party, map_nodes={}, factions=[], active_missions={ mission.id: mission}, active_threat_clocks={}, active_recovery_clocks={}, game_hour=0, action_templates={}, event_log=[])
+    gs = GameState(
+        party=party,
+        map_nodes={},
+        factions=[],
+        active_missions={mission.id: mission},
+        active_threat_clocks={},
+        active_recovery_clocks={},
+        game_hour=0,
+        action_templates={},
+        event_log=[],
+    )
     # Scenario bootstrap: entering the Thornwood Ruins registers its threat.
     # TODO: move into a scenario/location-enter handler later.
     ruins_collapse = create_threat_clock("Ruins Collapse", segments=4)
     gs.active_threat_clocks[ruins_collapse.id] = ruins_collapse
 
     return gs
+
+
 # "Explore the Thornwood Ruins" (Mission Clock, 8 segments)
 
 # Kira (DEX 14) assigned solo.
@@ -96,12 +108,21 @@ def create_games_state(character: Character):
 # Hour 6: Rolls 14 (partial, using reduced DEX 13). Clock: 7/8. More spider trouble. +1 stress.
 # Hour 7: Rolls 3 (full success). Clock: 8/8. Mission complete. Kira discovers the ruins' central chamber, finds a map fragment and an old sword. +2 stress total from the mission. -1 DEX until she rests (recovery clock starts).
 
+
 def test_thornwood_ruin_mission():
     kira = create_kira_character()
     gs = create_games_state(kira)
 
     rolls_per_hour = {1: 8, 2: 13, 3: 16, 4: 5, 5: 10, 6: 13, 7: 3}
-    expected_outcomes = {1: "full_success", 2: "partial_success", 3: "failure", 4: "full_success", 5: "partial_success", 6: "partial_success", 7: "full_success"}
+    expected_outcomes = {
+        1: "full_success",
+        2: "partial_success",
+        3: "failure",
+        4: "full_success",
+        5: "partial_success",
+        6: "partial_success",
+        7: "full_success",
+    }
 
     for hour in range(1, 9):
         print("hour", hour)
@@ -111,7 +132,11 @@ def test_thornwood_ruin_mission():
                 member = next(x for x in gs.party.members if x.id == mission.primary_actor_id)
                 mods = compute_modifiers(member, mission.action_card, "composed")
                 print("mods", mods)
-                result = resolve_action(base_stat=member.stats[mission.action_card.stat_tested], modifiers=mods, rng=FakeRNG(roll=rolls_per_hour[hour]))
+                result = resolve_action(
+                    base_stat=member.stats[mission.action_card.stat_tested],
+                    modifiers=mods,
+                    rng=FakeRNG(roll=rolls_per_hour[hour]),
+                )
                 print("outcome", result.outcome)
                 assert result.outcome == expected_outcomes[hour]
                 if hour == 6:
@@ -119,11 +144,21 @@ def test_thornwood_ruin_mission():
             else:
                 mission.is_complete = True
 
-            if result.outcome == "failure" and "threat_clock_tick" in mission.action_card.consequences_on_failure:
-                threat_clock_name, segment = parse_clock_tick(mission.action_card.consequences_on_failure["threat_clock_tick"])
+            if (
+                result.outcome == "failure"
+                and "threat_clock_tick" in mission.action_card.consequences_on_failure
+            ):
+                threat_clock_name, segment = parse_clock_tick(
+                    mission.action_card.consequences_on_failure["threat_clock_tick"]
+                )
                 tick_clock(gs.active_threat_clocks[threat_clock_name], segment)
-            elif result.outcome == "partial_success" and  "apply_condition" in mission.action_card.consequences_on_partial:
-                apply_condition(gs, member, mission.action_card.consequences_on_partial["apply_condition"])
+            elif (
+                result.outcome == "partial_success"
+                and "apply_condition" in mission.action_card.consequences_on_partial
+            ):
+                apply_condition(
+                    gs, member, mission.action_card.consequences_on_partial["apply_condition"]
+                )
 
     # ---- Post-mission recovery (Hours 8-11) ----
     # Mission complete; Kira still has sprained_ankle.
@@ -172,6 +207,7 @@ def create_alden_character():
         mission_history=[],
     )
 
+
 def create_games_state_two(character1: Character, character2: Character):
 
     party = Party(
@@ -199,8 +235,8 @@ def create_games_state_two(character1: Character, character2: Character):
         effect="minor",
         max_characters=1,
         rewards_on_success={"gold": 10},
-        consequences_on_failure= {"threat_clock_tick": "ruins-collapse+2"},
-        consequences_on_partial = {"apply_condition": "sprained_ankle"},
+        consequences_on_failure={"threat_clock_tick": "ruins-collapse+2"},
+        consequences_on_partial={"apply_condition": "sprained_ankle"},
         default_priority=1,
     )
 
@@ -210,14 +246,24 @@ def create_games_state_two(character1: Character, character2: Character):
         id="kira1",
         action_card=thornwood_ruin_ac,
         clock=clock,
-    assigned_characters=[character1.name, character2.name],
-    primary_actor_id=character1.id,
-    hours_elapsed=0,
-    is_complete=False,
-    is_aborted=False,
-    support_bonuses={}
+        assigned_characters=[character1.name, character2.name],
+        primary_actor_id=character1.id,
+        hours_elapsed=0,
+        is_complete=False,
+        is_aborted=False,
+        support_bonuses={},
     )
-    gs = GameState(party=party, map_nodes={}, factions=[], active_missions={ mission.id: mission}, active_threat_clocks={}, active_recovery_clocks={}, game_hour=0, action_templates={}, event_log=[])
+    gs = GameState(
+        party=party,
+        map_nodes={},
+        factions=[],
+        active_missions={mission.id: mission},
+        active_threat_clocks={},
+        active_recovery_clocks={},
+        game_hour=0,
+        action_templates={},
+        event_log=[],
+    )
     # Scenario bootstrap: entering the Thornwood Ruins registers its threat.
     # TODO: move into a scenario/location-enter handler later.
     ruins_collapse = create_threat_clock("Ruins Collapse", segments=4)
@@ -236,8 +282,9 @@ def test_tend_wounds_recovery():
     # Tend Wounds rolls WIS. Deterministic rolls: success, success, failure, success.
     rolls = [5, 7, 19, 6]  # vs effective_stat 14 → 3 successes, 1 failure
     for roll in rolls:
-        result = resolve_action(base_stat=alden.stats[Stat.WIS],
-                                modifiers=[0], rng=FakeRNG(roll=roll))
+        result = resolve_action(
+            base_stat=alden.stats[Stat.WIS], modifiers=[0], rng=FakeRNG(roll=roll)
+        )
         if result.outcome != "failure":
             tick_recovery_clocks(gs, kira, segments=1)
         resolve_recovery(gs, kira)
@@ -247,7 +294,3 @@ def test_tend_wounds_recovery():
     tick_recovery_clocks(gs, kira, 1)
     assert resolve_recovery(gs, kira) == ["sprained_ankle"]
     assert kira.conditions == []
-
-
-
-

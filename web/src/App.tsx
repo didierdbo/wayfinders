@@ -1,4 +1,4 @@
-// Party Directive — web companion app.
+// Wayfinders — web companion app.
 
 import { CharacterCard } from '@/components/CharacterCard'
 import { characters } from '@/fixtures/fixtureCharacters'
@@ -7,7 +7,7 @@ import { characters } from '@/fixtures/fixtureCharacters'
 export default function App() {
   return (
     <>
-      <h1>Party Directive</h1>
+      <h1>Wayfinders</h1>
       <p>Web companion — scaffold ready. First lesson: Character Card Viewer.</p>
 
       {characters.map((c) => (

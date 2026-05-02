@@ -43,7 +43,7 @@ Render a single party member as a `CharacterCard` component, fed from a typed
 ### Source of data
 
 A `character.json` exported by the Python simulator's **Step 5 generator**
-(coming from `partydirective/` at the repo root). Until that export lands, we
+(coming from `wayfinders/` at the repo root). Until that export lands, we
 work from a hand-written fixture that matches the expected schema.
 
 ### Exit criterion
