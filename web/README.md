@@ -1,7 +1,7 @@
-# `web/` — Party Directive companion app
+# `web/` — Wayfinders companion app
 
-React 19 + TypeScript + Vite front-end living inside the `party-directive` monorepo.
-The Python simulation engine is at the repo root (`partydirective/`); this subfolder is
+React 19 + TypeScript + Vite front-end living inside the `wayfinders` monorepo.
+The Python simulation engine is at the repo root (`wayfinders/`); this subfolder is
 its visual companion — and the user's training ground for modern React.
 
 ## What it is for

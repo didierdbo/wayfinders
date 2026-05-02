@@ -6,7 +6,7 @@ import App from './App'
 describe('App', () => {
   it('renders the app heading', () => {
     render(<App />)
-    expect(screen.getByRole('heading', { name: /party directive/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /wayfinders/i })).toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(4)
   })
 })

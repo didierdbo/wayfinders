@@ -1,4 +1,5 @@
 """Serialize a generated starting pool to JSON for the React fixtures."""
+
 from __future__ import annotations
 
 import json
@@ -8,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from partydirective.chargen import generate_starting_pool
+from wayfinders.chargen import generate_starting_pool
 
 
 def jsonify(obj):
@@ -18,10 +19,7 @@ def jsonify(obj):
     already dicts at this point because we call asdict() at the top level.
     """
     if isinstance(obj, dict):
-        return {
-            (k.name if isinstance(k, Enum) else k): jsonify(v)
-            for k, v in obj.items()
-        }
+        return {(k.name if isinstance(k, Enum) else k): jsonify(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple, set)):
         return [jsonify(v) for v in obj]
     if isinstance(obj, Enum):

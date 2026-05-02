@@ -1,4 +1,4 @@
-from partydirective.models import (
+from wayfinders.models import (
     ActionCard,
     Background,
     Character,

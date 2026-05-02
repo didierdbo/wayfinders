@@ -1,4 +1,4 @@
-from partydirective.models import Trait
+from wayfinders.models import Trait
 
 TRAITS_LIST: list[Trait] = [
     Trait(
@@ -19,7 +19,7 @@ TRAITS_LIST: list[Trait] = [
         vote_tendency="risk assessment",
         contradicts=["Bold"],
     ),
-     Trait(
+    Trait(
         name="Greedy",
         roll_modifier={"loot": 1},
         menu_tag_boosted=["loot", "trade"],
@@ -31,4 +31,4 @@ TRAITS_LIST: list[Trait] = [
 ]
 
 
-TRAITS = { trait.name: trait for trait in TRAITS_LIST }
+TRAITS = {trait.name: trait for trait in TRAITS_LIST}

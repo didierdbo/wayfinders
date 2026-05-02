@@ -1,12 +1,12 @@
 from typing import Literal, Protocol
 
-from partydirective.models import ActionCard, Character, Resolution, Stat
+from wayfinders.models import ActionCard, Character, Resolution, Stat
 
 STRESS_MODIFIERS = {"composed": 0, "strained": -1, "stressed": -2, "breaking": -3}
 CONDITION_MODIFIERS: dict[str, dict[Stat | None, int]] = {
-    "wounded":        {None: -2},              # None = applies to all stats
-    "exhausted":      {None: -1},
-    "sprained_ankle": {Stat.DEX: -1},          # stat-specific
+    "wounded": {None: -2},  # None = applies to all stats
+    "exhausted": {None: -1},
+    "sprained_ankle": {Stat.DEX: -1},  # stat-specific
 }
 
 
@@ -27,6 +27,7 @@ def resolve_action(
 ) -> Resolution:
     effective_stat = max(1, min(18, base_stat + sum(modifiers)))
     roll = int(rng.integers(1, 21))  # [1, 21) = d20
+    outcome: Literal["full_success", "partial_success", "failure"]
     if roll <= effective_stat - 5:
         outcome = "full_success"
     elif roll <= effective_stat:
