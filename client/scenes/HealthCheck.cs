@@ -1,11 +1,11 @@
-using System.Threading.Tasks;
 using Godot;
 using Wayfinders.Client.Services;
+using Wayfinders.Client.Services.Dtos;
 
 namespace Wayfinders.Client.Scenes;
 
 /// <summary>
-/// Phase 3 verification surface for L1 and L2. Two buttons:
+/// Phase 3 verification surface for L1, L2, and L3. Two buttons:
 /// <list type="bullet">
 ///   <item>Check API health — hits <c>/api/health</c>, flips a label.</item>
 ///   <item>Fetch units — hits <c>/api/units</c>, prints typed DTOs to the
@@ -17,6 +17,15 @@ namespace Wayfinders.Client.Scenes;
 /// not the real Main scene of Phase 3 — that ships in L5 and shows the unit
 /// roster from <c>GET /api/units</c>. Delete this scene, this script, and the
 /// <c>run/main_scene</c> entry in <c>project.godot</c> at end-of-Phase-3.
+/// </para>
+///
+/// <para>
+/// <b>L3 upgrade:</b> handlers now <c>switch</c> over the typed
+/// <see cref="Result{T, E}"/> returned by the autoload and surface each
+/// <see cref="ApiError"/> variant as a distinct label string. The point of
+/// the exercise is that "fetched zero units" and "could not reach the
+/// server" no longer collapse to the same UI message — the type system
+/// makes the distinction load-bearing.
 /// </para>
 ///
 /// <para>
@@ -63,32 +72,40 @@ public partial class HealthCheck : Control
         // under /root/ApiClient.
         var api = GetNode<ApiClient>("/root/ApiClient");
 
-        bool ok;
-        try
-        {
-            ok = await api.CheckHealthAsync();
-        }
-        catch (System.OperationCanceledException)
-        {
-            // Scene exited mid-flight. Don't touch the tree.
-            return;
-        }
+        var result = await api.CheckHealthAsync();
 
         // NOTE: After an await, the continuation may run off the main thread.
         // For a Label.Text assignment in this throwaway scene we get away with
         // direct assignment (Godot does not crash on it in practice for simple
         // property writes), but the real CallDeferred discipline lands in L4
         // when typed DTOs and node mutation start mixing.
-        _statusLabel.Text = ok
-            ? "Status: OK — API responded {\"status\":\"ok\"}."
-            : "Status: FAILED — see Output panel for details.";
+        //
+        // The switch expression below is exhaustive over the sealed Result
+        // hierarchy AND the sealed ApiError hierarchy — if a variant is
+        // added, the compiler raises a warning (and TreatWarningsAsErrors
+        // makes that a build break). The compiler is the test.
+        _statusLabel.Text = result switch
+        {
+            Result<bool, ApiError>.Success { Value: true } => "Status: OK — API responded {\"status\":\"ok\"}.",
+            Result<bool, ApiError>.Success => "Status: FAILED — unexpected health body.",
+            Result<bool, ApiError>.Failure { Error: ApiError.NotReachable na } =>
+                $"Status: server unreachable ({na.Reason}).",
+            Result<bool, ApiError>.Failure { Error: ApiError.ServerError se } =>
+                $"Status: server returned {se.StatusCode}.",
+            Result<bool, ApiError>.Failure { Error: ApiError.DeserializationError de } =>
+                $"Status: could not parse response ({de.Reason}).",
+            Result<bool, ApiError>.Failure { Error: ApiError.Cancelled } =>
+                "Status: cancelled.",
+            _ => "Status: unknown result shape.",
+        };
         _checkButton.Disabled = false;
     }
 
-    // TEMP-VERIFY: remove in Phase 3 close. L2 verification handler — proves
-    // /api/units deserializes into typed UnitDto records via the source-gen
-    // context. L5 replaces this with the real roster scene that spawns Unit
-    // nodes from server data.
+    // TEMP-VERIFY: remove in Phase 3 close. L2/L3 verification handler.
+    // L2 proved /api/units deserializes into typed UnitDto records via the
+    // source-gen context. L3 upgrades the call site to branch on the typed
+    // Result<T, ApiError> instead of conflating empty-success with failure.
+    // L5 replaces this with the real roster scene that spawns Unit nodes.
     private async void OnFetchUnitsPressed()
     {
         _fetchUnitsButton.Disabled = true;
@@ -96,28 +113,48 @@ public partial class HealthCheck : Control
 
         var api = GetNode<ApiClient>("/root/ApiClient");
 
-        System.Collections.Generic.IReadOnlyList<Services.Dtos.UnitDto> units;
-        try
-        {
-            units = await api.GetUnitsAsync();
-        }
-        catch (System.OperationCanceledException)
-        {
-            return;
-        }
+        var result = await api.GetUnitsAsync();
 
-        // TEMP-VERIFY: these prints are the L2 acceptance signal — they prove
-        // the snake_case wire fields landed correctly in the PascalCase
-        // record properties. L5 deletes them.
+        // The whole point of L3: this switch CANNOT collapse "empty list"
+        // and "fetch failed" into the same arm. The Success arm requires
+        // a list (which may be empty); each Failure arm carries its own
+        // ApiError variant and gets its own user-visible message.
+        _unitsLabel.Text = result switch
+        {
+            Result<System.Collections.Generic.IReadOnlyList<UnitDto>, ApiError>.Success s =>
+                HandleUnitsSuccess(s.Value),
+            Result<System.Collections.Generic.IReadOnlyList<UnitDto>, ApiError>.Failure { Error: ApiError.NotReachable na } =>
+                $"Units: server unreachable ({na.Reason}).",
+            Result<System.Collections.Generic.IReadOnlyList<UnitDto>, ApiError>.Failure { Error: ApiError.ServerError se } =>
+                $"Units: server returned {se.StatusCode}.",
+            Result<System.Collections.Generic.IReadOnlyList<UnitDto>, ApiError>.Failure { Error: ApiError.DeserializationError de } =>
+                $"Units: could not parse response ({de.Reason}).",
+            Result<System.Collections.Generic.IReadOnlyList<UnitDto>, ApiError>.Failure { Error: ApiError.Cancelled } =>
+                "Units: cancelled.",
+            _ => "Units: unknown result shape.",
+        };
+        _fetchUnitsButton.Disabled = false;
+    }
+
+    /// <summary>
+    /// Success-path handler for unit fetch. Note that "empty list" is now a
+    /// legitimate, distinct outcome from "fetch failed" — that distinction
+    /// is exactly what L3 made the type system carry.
+    /// </summary>
+    private static string HandleUnitsSuccess(System.Collections.Generic.IReadOnlyList<UnitDto> units)
+    {
+        // TEMP-VERIFY: these prints are the L2/L3 acceptance signal — they
+        // prove the snake_case wire fields landed correctly in the
+        // PascalCase record properties, AND that the success path actually
+        // returns the deserialized list. L5 deletes them.
         GD.Print($"[HealthCheck] /api/units returned {units.Count} unit(s):");
         foreach (var dto in units)
         {
             GD.Print($"[HealthCheck] Unit: {dto.DisplayName} HP={dto.MaxHp} Speed={dto.BaseSpeed} Portrait={dto.Portrait}");
         }
 
-        _unitsLabel.Text = units.Count > 0
-            ? $"Units: OK — fetched {units.Count} (see Output panel)."
-            : "Units: FAILED or empty — see Output panel.";
-        _fetchUnitsButton.Disabled = false;
+        return units.Count == 0
+            ? "Units: OK — server returned an empty roster."
+            : $"Units: OK — fetched {units.Count} (see Output panel).";
     }
 }
