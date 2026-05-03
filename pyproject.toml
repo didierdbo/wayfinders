@@ -45,7 +45,7 @@ xfail_strict = true
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = [".venv", "build", "dist", "web"]
+extend-exclude = [".venv", "build", "dist", "web", "client"]
 
 [tool.ruff.lint]
 select = [

@@ -73,3 +73,15 @@ web/npm-debug.log*
 web/yarn-debug.log*
 web/yarn-error.log*
 web/pnpm-debug.log*
+
+# --- Godot + C# (client/) ---
+client/.godot/
+client/.import/
+client/bin/
+client/obj/
+client/*.user
+client/*.suo
+client/exports/
+client/builds/
+client/*.pck
+client/*.translation

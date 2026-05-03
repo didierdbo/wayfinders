@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://capiclnt000l1"]
+
+[ext_resource type="Script" path="res://services/ApiClient.cs" id="1_apicl"]
+
+[node name="ApiClient" type="Node"]
+script = ExtResource("1_apicl")

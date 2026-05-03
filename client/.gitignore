@@ -1,0 +1,25 @@
+# Godot 4.x — generated, never committed
+.godot/
+.import/
+*.translation
+
+# C# build artifacts
+bin/
+obj/
+*.user
+*.suo
+
+# Godot export output (not committed; generated per-platform)
+exports/
+builds/
+*.pck
+*.exe
+*.app
+*.x86_64
+
+# IDE local state
+.idea/
+.vs/
+
+# Godot per-machine editor settings
+*.vscode-godot
