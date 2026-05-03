@@ -36,20 +36,39 @@ namespace Wayfinders.Client.Services;
 /// </para>
 ///
 /// <para>
-/// Thread note: this autoload is created on the main thread by the engine.
-/// HTTP <c>await</c> continuations may resume on a thread-pool thread.
-/// L1 only flips a UI label after the await, but **any future caller that
-/// touches the scene tree after an await must use <c>CallDeferred</c> or
-/// equivalent**. That discipline lands in L4.
+/// <b>Thread-safety contract.</b> This autoload deliberately does not touch
+/// the scene tree from any of its async methods. <c>ConfigureAwait(false)</c>
+/// is used on every <c>await</c> below to make that explicit: the autoload
+/// is happy to resume on a thread-pool thread because it never reads or
+/// writes <see cref="Node"/> state. Callers, on the other hand, almost
+/// always want to mutate scene state with the result — <b>they</b> are
+/// responsible for marshalling back to the main thread (see L4 lesson in
+/// <c>HealthCheck.cs</c>: <c>await ToSignal(GetTree(), ProcessFrame)</c>
+/// after the result lands). This separation keeps the boundary clean: the
+/// autoload is a pure async producer, the scene is the impure consumer.
 /// </para>
 ///
 /// <para>
-/// <b>L3 upgrade — typed results.</b> Public methods now return
-/// <see cref="Result{T, E}"/> with <see cref="ApiError"/> as the failure
-/// type. No exceptions cross the autoload boundary; every wire failure is
-/// caught here and mapped to a typed <see cref="Result{T, E}.Failure"/>.
-/// Callers pattern-match on the result and the compiler enforces that
-/// every variant is handled.
+/// <b>Cancellation lifecycle (L4).</b> The autoload owns a long-lived
+/// <see cref="CancellationTokenSource"/> tied to its own
+/// <see cref="Node._Ready"/>/<see cref="Node._ExitTree"/> lifetime. Every
+/// request links the caller's <see cref="CancellationToken"/> with that
+/// shutdown token via
+/// <see cref="CancellationTokenSource.CreateLinkedTokenSource(CancellationToken, CancellationToken)"/>,
+/// so cancellation from <i>either</i> side wins:
+/// <list type="bullet">
+///   <item>Caller cancels (e.g. user clicks "Cancel") — the per-request token fires.</item>
+///   <item>App is shutting down — <see cref="Node._ExitTree"/> fires the autoload token.</item>
+///   <item>Per-request HTTP timeout fires — surfaces as a different exception path.</item>
+/// </list>
+/// In every case the typed result is <see cref="ApiError.Cancelled"/> or
+/// <see cref="ApiError.NotReachable"/>; no exception bubbles out.
+/// </para>
+///
+/// <para>
+/// <b>Public results.</b> Methods return <see cref="Result{T, E}"/> with
+/// <see cref="ApiError"/> as the failure type — see <c>Result.cs</c> and
+/// <c>ApiError.cs</c> for the rationale (L3 lesson).
 /// </para>
 /// </summary>
 public partial class ApiClient : Node
@@ -85,8 +104,11 @@ public partial class ApiClient : Node
 
     public override void _ExitTree()
     {
-        // Cancel any in-flight requests. Callers awaiting the methods below
-        // will observe a Cancelled result rather than an exception.
+        // L4 cancellation lifecycle: cancel any in-flight requests before we
+        // dispose the HttpClient. Each linked token in CheckHealthAsync /
+        // GetUnitsAsync observes this and the catch arms map it to
+        // ApiError.Cancelled. Without this hop, an awaiting scene could try
+        // to touch a disposed HttpClient or a freed Node and crash on exit.
         _shutdownCts.Cancel();
         _shutdownCts.Dispose();
 
@@ -192,8 +214,12 @@ public partial class ApiClient : Node
     /// </para>
     ///
     /// <para>
-    /// Cancellation discipline beyond accepting the token is L4 territory.
-    /// L3 only proves the failure surface is type-distinct from success.
+    /// <b>L4 cancellation contract.</b> If the linked token fires (caller
+    /// cancel OR autoload shutdown) anywhere during the request — DNS,
+    /// connect, headers, body, JSON read, or the deliberate
+    /// <see cref="Task.Delay(int, CancellationToken)"/> below — the call
+    /// returns <see cref="ApiError.Cancelled"/>. The caller does not need
+    /// to catch anything.
     /// </para>
     /// </summary>
     /// <param name="ct">
@@ -205,6 +231,13 @@ public partial class ApiClient : Node
 
         try
         {
+            // TEMP-VERIFY (L4): artificial 2 s pause so the "Cancel pending"
+            // button has a real window to fire during. Without this, the
+            // local FastAPI responds in ~5 ms and cancellation is impossible
+            // to demonstrate by hand. Removed at Phase 3 close along with
+            // the verification scene.
+            await Task.Delay(TimeSpan.FromSeconds(2), linkedCts.Token).ConfigureAwait(false);
+
             // GetFromJsonAsync overload with a JsonTypeInfo<T> is the AOT-safe
             // path: it goes through source-gen rather than reflection. The
             // generated property name on the context follows the type's identifier,
