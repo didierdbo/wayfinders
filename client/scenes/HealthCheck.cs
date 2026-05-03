@@ -14,14 +14,27 @@ namespace Wayfinders.Client.Scenes;
 /// roster from <c>GET /api/units</c>. Delete this scene, this script, and the
 /// <c>run/main_scene</c> entry in <c>project.godot</c> at end-of-Phase-3.
 /// </para>
+///
+/// <para>
+/// Node lookup style: <see cref="GetNode{T}(NodePath)"/> with literal paths
+/// rather than <c>[Export]</c> field wiring. The earlier <c>[Export] Label</c>
+/// shape required the Godot Inspector to populate the field; a hand-edited
+/// <c>.tscn</c> assigning a <c>NodePath(...)</c> string to a <c>Label</c>-typed
+/// field does not resolve, leaving the field null and crashing
+/// <c>_Ready</c>. For a four-node throwaway scene, direct <c>GetNode</c> is
+/// the smaller, more robust shape.
+/// </para>
 /// </summary>
 public partial class HealthCheck : Control
 {
-    [Export] private Button _checkButton = null!;
-    [Export] private Label _statusLabel = null!;
+    private Button _checkButton = null!;
+    private Label _statusLabel = null!;
 
     public override void _Ready()
     {
+        _checkButton = GetNode<Button>("VBox/CheckButton");
+        _statusLabel = GetNode<Label>("VBox/StatusLabel");
+
         _statusLabel.Text = "Status: not checked yet.";
         _checkButton.Pressed += OnCheckPressed;
     }
