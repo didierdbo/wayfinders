@@ -42,10 +42,10 @@ namespace Wayfinders.Client.Services;
 /// is happy to resume on a thread-pool thread because it never reads or
 /// writes <see cref="Node"/> state. Callers, on the other hand, almost
 /// always want to mutate scene state with the result — <b>they</b> are
-/// responsible for marshalling back to the main thread (see L4 lesson in
-/// <c>HealthCheck.cs</c>: <c>await ToSignal(GetTree(), ProcessFrame)</c>
-/// after the result lands). This separation keeps the boundary clean: the
-/// autoload is a pure async producer, the scene is the impure consumer.
+/// responsible for marshalling back to the main thread (see L4 lesson:
+/// <c>await ToSignal(GetTree(), ProcessFrame)</c> after the result lands).
+/// This separation keeps the boundary clean: the autoload is a pure async
+/// producer, the scene is the impure consumer.
 /// </para>
 ///
 /// <para>
@@ -57,7 +57,7 @@ namespace Wayfinders.Client.Services;
 /// <see cref="CancellationTokenSource.CreateLinkedTokenSource(CancellationToken, CancellationToken)"/>,
 /// so cancellation from <i>either</i> side wins:
 /// <list type="bullet">
-///   <item>Caller cancels (e.g. user clicks "Cancel") — the per-request token fires.</item>
+///   <item>Caller cancels (e.g. scene unloads) — the per-request token fires.</item>
 ///   <item>App is shutting down — <see cref="Node._ExitTree"/> fires the autoload token.</item>
 ///   <item>Per-request HTTP timeout fires — surfaces as a different exception path.</item>
 /// </list>
@@ -76,7 +76,7 @@ public partial class ApiClient : Node
     /// <summary>
     /// Base URL for the FastAPI service. Hard-coded for L1 — the dev/hosted
     /// seam (config-driven base URL via a <c>Resource</c>) lands later in
-    /// Phase 3. Keeping this minimal until that work earns its place.
+    /// Phase 3+. Keeping this minimal until that work earns its place.
     /// </summary>
     private const string DefaultBaseUrl = "http://localhost:8000";
 
@@ -216,10 +216,9 @@ public partial class ApiClient : Node
     /// <para>
     /// <b>L4 cancellation contract.</b> If the linked token fires (caller
     /// cancel OR autoload shutdown) anywhere during the request — DNS,
-    /// connect, headers, body, JSON read, or the deliberate
-    /// <see cref="Task.Delay(int, CancellationToken)"/> below — the call
-    /// returns <see cref="ApiError.Cancelled"/>. The caller does not need
-    /// to catch anything.
+    /// connect, headers, body, JSON read — the call returns
+    /// <see cref="ApiError.Cancelled"/>. The caller does not need to catch
+    /// anything.
     /// </para>
     /// </summary>
     /// <param name="ct">
@@ -231,13 +230,6 @@ public partial class ApiClient : Node
 
         try
         {
-            // TEMP-VERIFY (L4): artificial 2 s pause so the "Cancel pending"
-            // button has a real window to fire during. Without this, the
-            // local FastAPI responds in ~5 ms and cancellation is impossible
-            // to demonstrate by hand. Removed at Phase 3 close along with
-            // the verification scene.
-            await Task.Delay(TimeSpan.FromSeconds(2), linkedCts.Token).ConfigureAwait(false);
-
             // GetFromJsonAsync overload with a JsonTypeInfo<T> is the AOT-safe
             // path: it goes through source-gen rather than reflection. The
             // generated property name on the context follows the type's identifier,
