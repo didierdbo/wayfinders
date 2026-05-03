@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
+using System.Net.Http.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Godot;
+using Wayfinders.Client.Services.Dtos;
 
 // Godot ships its own engine-side Godot.HttpClient (the GDScript-style
 // HTTPRequest binding). The Wayfinders verdict (Phase 3 brief, locked) is
@@ -146,6 +149,76 @@ public partial class ApiClient : Node
         {
             GD.PushWarning($"[ApiClient] /api/health network error: {ex.Message}");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Hits <c>GET /api/units</c> and deserializes the response into a typed
+    /// list of <see cref="UnitDto"/> via the source-generated
+    /// <see cref="ApiJsonContext"/>.
+    ///
+    /// <para>
+    /// Returns an empty list rather than <c>null</c> on any failure (non-2xx,
+    /// network error, deserialization fault). Caller iterates safely without
+    /// a null check; the warning is logged for diagnostics. L3 upgrades this
+    /// surface to a typed <c>Result&lt;T, ApiError&gt;</c> so callers can
+    /// distinguish "empty roster" from "fetch failed" — for L2 they collapse,
+    /// which is fine because there are no consumers yet.
+    /// </para>
+    ///
+    /// <para>
+    /// Cancellation discipline beyond accepting the token is L4 territory.
+    /// L2 only proves the wire deserializes correctly.
+    /// </para>
+    /// </summary>
+    /// <param name="ct">
+    /// Caller's cancellation token. Linked with the autoload's shutdown token.
+    /// </param>
+    public async Task<IReadOnlyList<UnitDto>> GetUnitsAsync(CancellationToken ct = default)
+    {
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdownCts.Token);
+
+        try
+        {
+            // GetFromJsonAsync overload with a JsonTypeInfo<T> is the AOT-safe
+            // path: it goes through source-gen rather than reflection. The
+            // generated property name on the context follows the type's identifier,
+            // so `IList<UnitDto>` becomes `IListUnitDto`.
+            var units = await _httpClient
+                .GetFromJsonAsync(
+                    "/api/units",
+                    ApiJsonContext.Default.IListUnitDto,
+                    linkedCts.Token)
+                .ConfigureAwait(false);
+
+            // GetFromJsonAsync returns null when the response body is the
+            // literal JSON `null` — should not happen for /api/units (FastAPI
+            // returns `[]` at worst), but defending against it costs nothing.
+            return units is null
+                ? Array.Empty<UnitDto>()
+                : (IReadOnlyList<UnitDto>)units;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested || _shutdownCts.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/units timeout: {ex.Message}");
+            return Array.Empty<UnitDto>();
+        }
+        catch (HttpRequestException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/units network error: {ex.Message}");
+            return Array.Empty<UnitDto>();
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            // Malformed JSON, missing required field, or wire/DTO drift.
+            // This is the integration-time signal that Coda's schema
+            // changed and our DTO needs an update.
+            GD.PushWarning($"[ApiClient] /api/units JSON parse error: {ex.Message}");
+            return Array.Empty<UnitDto>();
         }
     }
 }
