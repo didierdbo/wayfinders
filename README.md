@@ -16,6 +16,7 @@ For project context (stack, ML approach, review expectations), see
 
 ```
 wayfinders/        Python package — game logic, rules, models
+wayfinders/api/    FastAPI HTTP boundary (called by the Godot+C# client)
 tests/             pytest suite (unit + e2e)
 scripts/           Operator scripts (e.g. dump_character.py)
 web/               React 19 + TypeScript companion app (lessons + dev viewers)
@@ -44,6 +45,21 @@ uv run pytest -ra                # tests
 uv run python scripts/dump_character.py   # regenerate web/ fixtures
 ```
 
+## HTTP API
+
+The game-logic layer exposes a FastAPI HTTP boundary in
+[`wayfinders/api/`](wayfinders/api/). The Godot+C# client calls in over HTTP;
+the layer stays stateless and language-agnostic.
+
+```bash
+uv run uvicorn wayfinders.api.app:app --reload    # dev server, http://127.0.0.1:8000
+```
+
+Current endpoints:
+
+- `GET /api/health` — liveness/readiness probe.
+- `GET /api/units` — roster of unit types (matches the C# `UnitData` record).
+
 ## Web companion (`web/`)
 
 A Vite + React + TypeScript app for inspecting Python-generated game state and
@@ -55,7 +71,7 @@ for working through React lessons. See [`web/README.md`](web/README.md) and
 - Rule engine (resolution + clocks + conditions + chargen) — stable
 - Prose renderers (character/action/context) — design locked, code pending
 - ML classifier (sentence-transformer + concat-MLP head) — design locked, training pipeline pending
-- FastAPI HTTP boundary — design locked, scaffold pending
+- FastAPI HTTP boundary — initial scaffold (`/api/health`, `/api/units`); endpoints expanding
 - Godot+C# client, Java multiplayer service — separate repos, future
 
 ## License
