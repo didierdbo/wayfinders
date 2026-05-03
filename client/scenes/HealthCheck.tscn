@@ -14,10 +14,10 @@ script = ExtResource("1_hcheck")
 offset_left = 24.0
 offset_top = 24.0
 offset_right = 600.0
-offset_bottom = 320.0
+offset_bottom = 360.0
 
 [node name="Title" type="Label" parent="VBox"]
-text = "Wayfinders — Phase 3 L1+L2 verification (TEMP-VERIFY)"
+text = "Wayfinders — Phase 3 L1+L2+L3+L4 verification (TEMP-VERIFY)"
 
 [node name="CheckButton" type="Button" parent="VBox"]
 text = "Check API health"
@@ -30,3 +30,6 @@ text = "Fetch units"
 
 [node name="UnitsLabel" type="Label" parent="VBox"]
 text = "Units: not fetched yet."
+
+[node name="CancelButton" type="Button" parent="VBox"]
+text = "Cancel pending"

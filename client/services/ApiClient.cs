@@ -36,11 +36,39 @@ namespace Wayfinders.Client.Services;
 /// </para>
 ///
 /// <para>
-/// Thread note: this autoload is created on the main thread by the engine.
-/// HTTP <c>await</c> continuations may resume on a thread-pool thread.
-/// L1 only flips a UI label after the await, but **any future caller that
-/// touches the scene tree after an await must use <c>CallDeferred</c> or
-/// equivalent**. That discipline lands in L4.
+/// <b>Thread-safety contract.</b> This autoload deliberately does not touch
+/// the scene tree from any of its async methods. <c>ConfigureAwait(false)</c>
+/// is used on every <c>await</c> below to make that explicit: the autoload
+/// is happy to resume on a thread-pool thread because it never reads or
+/// writes <see cref="Node"/> state. Callers, on the other hand, almost
+/// always want to mutate scene state with the result — <b>they</b> are
+/// responsible for marshalling back to the main thread (see L4 lesson in
+/// <c>HealthCheck.cs</c>: <c>await ToSignal(GetTree(), ProcessFrame)</c>
+/// after the result lands). This separation keeps the boundary clean: the
+/// autoload is a pure async producer, the scene is the impure consumer.
+/// </para>
+///
+/// <para>
+/// <b>Cancellation lifecycle (L4).</b> The autoload owns a long-lived
+/// <see cref="CancellationTokenSource"/> tied to its own
+/// <see cref="Node._Ready"/>/<see cref="Node._ExitTree"/> lifetime. Every
+/// request links the caller's <see cref="CancellationToken"/> with that
+/// shutdown token via
+/// <see cref="CancellationTokenSource.CreateLinkedTokenSource(CancellationToken, CancellationToken)"/>,
+/// so cancellation from <i>either</i> side wins:
+/// <list type="bullet">
+///   <item>Caller cancels (e.g. user clicks "Cancel") — the per-request token fires.</item>
+///   <item>App is shutting down — <see cref="Node._ExitTree"/> fires the autoload token.</item>
+///   <item>Per-request HTTP timeout fires — surfaces as a different exception path.</item>
+/// </list>
+/// In every case the typed result is <see cref="ApiError.Cancelled"/> or
+/// <see cref="ApiError.NotReachable"/>; no exception bubbles out.
+/// </para>
+///
+/// <para>
+/// <b>Public results.</b> Methods return <see cref="Result{T, E}"/> with
+/// <see cref="ApiError"/> as the failure type — see <c>Result.cs</c> and
+/// <c>ApiError.cs</c> for the rationale (L3 lesson).
 /// </para>
 /// </summary>
 public partial class ApiClient : Node
@@ -76,9 +104,11 @@ public partial class ApiClient : Node
 
     public override void _ExitTree()
     {
-        // Cancel any in-flight requests. Callers awaiting GetFromJsonAsync etc.
-        // will observe an OperationCanceledException — they should treat that
-        // as "we're shutting down, do nothing."
+        // L4 cancellation lifecycle: cancel any in-flight requests before we
+        // dispose the HttpClient. Each linked token in CheckHealthAsync /
+        // GetUnitsAsync observes this and the catch arms map it to
+        // ApiError.Cancelled. Without this hop, an awaiting scene could try
+        // to touch a disposed HttpClient or a freed Node and crash on exit.
         _shutdownCts.Cancel();
         _shutdownCts.Dispose();
 
@@ -92,22 +122,24 @@ public partial class ApiClient : Node
     }
 
     /// <summary>
-    /// Hits <c>GET /api/health</c>. Returns <c>true</c> if the service responded
-    /// 2xx with body <c>{"status":"ok"}</c>, <c>false</c> on any other outcome
-    /// (non-success status, malformed body, network error).
+    /// Hits <c>GET /api/health</c>. Returns a typed result:
+    /// <see cref="Result{T, E}.Success"/> with <c>true</c> when the service
+    /// responded 2xx with body <c>{"status":"ok"}</c>, otherwise
+    /// <see cref="Result{T, E}.Failure"/> with the matching
+    /// <see cref="ApiError"/> variant.
     ///
     /// <para>
-    /// Bool return is deliberate L1 scope. L3 introduces a typed
-    /// <c>Result&lt;T, ApiError&gt;</c> wrapper when richer error semantics
-    /// (retry vs surface vs ignore) start to matter for the units endpoint.
-    /// Keeping L1 cheap to read and cheap to throw away.
+    /// The success payload is <c>bool</c> rather than a typed
+    /// <c>HealthStatus</c> DTO — the endpoint carries one bit of meaning
+    /// today. If the contract grows (version, build hash, dependency
+    /// statuses) we promote to a record at that point.
     /// </para>
     /// </summary>
     /// <param name="ct">
     /// Caller's cancellation token. Linked with the autoload's shutdown token
     /// so app-exit cancels in-flight requests even if the caller forgot to.
     /// </param>
-    public async Task<bool> CheckHealthAsync(CancellationToken ct = default)
+    public async Task<Result<bool, ApiError>> CheckHealthAsync(CancellationToken ct = default)
     {
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdownCts.Token);
 
@@ -116,39 +148,56 @@ public partial class ApiClient : Node
             var response = await _httpClient.GetAsync("/api/health", linkedCts.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
+                string? body = null;
+                try
+                {
+                    body = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Best-effort body capture for diagnostics. If reading
+                    // the error body itself fails, surface the status code
+                    // alone — that is still actionable.
+                }
                 GD.PushWarning($"[ApiClient] /api/health returned {(int)response.StatusCode}");
-                return false;
+                return Result.Fail<bool, ApiError>(new ApiError.ServerError((int)response.StatusCode, body));
             }
 
-            var body = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false);
+            var okBody = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false);
 
-            // Tolerant string match for L1: avoids dragging in System.Text.Json
-            // before the source-gen context lands in L2. The contract is small
-            // enough (one field, one value) that string contains is fine until
-            // the typed-DTO pipeline exists.
-            return body.Contains("\"status\"", StringComparison.Ordinal)
-                && body.Contains("\"ok\"", StringComparison.Ordinal);
+            // Tolerant string match: avoids dragging /api/health into the
+            // source-gen JSON context for one boolean. The contract is small
+            // enough (one field, one value) that string contains is fine.
+            var ok = okBody.Contains("\"status\"", StringComparison.Ordinal)
+                  && okBody.Contains("\"ok\"", StringComparison.Ordinal);
+
+            if (!ok)
+            {
+                // Got 2xx but the body shape is wrong — that's a deserialization
+                // failure in spirit even though we did not call a parser.
+                return Result.Fail<bool, ApiError>(
+                    new ApiError.DeserializationError("health body did not contain {\"status\":\"ok\"}"));
+            }
+
+            return Result.Ok<bool, ApiError>(true);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested || _shutdownCts.IsCancellationRequested)
         {
-            // Caller cancelled, or we're shutting down. Propagate so the
-            // caller can decide not to touch the scene tree.
-            throw;
+            // Caller cancelled, or we're shutting down. Typed result, no throw.
+            return Result.Fail<bool, ApiError>(new ApiError.Cancelled());
         }
         catch (OperationCanceledException ex)
         {
             // Token was not fired by the caller or by shutdown — must be the
-            // HttpClient.Timeout firing. Surface as a non-fatal failure.
-            // (TaskCanceledException derives from OperationCanceledException;
-            // .NET 8 raises a TimeoutException inner for this case but the
-            // outer type is the same.)
+            // HttpClient.Timeout firing. Maps to NotReachable: from the
+            // caller's perspective the server effectively was not there.
             GD.PushWarning($"[ApiClient] /api/health timeout: {ex.Message}");
-            return false;
+            return Result.Fail<bool, ApiError>(new ApiError.NotReachable($"timeout: {ex.Message}"));
         }
         catch (HttpRequestException ex)
         {
             GD.PushWarning($"[ApiClient] /api/health network error: {ex.Message}");
-            return false;
+            return Result.Fail<bool, ApiError>(new ApiError.NotReachable(ex.Message));
         }
     }
 
@@ -158,28 +207,37 @@ public partial class ApiClient : Node
     /// <see cref="ApiJsonContext"/>.
     ///
     /// <para>
-    /// Returns an empty list rather than <c>null</c> on any failure (non-2xx,
-    /// network error, deserialization fault). Caller iterates safely without
-    /// a null check; the warning is logged for diagnostics. L3 upgrades this
-    /// surface to a typed <c>Result&lt;T, ApiError&gt;</c> so callers can
-    /// distinguish "empty roster" from "fetch failed" — for L2 they collapse,
-    /// which is fine because there are no consumers yet.
+    /// Returns <see cref="Result{T, E}.Success"/> with the deserialized list
+    /// (which may legitimately be empty — that is no longer conflated with
+    /// failure!) or <see cref="Result{T, E}.Failure"/> with the matching
+    /// <see cref="ApiError"/> variant.
     /// </para>
     ///
     /// <para>
-    /// Cancellation discipline beyond accepting the token is L4 territory.
-    /// L2 only proves the wire deserializes correctly.
+    /// <b>L4 cancellation contract.</b> If the linked token fires (caller
+    /// cancel OR autoload shutdown) anywhere during the request — DNS,
+    /// connect, headers, body, JSON read, or the deliberate
+    /// <see cref="Task.Delay(int, CancellationToken)"/> below — the call
+    /// returns <see cref="ApiError.Cancelled"/>. The caller does not need
+    /// to catch anything.
     /// </para>
     /// </summary>
     /// <param name="ct">
     /// Caller's cancellation token. Linked with the autoload's shutdown token.
     /// </param>
-    public async Task<IReadOnlyList<UnitDto>> GetUnitsAsync(CancellationToken ct = default)
+    public async Task<Result<IReadOnlyList<UnitDto>, ApiError>> GetUnitsAsync(CancellationToken ct = default)
     {
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdownCts.Token);
 
         try
         {
+            // TEMP-VERIFY (L4): artificial 2 s pause so the "Cancel pending"
+            // button has a real window to fire during. Without this, the
+            // local FastAPI responds in ~5 ms and cancellation is impossible
+            // to demonstrate by hand. Removed at Phase 3 close along with
+            // the verification scene.
+            await Task.Delay(TimeSpan.FromSeconds(2), linkedCts.Token).ConfigureAwait(false);
+
             // GetFromJsonAsync overload with a JsonTypeInfo<T> is the AOT-safe
             // path: it goes through source-gen rather than reflection. The
             // generated property name on the context follows the type's identifier,
@@ -194,23 +252,37 @@ public partial class ApiClient : Node
             // GetFromJsonAsync returns null when the response body is the
             // literal JSON `null` — should not happen for /api/units (FastAPI
             // returns `[]` at worst), but defending against it costs nothing.
-            return units is null
-                ? Array.Empty<UnitDto>()
-                : (IReadOnlyList<UnitDto>)units;
+            // Treat null as a deserialization failure rather than an empty
+            // list: the contract is "list of units," null is off-contract.
+            if (units is null)
+            {
+                return Result.Fail<IReadOnlyList<UnitDto>, ApiError>(
+                    new ApiError.DeserializationError("/api/units returned JSON null instead of an array"));
+            }
+
+            return Result.Ok<IReadOnlyList<UnitDto>, ApiError>((IReadOnlyList<UnitDto>)units);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested || _shutdownCts.IsCancellationRequested)
         {
-            throw;
+            return Result.Fail<IReadOnlyList<UnitDto>, ApiError>(new ApiError.Cancelled());
         }
         catch (OperationCanceledException ex)
         {
             GD.PushWarning($"[ApiClient] /api/units timeout: {ex.Message}");
-            return Array.Empty<UnitDto>();
+            return Result.Fail<IReadOnlyList<UnitDto>, ApiError>(
+                new ApiError.NotReachable($"timeout: {ex.Message}"));
         }
         catch (HttpRequestException ex)
         {
             GD.PushWarning($"[ApiClient] /api/units network error: {ex.Message}");
-            return Array.Empty<UnitDto>();
+            return Result.Fail<IReadOnlyList<UnitDto>, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Net.Http.HttpIOException ex)
+        {
+            // GetFromJsonAsync surfaces some transport faults via HttpIOException
+            // (subclass of IOException, .NET 8). Treat as NotReachable.
+            GD.PushWarning($"[ApiClient] /api/units transport error: {ex.Message}");
+            return Result.Fail<IReadOnlyList<UnitDto>, ApiError>(new ApiError.NotReachable(ex.Message));
         }
         catch (System.Text.Json.JsonException ex)
         {
@@ -218,7 +290,8 @@ public partial class ApiClient : Node
             // This is the integration-time signal that Coda's schema
             // changed and our DTO needs an update.
             GD.PushWarning($"[ApiClient] /api/units JSON parse error: {ex.Message}");
-            return Array.Empty<UnitDto>();
+            return Result.Fail<IReadOnlyList<UnitDto>, ApiError>(
+                new ApiError.DeserializationError(ex.Message));
         }
     }
 }
