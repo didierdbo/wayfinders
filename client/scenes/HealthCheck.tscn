@@ -1,0 +1,28 @@
+[gd_scene load_steps=2 format=3 uid="uid://chealthchk001"]
+
+[ext_resource type="Script" path="res://scenes/HealthCheck.cs" id="1_hcheck"]
+
+[node name="HealthCheck" type="Control"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_hcheck")
+_checkButton = NodePath("VBox/CheckButton")
+_statusLabel = NodePath("VBox/StatusLabel")
+
+[node name="VBox" type="VBoxContainer" parent="."]
+offset_left = 24.0
+offset_top = 24.0
+offset_right = 600.0
+offset_bottom = 200.0
+
+[node name="Title" type="Label" parent="VBox"]
+text = "Wayfinders — Phase 3 L1 health check (TEMP-VERIFY)"
+
+[node name="CheckButton" type="Button" parent="VBox"]
+text = "Check API health"
+
+[node name="StatusLabel" type="Label" parent="VBox"]
+text = "Status: not checked yet."

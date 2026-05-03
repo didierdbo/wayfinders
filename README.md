@@ -3,11 +3,14 @@
 Indirect-command party-management RPG. Long-term target: 2D tactical (Battle
 Brothers / XCOM-shaped) on Steam.
 
-This repo holds the **game-logic layer** in Python: rule engine, character
-generation, mission resolution, prose renderers (forthcoming), and the ML
-classifier (forthcoming). The layer is designed stateless and HTTP-API-driven
-(FastAPI) so the future Godot+C# client and Java multiplayer service can call
-in without language coupling.
+This repo is a polyglot monorepo:
+
+- **Python game-logic layer** (`wayfinders/`) — rule engine, character
+  generation, mission resolution, prose renderers (forthcoming), ML
+  classifier (forthcoming). Stateless and HTTP-API-driven (FastAPI).
+- **Godot + C# client** (`client/`) — the game itself. Calls the FastAPI
+  service over HTTP. Steam is the long-term build target.
+- **React companion app** (`web/`) — dev viewers, lesson scaffolding.
 
 For project context (stack, ML approach, review expectations), see
 [`CLAUDE.md`](CLAUDE.md).
@@ -19,11 +22,12 @@ wayfinders/        Python package — game logic, rules, models
 wayfinders/api/    FastAPI HTTP boundary (called by the Godot+C# client)
 tests/             pytest suite (unit + e2e)
 scripts/           Operator scripts (e.g. dump_character.py)
-web/               React 19 + TypeScript companion app (lessons + dev viewers)
+client/            Godot 4.6 .NET client (C#) — see client/README.md
+web/               React 19 + TypeScript companion app — see web/README.md
 .github/           CI workflows, PR template, CODEOWNERS
 ```
 
-## Dev setup
+## Dev setup — Python
 
 Requires Python 3.12 and [uv](https://docs.astral.sh/uv/).
 
@@ -60,6 +64,12 @@ Current endpoints:
 - `GET /api/health` — liveness/readiness probe.
 - `GET /api/units` — roster of unit types (matches the C# `UnitData` record).
 
+## Godot + C# client (`client/`)
+
+The Godot 4.6 .NET client lives in [`client/`](client/). Open
+`client/project.godot` in Godot to edit; `dotnet build` from `client/` to
+compile from terminal. See [`client/README.md`](client/README.md) for setup.
+
 ## Web companion (`web/`)
 
 A Vite + React + TypeScript app for inspecting Python-generated game state and
@@ -72,7 +82,8 @@ for working through React lessons. See [`web/README.md`](web/README.md) and
 - Prose renderers (character/action/context) — design locked, code pending
 - ML classifier (sentence-transformer + concat-MLP head) — design locked, training pipeline pending
 - FastAPI HTTP boundary — initial scaffold (`/api/health`, `/api/units`); endpoints expanding
-- Godot+C# client, Java multiplayer service — separate repos, future
+- Godot + C# client — Phase 3 L1 (ApiClient autoload + health-check); roster wiring lands at Phase 3 L5
+- Java multiplayer service — far future, separate repo
 
 ## License
 
