@@ -75,6 +75,19 @@ web/yarn-error.log*
 web/pnpm-debug.log*
 
 # --- Godot + C# (client/) ---
+#
+# Godot editor metadata policy (Godot 4.4+ best practice):
+#   - TRACK *.uid files: stable resource identifiers for scripts and scenes.
+#     Godot 4.4+ relies on these for cross-resource references; without them,
+#     scenes break when files are moved or renamed across machines.
+#   - TRACK individual *.import files: per-asset import metadata (one sibling
+#     file per source asset, e.g. icon.svg.import). Required so every clone
+#     imports assets the same way.
+#   - IGNORE the .godot/ and .import/ directories: these are local editor
+#     caches (rebuildable on first editor open) and contain machine-specific
+#     paths plus the imported binary blobs. They must never be committed.
+#   - IGNORE bin/, obj/, *.user, *.suo: standard .NET / IDE local state.
+#   - IGNORE exports/, builds/, *.pck, *.translation: build outputs.
 client/.godot/
 client/.import/
 client/bin/
