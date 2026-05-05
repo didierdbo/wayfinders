@@ -105,9 +105,9 @@ class TestLabelDistribution:
         in_central_band = sum(1 for label in labels if abs(label) < 1.5)
         # Loose tolerance: distribution sanity, not an exact match. Tightened
         # in M1 substep 9 once 50k rollouts give a real histogram.
-        assert (
-            in_central_band / 200 > 0.30
-        ), f"expected at least 30% of labels in [-1.5, +1.5] ; got {in_central_band / 200:.2%}"
+        assert in_central_band / 200 > 0.30, (
+            f"expected at least 30% of labels in [-1.5, +1.5] ; got {in_central_band / 200:.2%}"
+        )
 
     @pytest.mark.xfail(
         reason="v0.5 sampler/table calibration produces ~20% saturation vs <5% target ; see issue #13",
@@ -119,9 +119,9 @@ class TestLabelDistribution:
         labels = [r.label_delta for r in rollouts if r.label_delta is not None]
         saturated = sum(1 for label in labels if abs(label) >= 4.5)
         # 500 samples is small ; allow up to 5% before flagging.
-        assert (
-            saturated / 500 < 0.05
-        ), f"saturation ratio {saturated / 500:.2%} ; check table calibration"
+        assert saturated / 500 < 0.05, (
+            f"saturation ratio {saturated / 500:.2%} ; check table calibration"
+        )
 
 
 class TestSerialization:
