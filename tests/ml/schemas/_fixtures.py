@@ -95,8 +95,7 @@ def stealth_approach_card() -> ActionCard:
         stat_tested="dexterity",
         opposed_stat="perception",
         failure_template=(
-            "an alarm raised, a fight on disadvantageous ground, "
-            "or a forced retreat"
+            "an alarm raised, a fight on disadvantageous ground, or a forced retreat"
         ),
     )
 

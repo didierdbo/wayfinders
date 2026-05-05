@@ -42,11 +42,7 @@ class HuberWithMonotonicity(nn.Module):
                 increase as positive legacy grows.
         """
         loss = self.huber(pred, target)
-        if (
-            mono_pred_lo is not None
-            and mono_pred_hi is not None
-            and self.monotonicity_weight > 0
-        ):
+        if mono_pred_lo is not None and mono_pred_hi is not None and self.monotonicity_weight > 0:
             violation = torch.relu(mono_pred_lo - mono_pred_hi).mean()
             loss = loss + self.monotonicity_weight * violation
         return loss

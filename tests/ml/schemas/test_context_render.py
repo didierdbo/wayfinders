@@ -29,83 +29,53 @@ class TestDeterminism:
 
 class TestStructure:
     def test_eleven_sentences(self) -> None:
-        out = render_context(
-            ridge_scene(), ridge_party(), ridge_world(), ridge_campaign()
-        )
+        out = render_context(ridge_scene(), ridge_party(), ridge_world(), ridge_campaign())
         assert len(out.split("\n")) == 11
 
     def test_mission_identity(self) -> None:
-        out = render_context(
-            ridge_scene(), ridge_party(), ridge_world(), ridge_campaign()
-        )
-        assert out.startswith(
-            "The mission is a ridge reconnaissance for the Ridgewatch company."
-        )
+        out = render_context(ridge_scene(), ridge_party(), ridge_world(), ridge_campaign())
+        assert out.startswith("The mission is a ridge reconnaissance for the Ridgewatch company.")
 
     def test_mission_objective(self) -> None:
-        out = render_context(
-            ridge_scene(), ridge_party(), ridge_world(), ridge_campaign()
-        )
+        out = render_context(ridge_scene(), ridge_party(), ridge_world(), ridge_campaign())
         assert (
             "The mission objective is to map the enemy camp beyond the ridge before dawn."
         ) in out
 
     def test_stakes(self) -> None:
-        out = render_context(
-            ridge_scene(), ridge_party(), ridge_world(), ridge_campaign()
-        )
+        out = render_context(ridge_scene(), ridge_party(), ridge_world(), ridge_campaign())
         assert (
             "The stakes are high: failure means the company moves blind "
             "into the valley at first light."
         ) in out
 
     def test_party_roster_initiative_order(self) -> None:
-        out = render_context(
-            ridge_scene(), ridge_party(), ridge_world(), ridge_campaign()
-        )
+        out = render_context(ridge_scene(), ridge_party(), ridge_world(), ridge_campaign())
         assert (
-            "The party is three: Kira the scout, Halden the quartermaster, "
-            "and Mira the cleric."
+            "The party is three: Kira the scout, Halden the quartermaster, and Mira the cleric."
         ) in out
 
     def test_party_condition(self) -> None:
-        out = render_context(
-            ridge_scene(), ridge_party(), ridge_world(), ridge_campaign()
-        )
-        assert (
-            "The party is lightly wounded, low on rations, and short on sleep."
-        ) in out
+        out = render_context(ridge_scene(), ridge_party(), ridge_world(), ridge_campaign())
+        assert ("The party is lightly wounded, low on rations, and short on sleep.") in out
 
     def test_region_season_sky(self) -> None:
-        out = render_context(
-            ridge_scene(), ridge_party(), ridge_world(), ridge_campaign()
-        )
+        out = render_context(ridge_scene(), ridge_party(), ridge_world(), ridge_campaign())
         assert (
-            "The region is the Ridgewatch frontier, in late autumn, "
-            "under a thin crescent moon."
+            "The region is the Ridgewatch frontier, in late autumn, under a thin crescent moon."
         ) in out
 
     def test_weather_with_wind(self) -> None:
-        out = render_context(
-            ridge_scene(), ridge_party(), ridge_world(), ridge_campaign()
-        )
-        assert (
-            "The weather is cold and dry, with a steady wind from the north."
-        ) in out
+        out = render_context(ridge_scene(), ridge_party(), ridge_world(), ridge_campaign())
+        assert ("The weather is cold and dry, with a steady wind from the north.") in out
 
     def test_terrain_with_modifier(self) -> None:
-        out = render_context(
-            ridge_scene(), ridge_party(), ridge_world(), ridge_campaign()
-        )
-        assert (
-            "The local terrain is broken stone and scree, with sparse pine cover."
-        ) in out
+        out = render_context(ridge_scene(), ridge_party(), ridge_world(), ridge_campaign())
+        assert ("The local terrain is broken stone and scree, with sparse pine cover.") in out
 
     def test_factions_capped_at_two(self) -> None:
         """Lock Varn sec. 7 option (a) -- cap at 2 most-relevant other factions."""
-        out = render_context(
-            ridge_scene(), ridge_party(), ridge_world(), ridge_campaign()
-        )
+        out = render_context(ridge_scene(), ridge_party(), ridge_world(), ridge_campaign())
         # Sorted alphabetically by partner-faction name: Ashen Hand, river clans
         assert (
             "The Ridgewatch company is at war with the Ashen Hand, "
@@ -113,21 +83,15 @@ class TestStructure:
         ) in out
 
     def test_campaign_turn(self) -> None:
-        out = render_context(
-            ridge_scene(), ridge_party(), ridge_world(), ridge_campaign()
-        )
+        out = render_context(ridge_scene(), ridge_party(), ridge_world(), ridge_campaign())
         assert (
             "The wider campaign is in its third season, "
             "with the company holding two ridges and having lost one."
         ) in out
 
     def test_time_with_countdown(self) -> None:
-        out = render_context(
-            ridge_scene(), ridge_party(), ridge_world(), ridge_campaign()
-        )
-        assert (
-            "The hour is the third watch of the night, with five hours until dawn."
-        ) in out
+        out = render_context(ridge_scene(), ridge_party(), ridge_world(), ridge_campaign())
+        assert ("The hour is the third watch of the night, with five hours until dawn.") in out
 
 
 class TestEdgeCases:
@@ -148,15 +112,11 @@ class TestEdgeCases:
         scene_no_countdown = ridge_scene().model_copy(
             update={"countdown_hours": None, "deadline_label": None}
         )
-        out = render_context(
-            scene_no_countdown, ridge_party(), ridge_world(), ridge_campaign()
-        )
+        out = render_context(scene_no_countdown, ridge_party(), ridge_world(), ridge_campaign())
         assert "until" not in out
         assert "The hour is the third watch of the night." in out
 
     def test_no_wind_omits_direction(self) -> None:
-        windless = ridge_world().model_copy(
-            update={"wind": "no wind", "wind_direction": None}
-        )
+        windless = ridge_world().model_copy(update={"wind": "no wind", "wind_direction": None})
         out = render_context(ridge_scene(), ridge_party(), windless, ridge_campaign())
         assert "The weather is cold and dry, with no wind." in out

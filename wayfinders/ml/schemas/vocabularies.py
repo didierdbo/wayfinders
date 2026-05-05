@@ -80,27 +80,50 @@ BOND_VERBS: Final[Mapping[BondSign, str]] = {
 
 # Manner: time-of-day lane. ~8 entries (closed).
 type TimeOfDay = Literal[
-    "under starlight", "at dawn", "at noon", "in the late afternoon",
-    "at dusk", "under heavy rain", "in the deep of night", "at first light",
+    "under starlight",
+    "at dawn",
+    "at noon",
+    "in the late afternoon",
+    "at dusk",
+    "under heavy rain",
+    "in the deep of night",
+    "at first light",
 ]
 
 # Manner: footing lane. ~10 entries (closed).
 type Footing = Literal[
-    "loose scree", "firm stone", "wet leaves", "dry sand", "marsh grass",
-    "snow-pack", "polished tile", "rotten wood", "hot ash", "dewed grass",
+    "loose scree",
+    "firm stone",
+    "wet leaves",
+    "dry sand",
+    "marsh grass",
+    "snow-pack",
+    "polished tile",
+    "rotten wood",
+    "hot ash",
+    "dewed grass",
 ]
 
 # Manner: noise lane. ~8 entries (closed).
 type Noise = Literal[
-    "near silence", "muffled steps", "open clatter", "the cover of wind",
-    "the crash of rain", "muted breathing", "the creak of leather",
+    "near silence",
+    "muffled steps",
+    "open clatter",
+    "the cover of wind",
+    "the crash of rain",
+    "muted breathing",
+    "the creak of leather",
     "the rasp of armor",
 ]
 
 # Opposition alertness lane.
 type Alertness = Literal[
-    "alert and rested", "drowsy", "alarmed and searching", "distracted",
-    "exhausted", "wary",
+    "alert and rested",
+    "drowsy",
+    "alarmed and searching",
+    "distracted",
+    "exhausted",
+    "wary",
 ]
 
 # Opposition skill tier.
@@ -112,9 +135,18 @@ type SkillTier = Literal["green", "ordinary", "seasoned", "veteran", "elite"]
 
 # Mission archetype.
 type MissionType = Literal[
-    "ridge reconnaissance", "infiltration", "escort", "ambush",
-    "parley", "recovery", "raid", "siege", "evacuation", "scouting patrol",
-    "supply run", "rescue",
+    "ridge reconnaissance",
+    "infiltration",
+    "escort",
+    "ambush",
+    "parley",
+    "recovery",
+    "raid",
+    "siege",
+    "evacuation",
+    "scouting patrol",
+    "supply run",
+    "rescue",
 ]
 
 # Stakes tier.
@@ -133,7 +165,10 @@ type WoundBucket = Literal["unhurt", "lightly wounded", "wounded", "battered"]
 
 # Party-level supply bucket.
 type SupplyBucket = Literal[
-    "well-supplied", "adequately supplied", "low on rations", "starving",
+    "well-supplied",
+    "adequately supplied",
+    "low on rations",
+    "starving",
 ]
 
 # Party-level fatigue bucket.
@@ -144,13 +179,20 @@ type Temperature = Literal["bitterly cold", "cold", "cool", "warm", "hot"]
 
 # Weather precipitation lane.
 type Precipitation = Literal[
-    "dry", "drizzling", "raining steadily", "in driving rain",
-    "snowing lightly", "in heavy snow",
+    "dry",
+    "drizzling",
+    "raining steadily",
+    "in driving rain",
+    "snowing lightly",
+    "in heavy snow",
 ]
 
 # Weather wind lane.
 type Wind = Literal[
-    "no wind", "a light breeze", "a steady wind", "a strong wind",
+    "no wind",
+    "a light breeze",
+    "a steady wind",
+    "a strong wind",
     "gale-force gusts",
 ]
 
@@ -159,28 +201,47 @@ type WindDirection = Literal["north", "south", "east", "west"]
 
 # Terrain primary lane.
 type TerrainPrimary = Literal[
-    "broken stone and scree", "deep forest", "dense brush", "open plains",
-    "marsh and reed", "paved streets and crowded squares",
-    "narrow corridors of dressed stone", "river crossing", "high cliffs",
+    "broken stone and scree",
+    "deep forest",
+    "dense brush",
+    "open plains",
+    "marsh and reed",
+    "paved streets and crowded squares",
+    "narrow corridors of dressed stone",
+    "river crossing",
+    "high cliffs",
     "snowfields",
 ]
 
 # Terrain modifier (sub-clause).
 type TerrainModifier = Literal[
-    "sparse pine cover", "thick canopy overhead", "with festival lanterns strung overhead",
-    "with old battlements above", "with ruined walls flanking the path",
-    "with shallow water underfoot", "with wind-scoured boulders",
+    "sparse pine cover",
+    "thick canopy overhead",
+    "with festival lanterns strung overhead",
+    "with old battlements above",
+    "with ruined walls flanking the path",
+    "with shallow water underfoot",
+    "with wind-scoured boulders",
 ]
 
 # Faction-relation verbs (paired).
 type FactionRelation = Literal[
-    "at war", "at uneasy peace", "at peace", "allied", "in open trade",
+    "at war",
+    "at uneasy peace",
+    "at peace",
+    "allied",
+    "in open trade",
     "in cold neutrality",
 ]
 
 # Watch-of-day lane (~8 entries).
 type Watch = Literal[
-    "early morning", "late morning", "midday", "early afternoon",
-    "late afternoon", "first watch of the night", "second watch of the night",
+    "early morning",
+    "late morning",
+    "midday",
+    "early afternoon",
+    "late afternoon",
+    "first watch of the night",
+    "second watch of the night",
     "third watch of the night",
 ]

@@ -45,10 +45,7 @@ class TestStructure:
 
     def test_manner_clause(self) -> None:
         out = render_action(stealth_approach_card(), "Kira", ridge_opposition())
-        assert (
-            "The deed is performed under starlight, "
-            "on loose scree, in near silence."
-        ) in out
+        assert ("The deed is performed under starlight, on loose scree, in near silence.") in out
 
     def test_intent_clause(self) -> None:
         out = render_action(stealth_approach_card(), "Kira", ridge_opposition())
@@ -58,8 +55,7 @@ class TestStructure:
         out = render_action(stealth_approach_card(), "Kira", ridge_opposition())
         # tags = (stealth, movement, scouting) -> sorted = (movement, scouting, stealth)
         assert (
-            "The action is tagged as movement, scouting, and stealth, "
-            "and against humanoids."
+            "The action is tagged as movement, scouting, and stealth, and against humanoids."
         ) in out
 
     def test_stat_line(self) -> None:
@@ -68,10 +64,7 @@ class TestStructure:
 
     def test_opposition_vignette(self) -> None:
         out = render_action(stealth_approach_card(), "Kira", ridge_opposition())
-        assert (
-            "The opposition is two human sentries, alert and rested, "
-            "of ordinary skill."
-        ) in out
+        assert ("The opposition is two human sentries, alert and rested, of ordinary skill.") in out
 
     def test_stakes_hint(self) -> None:
         out = render_action(stealth_approach_card(), "Kira", ridge_opposition())
@@ -90,9 +83,7 @@ class TestStructure:
 
 class TestEdgeCases:
     def test_solo_action_drops_opposition_sentence(self) -> None:
-        opp = OppositionState(
-            count=0, family="none", alertness="drowsy", skill_tier="green"
-        )
+        opp = OppositionState(count=0, family="none", alertness="drowsy", skill_tier="green")
         out = render_action(stealth_approach_card(), "Kira", opp)
         # 8 sentences when opposition drops (9 - 1)
         assert len(out.split("\n")) == 8

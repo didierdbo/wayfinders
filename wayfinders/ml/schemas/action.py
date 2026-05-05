@@ -82,8 +82,15 @@ class ActionCard(BaseModel):
         "strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"
     ]
     opposed_stat: Literal[
-        "strength", "dexterity", "constitution", "intelligence", "wisdom",
-        "charisma", "perception", "armor", "resolve",
+        "strength",
+        "dexterity",
+        "constitution",
+        "intelligence",
+        "wisdom",
+        "charisma",
+        "perception",
+        "armor",
+        "resolve",
     ]
 
     # Sentence 10 -- failure stakes (slotted from card).

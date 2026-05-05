@@ -111,8 +111,8 @@ class CharacterState(BaseModel):
     # action_name -> (successes, failures), e.g. {"stealth approaches": (8, 3)}
     profession_hours: dict[str, int] = Field(default_factory=dict)
     # profession -> hours spent, e.g. {"scouting": 80, "the forge": 1240}
-    location_familiarity: dict[str, Literal["barely", "moderately", "well", "best of all"]] = (
-        Field(default_factory=dict)
+    location_familiarity: dict[str, Literal["barely", "moderately", "well", "best of all"]] = Field(
+        default_factory=dict
     )
     # e.g. {"forest terrain": "well", "dungeon corridors": "moderately",
     #       "town streets": "best of all"}
@@ -156,10 +156,7 @@ def _render_traits(state: CharacterState) -> str | None:
         return f"{state.name} is {sorted_traits[0]}."
     if len(sorted_traits) == 2:
         return f"{state.name} is {sorted_traits[0]} and {sorted_traits[1]}."
-    return (
-        f"{state.name} is "
-        f"{sorted_traits[0]}, {sorted_traits[1]}, and {sorted_traits[2]}."
-    )
+    return f"{state.name} is {sorted_traits[0]}, {sorted_traits[1]}, and {sorted_traits[2]}."
 
 
 def _render_status(state: CharacterState) -> str:
@@ -281,9 +278,7 @@ def _render_episodic(state: CharacterState) -> str | None:
     """
     if not state.episodic_memory:
         return None
-    sorted_events = sorted(
-        state.episodic_memory, key=lambda e: (-e.salience, e.event_id)
-    )[:3]
+    sorted_events = sorted(state.episodic_memory, key=lambda e: (-e.salience, e.event_id))[:3]
     descriptions = [e.description for e in sorted_events]
     body = "; ".join(descriptions)
     return f"{state.name}'s defining moments include: {body}."
@@ -298,9 +293,7 @@ def _render_bonds(state: CharacterState) -> str | None:
     """
     if not state.bonds:
         return None
-    sorted_bonds = sorted(
-        state.bonds, key=lambda b: (-abs(b.bond_value), b.partner_name)
-    )[:3]
+    sorted_bonds = sorted(state.bonds, key=lambda b: (-abs(b.bond_value), b.partner_name))[:3]
     sentences: list[str] = []
     for b in sorted_bonds:
         verb = BOND_VERBS[b.sign].format(name=b.partner_name)

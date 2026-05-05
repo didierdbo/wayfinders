@@ -10,21 +10,54 @@ from __future__ import annotations
 from typing import Final
 
 _UNITS: Final[tuple[str, ...]] = (
-    "zero", "one", "two", "three", "four",
-    "five", "six", "seven", "eight", "nine",
-    "ten", "eleven", "twelve", "thirteen", "fourteen",
-    "fifteen", "sixteen", "seventeen", "eighteen", "nineteen",
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
 )
 
 _TENS: Final[tuple[str, ...]] = (
-    "", "", "twenty", "thirty", "forty",
-    "fifty", "sixty", "seventy", "eighty", "ninety",
+    "",
+    "",
+    "twenty",
+    "thirty",
+    "forty",
+    "fifty",
+    "sixty",
+    "seventy",
+    "eighty",
+    "ninety",
 )
 
 _ORDINALS_LOW: Final[dict[int, str]] = {
-    1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth",
-    6: "sixth", 7: "seventh", 8: "eighth", 9: "ninth", 10: "tenth",
-    11: "eleventh", 12: "twelfth",
+    1: "first",
+    2: "second",
+    3: "third",
+    4: "fourth",
+    5: "fifth",
+    6: "sixth",
+    7: "seventh",
+    8: "eighth",
+    9: "ninth",
+    10: "tenth",
+    11: "eleventh",
+    12: "twelfth",
 }
 
 

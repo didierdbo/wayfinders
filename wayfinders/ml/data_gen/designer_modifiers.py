@@ -41,9 +41,7 @@ def compute_label(rollout: Rollout) -> float:
     successes_failures = char.action_counters.get(action.action_phrase + "es", None)
     if successes_failures is None:
         # Try the canonical 'stealth approaches' form for Varn's example.
-        successes_failures = char.action_counters.get(
-            action.action_phrase + "s", (0, 0)
-        )
+        successes_failures = char.action_counters.get(action.action_phrase + "s", (0, 0))
     successes, failures = successes_failures
     competence = 0.5 * successes - 0.3 * failures
     delta += max(-3.0, min(3.0, competence))

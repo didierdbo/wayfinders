@@ -97,8 +97,16 @@ class WorldState(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     region: str  # e.g. "Ridgewatch frontier"
-    season: Literal["early spring", "late spring", "early summer", "late summer",
-                    "early autumn", "late autumn", "early winter", "deep winter"]
+    season: Literal[
+        "early spring",
+        "late spring",
+        "early summer",
+        "late summer",
+        "early autumn",
+        "late autumn",
+        "early winter",
+        "deep winter",
+    ]
     sky_phrase: str  # e.g. "a thin crescent moon", "a full harvest moon"
 
     temperature: Temperature
@@ -136,10 +144,7 @@ def _render_mission_objective(scene: SceneState) -> str:
 
 
 def _render_stakes(scene: SceneState) -> str:
-    return (
-        f"The stakes are {scene.stakes_tier}: "
-        f"failure means {scene.failure_phrase}."
-    )
+    return f"The stakes are {scene.stakes_tier}: failure means {scene.failure_phrase}."
 
 
 def _render_party_roster(party: PartyState) -> str | None:
@@ -159,17 +164,11 @@ def _render_party_roster(party: PartyState) -> str | None:
 def _render_party_condition(party: PartyState) -> str | None:
     if not party.members:
         return None
-    return (
-        f"The party is {party.wound_bucket}, "
-        f"{party.supply_bucket}, and {party.fatigue_bucket}."
-    )
+    return f"The party is {party.wound_bucket}, {party.supply_bucket}, and {party.fatigue_bucket}."
 
 
 def _render_region(world: WorldState) -> str:
-    return (
-        f"The region is the {world.region}, in {world.season}, "
-        f"under {world.sky_phrase}."
-    )
+    return f"The region is the {world.region}, in {world.season}, under {world.sky_phrase}."
 
 
 def _render_weather(world: WorldState) -> str:
@@ -185,10 +184,7 @@ def _render_weather(world: WorldState) -> str:
 def _render_terrain(world: WorldState) -> str:
     if world.terrain_modifier is None:
         return f"The local terrain is {world.terrain_primary}."
-    return (
-        f"The local terrain is {world.terrain_primary}, "
-        f"with {world.terrain_modifier}."
-    )
+    return f"The local terrain is {world.terrain_primary}, with {world.terrain_modifier}."
 
 
 def _render_factions(scene: SceneState, world: WorldState) -> str | None:

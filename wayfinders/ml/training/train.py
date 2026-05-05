@@ -80,9 +80,7 @@ def train_loop(
         lr=config.learning_rate,
         weight_decay=config.weight_decay,
     )
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=config.epochs
-    )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.epochs)
 
     best_val_loss = float("inf")
     best_epoch = -1
