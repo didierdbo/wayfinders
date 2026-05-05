@@ -10,6 +10,7 @@ import json
 import random
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -57,8 +58,8 @@ def seed_everything(seed: int) -> None:
 
 def train_loop(
     config: TrainConfig,
-    train_loader: DataLoader,
-    val_loader: DataLoader,
+    train_loader: DataLoader[Any],
+    val_loader: DataLoader[Any],
 ) -> dict[str, float]:
     """Run the full training loop and return final metrics.
 
