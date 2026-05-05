@@ -76,12 +76,12 @@ def hours_to_words(h: int) -> str:
     if h <= 99:
         return int_to_words(h)
     # Canonical Kira example values -- match Varn 2026-04-30 byte-for-byte.
-    _CANONICAL: Final[dict[int, str]] = {
+    _canonical: Final[dict[int, str]] = {
         80: "eighty",
         1240: "one thousand two hundred forty",
     }
-    if h in _CANONICAL:
-        return _CANONICAL[h]
+    if h in _canonical:
+        return _canonical[h]
     # Generic fallback for now: "more than a hundred". Replaced in M2.
     return "more than a hundred"
 

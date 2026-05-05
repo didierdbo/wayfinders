@@ -34,7 +34,6 @@ from wayfinders.ml.schemas.vocabularies import (
     TimeOfDay,
 )
 
-
 # ---------------------------------------------------------------------------
 # Sub-models
 # ---------------------------------------------------------------------------
@@ -132,7 +131,7 @@ def _render_intent(card: ActionCard) -> str:
 
 
 def _render_tags(card: ActionCard) -> str:
-    sorted_tags = sorted(set(t.lower() for t in card.tag_set))
+    sorted_tags = sorted({t.lower() for t in card.tag_set})
     if len(sorted_tags) == 1:
         body = sorted_tags[0]
     elif len(sorted_tags) == 2:

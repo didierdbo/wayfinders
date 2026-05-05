@@ -36,7 +36,6 @@ from wayfinders.ml.schemas.vocabularies import (
     StressBucket,
 )
 
-
 # ---------------------------------------------------------------------------
 # Sub-models
 # ---------------------------------------------------------------------------
@@ -152,7 +151,7 @@ def _render_descriptor(state: CharacterState) -> str:
 def _render_traits(state: CharacterState) -> str | None:
     if not state.traits:
         return None
-    sorted_traits = sorted(set(t.lower() for t in state.traits))[:3]
+    sorted_traits = sorted({t.lower() for t in state.traits})[:3]
     if len(sorted_traits) == 1:
         return f"{state.name} is {sorted_traits[0]}."
     if len(sorted_traits) == 2:

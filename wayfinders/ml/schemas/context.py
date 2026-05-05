@@ -36,15 +36,14 @@ from wayfinders.ml.schemas.vocabularies import (
     Precipitation,
     StakesTier,
     SupplyBucket,
+    Temperature,
     TerrainModifier,
     TerrainPrimary,
-    Temperature,
     Watch,
     Wind,
     WindDirection,
     WoundBucket,
 )
-
 
 # ---------------------------------------------------------------------------
 # Sub-models

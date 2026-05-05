@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import pytest
 
+from tests.ml.schemas._fixtures import kira_canonical_state
 from wayfinders.ml.schemas.character import (
     Bond,
     CharacterState,
     EpisodicEvent,
     render_character,
 )
-from tests.ml.schemas._fixtures import kira_canonical_state
 
 
 class TestDeterminism:

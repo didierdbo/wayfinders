@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import pytest
 
-from wayfinders.ml.schemas.action import OppositionState, render_action
 from tests.ml.schemas._fixtures import (
     ridge_opposition,
     stealth_approach_card,
 )
+from wayfinders.ml.schemas.action import OppositionState, render_action
 
 
 class TestDeterminism:

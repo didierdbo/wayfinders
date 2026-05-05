@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from wayfinders.ml.schemas.numerals import hours_to_words, int_to_words, ordinal
 
@@ -73,5 +74,5 @@ class TestOrdinal:
 
     @pytest.mark.parametrize("n", [0, 13, 100, -1])
     def test_out_of_range_raises(self, n: int) -> None:
-        with pytest.raises(ValueError, match="M1 supports 1..12"):
+        with pytest.raises(ValueError, match=r"M1 supports 1\.\.12"):
             ordinal(n)

@@ -9,7 +9,8 @@ All tables are `Final[Mapping[...]]` so mypy catches accidental mutation.
 
 from __future__ import annotations
 
-from typing import Final, Literal, Mapping
+from collections.abc import Mapping
+from typing import Final, Literal
 
 # ---------------------------------------------------------------------------
 # Character schema vocabularies (Varn 2026-04-30 sec. 3)
