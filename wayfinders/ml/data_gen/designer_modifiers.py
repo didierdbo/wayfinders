@@ -1,8 +1,8 @@
-"""Designer modifier table -> label_Δ.
+"""Designer modifier table -> label_delta.
 
 The label is **authored**, not learned. The model learns to compress the
 designer's intent into a scalar over prose-derived vectors. Designers stay
-in the driver's seat (Pax 2026-05-02 §4).
+in the driver's seat (Pax 2026-05-02 sec. 4).
 
 M1 substep 5 fills in real rules. This file scaffolds the API and provides
 a tiny seed table for end-to-end pipeline testing.
@@ -14,7 +14,7 @@ from typing import Final
 
 from wayfinders.ml.data_gen.rollouts import Rollout
 
-# Δ output range (locked to Pax §3).
+# delta output range (locked to Pax sec. 3).
 DELTA_MIN: Final[float] = -5.0
 DELTA_MAX: Final[float] = 5.0
 
@@ -22,7 +22,7 @@ DELTA_MAX: Final[float] = 5.0
 def compute_label(rollout: Rollout) -> float:
     """Apply the designer modifier table to a structured rollout.
 
-    Returns a label_Δ ∈ [-5, +5].
+    Returns a label_delta in [-5, +5].
 
     M1 seed implementation: a placeholder rule set that uses character
     legacy + action tag overlap as the dominant signal. Real designer
@@ -37,7 +37,7 @@ def compute_label(rollout: Rollout) -> float:
     delta = 0.0
 
     # Tag-aligned competence: count successful prior attempts at this action
-    # family. +0.5 per past success, -0.3 per past failure, capped at ±3.
+    # family. +0.5 per past success, -0.3 per past failure, capped at +/-3.
     successes_failures = char.action_counters.get(action.action_phrase + "es", None)
     if successes_failures is None:
         # Try the canonical 'stealth approaches' form for Varn's example.

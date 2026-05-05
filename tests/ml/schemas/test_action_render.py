@@ -1,6 +1,6 @@
 """Tests for the action renderer.
 
-Sentence 9 (local legacy echo) is dropped per Pax 2026-05-02 §5 lock —
+Sentence 9 (local legacy echo) is dropped per Pax 2026-05-02 sec. 5 lock --
 the action renderer emits 9 sentences, not 10.
 """
 
@@ -26,7 +26,7 @@ class TestDeterminism:
 
 class TestStructure:
     def test_sentence_count_is_nine(self) -> None:
-        """Sentence 9 (local legacy echo) is dropped per Pax §5 lock."""
+        """Sentence 9 (local legacy echo) is dropped per Pax sec. 5 lock."""
         out = render_action(stealth_approach_card(), "Kira", ridge_opposition())
         # 9 sentences = 9 newline-separated lines
         assert len(out.split("\n")) == 9
@@ -56,7 +56,7 @@ class TestStructure:
 
     def test_tag_line_alphabetical(self) -> None:
         out = render_action(stealth_approach_card(), "Kira", ridge_opposition())
-        # tags = (stealth, movement, scouting) → sorted = (movement, scouting, stealth)
+        # tags = (stealth, movement, scouting) -> sorted = (movement, scouting, stealth)
         assert (
             "The action is tagged as movement, scouting, and stealth, "
             "and against humanoids."
@@ -81,7 +81,7 @@ class TestStructure:
         ) in out
 
     def test_no_local_legacy_echo(self) -> None:
-        """Sentence 9 dropped — no 'succeeded eight times' inside action prose."""
+        """Sentence 9 dropped -- no 'succeeded eight times' inside action prose."""
         out = render_action(stealth_approach_card(), "Kira", ridge_opposition())
         assert "succeeded" not in out
         assert "crossed scree" not in out

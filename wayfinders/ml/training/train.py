@@ -1,4 +1,4 @@
-"""Training loop scaffolding — Lightning-free, explicit.
+"""Training loop scaffolding -- Lightning-free, explicit.
 
 M1 substep 9 fills this in. Locked here: the function signature, the
 artefact layout, and the determinism contract (seed everything).

@@ -1,6 +1,6 @@
 """Wayfinders UC1 ML pipeline.
 
-The module that turns engine state into a scalar Δ ∈ [-5, +5] which the
+The module that turns engine state into a scalar delta in [-5, +5] which the
 rule layer adds to the d20 modifier stack.
 
 Pipeline:
@@ -10,7 +10,7 @@ Pipeline:
         --[frozen MiniLM encoder]-->
     (char_vec, action_vec, context_vec)  each (384,)
         --[ResolutionHead MLP, ~313k params]-->
-    Δ ∈ [-5, +5]
+    delta in [-5, +5]
 
 See README.md for the hard contracts (EN-pinned, deterministic, frozen
 encoder, Pratchett tonal palette).

@@ -45,13 +45,13 @@ class TestStructure:
     def test_descriptor_sentence_present(self) -> None:
         state = kira_canonical_state()
         out = render_character(state)
-        # mid + very-high + high → "sturdy, preternaturally quick, and shrewd"
+        # mid + very-high + high -> "sturdy, preternaturally quick, and shrewd"
         assert "Kira is sturdy, preternaturally quick, and shrewd." in out
 
     def test_traits_alphabetical(self) -> None:
         state = kira_canonical_state()
         out = render_character(state)
-        # traits=(bold, loyal, impatient) → sorted = (bold, impatient, loyal)
+        # traits=(bold, loyal, impatient) -> sorted = (bold, impatient, loyal)
         assert "Kira is bold, impatient, and loyal." in out
 
     def test_legacy_combat_engagements_rendered(self) -> None:
@@ -141,7 +141,7 @@ class TestEdgeCases:
         assert "carries" not in out
 
     def test_zero_count_combat_omitted(self) -> None:
-        # Lock option (a) Varn 2026-04-30 §6: zero counts are omitted.
+        # Lock option (a) Varn 2026-04-30 sec. 6: zero counts are omitted.
         state = self._bare_state(combat_engagements={"goblin engagements": 0})
         out = render_character(state)
         assert "goblin" not in out
@@ -157,7 +157,7 @@ class TestEdgeCases:
         )
         out = render_character(state)
         assert "A" in out and "B" in out and "C" in out
-        # D should be absent — top 3 only
+        # D should be absent -- top 3 only
         assert "Test trusts D" not in out
         assert "Test is wary of D" not in out
 

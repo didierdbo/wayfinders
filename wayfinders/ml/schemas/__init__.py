@@ -1,4 +1,4 @@
-"""Prose renderers — the only place engine state becomes encoder input.
+"""Prose renderers -- the only place engine state becomes encoder input.
 
 All three renderers (character, action, context) are pure functions that emit
 English text from structured Pydantic models. See ../README.md for the

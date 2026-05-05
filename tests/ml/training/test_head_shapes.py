@@ -31,13 +31,13 @@ class TestShapes:
         model = ResolutionHead()
         n_params = sum(p.numel() for p in model.parameters())
         # 1153*256 + 256 + 256*64 + 64 + 64*1 + 1 = 295168 + 256 + 16384 + 64 + 64 + 1 = 311937
-        # Pax called it ~313k — we're inside the rounding.
+        # Pax called it ~313k -- we're inside the rounding.
         assert 305_000 <= n_params <= 320_000
 
 
 class TestOutputRange:
     def test_delta_in_range_extreme_inputs(self) -> None:
-        """tanh×5 must keep Δ in [-5, +5] no matter how wild the input is."""
+        """tanh*5 must keep delta in [-5, +5] no matter how wild the input is."""
         model = ResolutionHead()
         for scale in (1.0, 10.0, 100.0, 1000.0):
             char = _normalize(torch.randn(64, 384) * scale)

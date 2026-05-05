@@ -1,4 +1,4 @@
-"""Context prose renderer — Varn 2026-05-01 §3.
+"""Context prose renderer -- Varn 2026-05-01 sec. 3.
 
 Schema (11 sentences):
     1. Mission identity       ("The mission is a ridge reconnaissance...")
@@ -16,7 +16,7 @@ Schema (11 sentences):
 Empty optional sentences (no party, no factions, no deadline) drop silently.
 
 Cadence is owned by the inference layer (stable per scene + named triggers,
-Varn §4) — render_context() itself is pure and stateless. The cache key is
+Varn sec. 4) -- render_context() itself is pure and stateless. The cache key is
 hash(rendered_prose).
 
 Pure function, EN-pinned, no RNG.
@@ -65,7 +65,7 @@ class FactionStance(BaseModel):
 
 
 class SceneState(BaseModel):
-    """Mission-level facts (Varn §3 sentences 1-3, 11)."""
+    """Mission-level facts (Varn sec. 3 sentences 1-3, 11)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -75,14 +75,14 @@ class SceneState(BaseModel):
     stakes_tier: StakesTier
     failure_phrase: str  # e.g. "the company moves blind into the valley at first light"
 
-    # Sentence 11 — time-of-mission.
+    # Sentence 11 -- time-of-mission.
     watch: Watch
     countdown_hours: int | None = None  # None = no countdown clause
     deadline_label: str | None = None  # e.g. "dawn"
 
 
 class PartyState(BaseModel):
-    """Party roster + aggregated condition (Varn §3 sentences 4-5)."""
+    """Party roster + aggregated condition (Varn sec. 3 sentences 4-5)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -93,7 +93,7 @@ class PartyState(BaseModel):
 
 
 class WorldState(BaseModel):
-    """Region + weather + terrain + factions (Varn §3 sentences 6-9)."""
+    """Region + weather + terrain + factions (Varn sec. 3 sentences 6-9)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -111,11 +111,11 @@ class WorldState(BaseModel):
     terrain_modifier: TerrainModifier | None = None
 
     faction_stances: tuple[FactionStance, ...] = Field(default_factory=tuple)
-    # cap-at-2 lock per Varn §7 option (a)
+    # cap-at-2 lock per Varn sec. 7 option (a)
 
 
 class CampaignState(BaseModel):
-    """Wider campaign turn (Varn §3 sentence 10)."""
+    """Wider campaign turn (Varn sec. 3 sentence 10)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -193,7 +193,7 @@ def _render_terrain(world: WorldState) -> str:
 
 
 def _render_factions(scene: SceneState, world: WorldState) -> str | None:
-    """Cap at 2 most-relevant per Varn §7 option (a) lock.
+    """Cap at 2 most-relevant per Varn sec. 7 option (a) lock.
 
     Sorted alphabetically by `other_faction` within sign group ; cap-at-2 is
     applied by the engine before populating `faction_stances` (the renderer
@@ -238,7 +238,7 @@ def render_context(
     """Render scene context to encoder-ready English prose.
 
     Pure function. Cadence (when to call this vs reuse the cache) is the
-    caller's responsibility — see Varn §4 for stable-per-scene + triggers.
+    caller's responsibility -- see Varn sec. 4 for stable-per-scene + triggers.
     """
     sentences: list[str] = [
         _render_mission_identity(scene),

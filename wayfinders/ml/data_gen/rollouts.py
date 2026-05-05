@@ -1,10 +1,10 @@
 """Rollout generator scaffolding.
 
 A `Rollout` is one structured tuple `(character_state, action_card,
-opposition, scene_state, party_state, world_state, campaign_state, label_Δ)`.
+opposition, scene_state, party_state, world_state, campaign_state, label_delta)`.
 
 M1 substep 6 fills in the actual policies and rollout loop. This file
-locks the shape and the determinism contract — same seed -> same rollouts.
+locks the shape and the determinism contract -- same seed -> same rollouts.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from wayfinders.ml.schemas import (
 class Rollout(BaseModel):
     """Structured tuple consumed by labeling + the renderers.
 
-    All sub-states are frozen Pydantic models — a Rollout is a snapshot, not
+    All sub-states are frozen Pydantic models -- a Rollout is a snapshot, not
     a live object.
     """
 
@@ -54,6 +54,6 @@ def generate_rollouts(n: int, seed: int) -> Iterator[Rollout]:
     fail loudly until the implementation lands.
     """
     raise NotImplementedError(
-        "M1 substep 6 — implement generate_rollouts(). "
+        "M1 substep 6 -- implement generate_rollouts(). "
         "Must be deterministic: same (n, seed) -> same iterator output."
     )

@@ -1,8 +1,8 @@
 """Huber loss + monotonicity regularizer.
 
-Pax 2026-05-02 §3 — Huber (δ=1.0) tames designer-table outliers without
+Pax 2026-05-02 sec. 3 -- Huber (delta=1.0) tames designer-table outliers without
 ignoring them. Monotonicity reg catches the embarrassing failure mode where
-adding a positive legacy event would *decrease* Δ.
+adding a positive legacy event would *decrease* delta.
 """
 
 from __future__ import annotations

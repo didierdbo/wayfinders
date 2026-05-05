@@ -105,7 +105,7 @@ class TestStructure:
         ) in out
 
     def test_factions_capped_at_two(self) -> None:
-        """Lock Varn §7 option (a) — cap at 2 most-relevant other factions."""
+        """Lock Varn sec. 7 option (a) -- cap at 2 most-relevant other factions."""
         out = render_context(
             ridge_scene(), ridge_party(), ridge_world(), ridge_campaign()
         )

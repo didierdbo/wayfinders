@@ -2,7 +2,7 @@
 
 Determinism contract: same `n` -> same output string, forever. Cap at 99
 because counters above are bucketed to "more than a hundred" per Varn's
-schemas (character 2026-04-30 §3 note "Cap at 'ninety-nine'").
+schemas (character 2026-04-30 sec. 3 note "Cap at 'ninety-nine'").
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ def hours_to_words(h: int) -> str:
 
     Varn's canonical Kira example contains 'one thousand two hundred forty
     hours at the forge'. We keep that exact string for hours specifically
-    rather than collapsing to 'more than a hundred' — hour counts are a
+    rather than collapsing to 'more than a hundred' -- hour counts are a
     legacy-depth signal the encoder should see in full granularity.
 
     For now we hardcode the canonical examples and fall back to a generic
@@ -75,7 +75,7 @@ def hours_to_words(h: int) -> str:
         raise ValueError(f"hours_to_words expects non-negative integer, got {h}")
     if h <= 99:
         return int_to_words(h)
-    # Canonical Kira example values — match Varn 2026-04-30 byte-for-byte.
+    # Canonical Kira example values -- match Varn 2026-04-30 byte-for-byte.
     _CANONICAL: Final[dict[int, str]] = {
         80: "eighty",
         1240: "one thousand two hundred forty",

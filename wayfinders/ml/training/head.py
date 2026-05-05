@@ -1,13 +1,15 @@
-"""ResolutionHead — the only module that trains.
+"""ResolutionHead -- the only module that trains.
 
-Architecture (Pax 2026-05-02 §2, encoder-agnostic 384-dim concat):
+Architecture (Pax 2026-05-02 sec. 2, encoder-agnostic 384-dim concat):
 
-    char_vec   (384) ┐
-    action_vec (384) ├─ concat ─┐
-    context_vec(384) ┘          ├─ + cos(char, action) (1) ─ Linear(1153→256) ─ GELU ─ Dropout(0.1)
-                                ┘                          ─ Linear(256→64)   ─ GELU
-                                                           ─ Linear(64→1)     ─ tanh × 5
-                                                           = Δ ∈ [-5, +5]
+    char_vec    (384) -+
+    action_vec  (384) -+-> concat --> + cos(char, action) (1)
+    context_vec (384) -+               |
+                                       v
+                       Linear(1153 -> 256) -> GELU -> Dropout(0.1)
+                       -> Linear(256 -> 64)  -> GELU
+                       -> Linear(64  -> 1)   -> tanh * 5
+                       = delta in [-5, +5]
 
 Total params: ~313k. Negligible vs. the encoder.
 
@@ -22,17 +24,17 @@ from typing import Final
 import torch
 from torch import nn
 
-# Output range (Pax §3 — symmetric, tanh-bounded).
+# Output range (Pax sec. 3 -- symmetric, tanh-bounded).
 DELTA_RANGE: Final[float] = 5.0
 
-# Concat input: 3 vecs × 384 dims + 1 cosine scalar.
+# Concat input: 3 vecs * 384 dims + 1 cosine scalar.
 HEAD_INPUT_DIM: Final[int] = 384 * 3 + 1  # 1153
 HEAD_HIDDEN_1: Final[int] = 256
 HEAD_HIDDEN_2: Final[int] = 64
 
 
 class ResolutionHead(nn.Module):
-    """The trainable MLP head that maps three frozen embeddings to Δ.
+    """The trainable MLP head that maps three frozen embeddings to delta.
 
     Inputs are L2-normalized 384-dim vectors from frozen MiniLM. The cosine
     of (char, action) is appended as an explicit competence-signal feature
@@ -48,7 +50,7 @@ class ResolutionHead(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
 
         # Init: Kaiming on hidden layers, last layer biased to zero so the
-        # head starts at Δ=0 (no prior bias toward advantage or disadvantage).
+        # head starts at delta=0 (no prior bias toward advantage or disadvantage).
         for layer in (self.fc1, self.fc2):
             nn.init.kaiming_normal_(layer.weight, nonlinearity="relu")
             nn.init.zeros_(layer.bias)
@@ -68,7 +70,7 @@ class ResolutionHead(nn.Module):
         Returns:
             delta: shape (batch, 1), in [-5, +5].
         """
-        # Cosine — inputs are already normalized, so it's just a dot.
+        # Cosine -- inputs are already normalized, so it's just a dot.
         cos_ca = (char_vec * action_vec).sum(dim=-1, keepdim=True)  # (batch, 1)
 
         x = torch.cat([char_vec, action_vec, context_vec, cos_ca], dim=-1)  # (batch, 1153)

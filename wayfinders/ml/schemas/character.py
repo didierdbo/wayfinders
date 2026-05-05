@@ -1,4 +1,4 @@
-"""Character prose renderer — Varn 2026-04-30 §3.
+"""Character prose renderer -- Varn 2026-04-30 sec. 3.
 
 Reproduces the canonical Kira example byte-for-byte. Pure function, no RNG,
 EN-pinned regardless of UI locale.
@@ -13,7 +13,7 @@ Schema (8 paragraphs total, paragraph 6 split into 4 clauses):
     7. Episodic memory (top 3 by salience)
     8. Bonds paragraph (top 3 by |value|)
 
-Empty paragraphs are dropped silently (Varn §3 note).
+Empty paragraphs are dropped silently (Varn sec. 3 note).
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ from wayfinders.ml.schemas.vocabularies import (
 
 
 class EpisodicEvent(BaseModel):
-    """A single Tier-B episodic memory (Varn 2026-04-30 §3 paragraph 7)."""
+    """A single Tier-B episodic memory (Varn 2026-04-30 sec. 3 paragraph 7)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -54,7 +54,7 @@ class EpisodicEvent(BaseModel):
 
 
 class Bond(BaseModel):
-    """A relational bond entry (Varn 2026-04-30 §3 paragraph 8)."""
+    """A relational bond entry (Varn 2026-04-30 sec. 3 paragraph 8)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -85,12 +85,12 @@ class CharacterState(BaseModel):
     char_class: str  # e.g. "scout"
     faction: str  # e.g. "Ridgewatch company"
 
-    # Descriptor buckets (Varn §3 paragraph 2)
+    # Descriptor buckets (Varn sec. 3 paragraph 2)
     str_bucket: DescriptorBucket
     dex_bucket: DescriptorBucket
     wis_bucket: DescriptorBucket
 
-    # Traits (≤3, deduped, sorted alpha at render time)
+    # Traits (<=3, deduped, sorted alpha at render time)
     traits: tuple[str, ...] = Field(default_factory=tuple)
 
     # Status vignette
@@ -100,11 +100,11 @@ class CharacterState(BaseModel):
     # conditions are short prose snippets like
     # "with a fading bruise on her forearm" or "from a short night's sleep".
 
-    # Equipment — list of full noun phrases. M1 keeps it simple ; tier handling
+    # Equipment -- list of full noun phrases. M1 keeps it simple ; tier handling
     # comes in M2 when item cards land.
     equipment: tuple[str, ...] = Field(default_factory=tuple)
 
-    # Legacy biography (Tier A counters, Varn §3 paragraph 6).
+    # Legacy biography (Tier A counters, Varn sec. 3 paragraph 6).
     # All values are non-negative integers.
     combat_engagements: dict[str, int] = Field(default_factory=dict)
     # e.g. {"goblin engagements": 47, "beast hunts": 12, "skirmishes with undead": 3}
@@ -118,13 +118,13 @@ class CharacterState(BaseModel):
     # e.g. {"forest terrain": "well", "dungeon corridors": "moderately",
     #       "town streets": "best of all"}
 
-    # Episodic memory (Varn §3 paragraph 7) — top 3 by salience.
+    # Episodic memory (Varn sec. 3 paragraph 7) -- top 3 by salience.
     episodic_memory: tuple[EpisodicEvent, ...] = Field(default_factory=tuple)
 
-    # Bonds (Varn §3 paragraph 8) — top 3 by |bond_value|.
+    # Bonds (Varn sec. 3 paragraph 8) -- top 3 by |bond_value|.
     bonds: tuple[Bond, ...] = Field(default_factory=tuple)
 
-    # Pronouns for trait-line readability — defaults to "she". The encoder
+    # Pronouns for trait-line readability -- defaults to "she". The encoder
     # never sees pronouns in the prose (we repeat the name everywhere) ;
     # this field exists only for downstream UI rendering, not for the encoder.
     # NOT used by render_character(); included for forward-compat.
@@ -171,7 +171,7 @@ def _render_status(state: CharacterState) -> str:
     # arbitrary condition snippets with commas. For the canonical reproduction
     # we expect conditions=("with a fading bruise on her forearm",) and the
     # final stress bucket clause picks up "tense from a short night's sleep".
-    # M2 will replace this with a more general status grammar — for now we
+    # M2 will replace this with a more general status grammar -- for now we
     # match the canonical example shape.
     body = ", ".join(parts[:-1]) + f", and {parts[-1]}." if len(parts) > 1 else f"{parts[0]}."
     return f"{state.name} is {body}"
@@ -191,9 +191,9 @@ def _render_equipment(state: CharacterState) -> str | None:
 
 
 def _render_legacy(state: CharacterState) -> str | None:
-    """Paragraph 6 — combat / actions / professions / locations.
+    """Paragraph 6 -- combat / actions / professions / locations.
 
-    Per Varn lock option (a) (2026-04-30 §6), zero-counts are omitted. Only
+    Per Varn lock option (a) (2026-04-30 sec. 6), zero-counts are omitted. Only
     tags the character has actually engaged appear.
     """
     clauses: list[str] = []
@@ -277,7 +277,7 @@ def _pronoun_she(_name: str) -> str:
 
 
 def _render_episodic(state: CharacterState) -> str | None:
-    """Paragraph 7 — top 3 episodic memories by salience desc, lower
+    """Paragraph 7 -- top 3 episodic memories by salience desc, lower
     event_id wins ties.
     """
     if not state.episodic_memory:
@@ -291,7 +291,7 @@ def _render_episodic(state: CharacterState) -> str | None:
 
 
 def _render_bonds(state: CharacterState) -> str | None:
-    """Paragraph 8 — top 3 by |bond_value|, then partner_name asc.
+    """Paragraph 8 -- top 3 by |bond_value|, then partner_name asc.
 
     Verb mapping by sign: positive = 'trusts ... deeply', neutral = 'has no
     strong feeling toward', negative = 'is wary of'. Dead partners get a

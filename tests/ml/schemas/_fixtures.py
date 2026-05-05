@@ -1,4 +1,4 @@
-"""Shared fixtures: canonical Kira state matching Varn 2026-04-30 §2."""
+"""Shared fixtures: canonical Kira state matching Varn 2026-04-30 sec. 2."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from wayfinders.ml.schemas.context import FactionStance, PartyMember
 def kira_canonical_state() -> CharacterState:
     """The Kira state that should render to Varn's canonical 8-paragraph doc.
 
-    Mirrors Varn 2026-04-30 §2 byte-for-byte (modulo the explicit pronoun
+    Mirrors Varn 2026-04-30 sec. 2 byte-for-byte (modulo the explicit pronoun
     exception inside the legacy paragraph).
     """
     return CharacterState(
@@ -28,13 +28,13 @@ def kira_canonical_state() -> CharacterState:
         faction="Ridgewatch company",
         str_bucket="mid",  # not in canonical example; keep mid for default
         # Canonical descriptor sentence is "wiry, preternaturally quick, and
-        # shrewd" — wiry = DEX 'high', preternaturally quick = DEX 'very-high'.
+        # shrewd" -- wiry = DEX 'high', preternaturally quick = DEX 'very-high'.
         # Varn's example chose two DEX words because it pre-dates the
-        # locked one-adjective-per-stat rule. Until Varn revises §3, we
+        # locked one-adjective-per-stat rule. Until Varn revises sec. 3, we
         # render mid/very-high/high which yields:
         #   "Kira is sturdy, preternaturally quick, and shrewd."
         # (close-but-not-byte-identical to Varn's canonical sentence). The
-        # canonical reproduction test below tolerates this — it pins the
+        # canonical reproduction test below tolerates this -- it pins the
         # *current* renderer's output, not Varn's example string.
         dex_bucket="very-high",
         wis_bucket="high",
@@ -81,7 +81,7 @@ def kira_canonical_state() -> CharacterState:
 
 
 def stealth_approach_card() -> ActionCard:
-    """Canonical 'stealth approach' action card from Varn 2026-05-01 §2."""
+    """Canonical 'stealth approach' action card from Varn 2026-05-01 sec. 2."""
     return ActionCard(
         action_phrase="stealth approach",
         verb_progressive="sneaking past",

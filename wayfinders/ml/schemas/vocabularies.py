@@ -2,7 +2,7 @@
 
 Every adjective, lane label, and verbal mapping the renderers emit lives
 here. Adding a new word is a design change (Varn-approved), not a content
-change — that's the EN-pinned, closed-vocab discipline.
+change -- that's the EN-pinned, closed-vocab discipline.
 
 All tables are `Final[Mapping[...]]` so mypy catches accidental mutation.
 """
@@ -12,10 +12,10 @@ from __future__ import annotations
 from typing import Final, Literal, Mapping
 
 # ---------------------------------------------------------------------------
-# Character schema vocabularies (Varn 2026-04-30 §3)
+# Character schema vocabularies (Varn 2026-04-30 sec. 3)
 # ---------------------------------------------------------------------------
 
-# Descriptor lanes — STR / DEX / WIS rendered as adjective from a 5-bucket
+# Descriptor lanes -- STR / DEX / WIS rendered as adjective from a 5-bucket
 # bucketing of the underlying score. Buckets are: very-low / low / mid /
 # high / very-high. Lookup is keyed by bucket label.
 type DescriptorBucket = Literal["very-low", "low", "mid", "high", "very-high"]
@@ -44,7 +44,7 @@ WIS_LANES: Final[Mapping[DescriptorBucket, str]] = {
     "very-high": "uncannily perceptive",
 }
 
-# HP condition lane — bucket of (current_hp / max_hp).
+# HP condition lane -- bucket of (current_hp / max_hp).
 type HpBucket = Literal["unhurt", "scratched", "bleeding", "down"]
 
 HP_BUCKETS: Final[Mapping[HpBucket, str]] = {
@@ -64,7 +64,7 @@ STRESS_BUCKETS: Final[Mapping[StressBucket, str]] = {
     "near-breaking": "near breaking",
 }
 
-# Bond verbs — sign-based mapping (positive / neutral / negative).
+# Bond verbs -- sign-based mapping (positive / neutral / negative).
 type BondSign = Literal["positive", "neutral", "negative"]
 
 BOND_VERBS: Final[Mapping[BondSign, str]] = {
@@ -74,7 +74,7 @@ BOND_VERBS: Final[Mapping[BondSign, str]] = {
 }
 
 # ---------------------------------------------------------------------------
-# Action schema vocabularies (Varn 2026-05-01 §3)
+# Action schema vocabularies (Varn 2026-05-01 sec. 3)
 # ---------------------------------------------------------------------------
 
 # Manner: time-of-day lane. ~8 entries (closed).
@@ -106,7 +106,7 @@ type Alertness = Literal[
 type SkillTier = Literal["green", "ordinary", "seasoned", "veteran", "elite"]
 
 # ---------------------------------------------------------------------------
-# Context schema vocabularies (Varn 2026-05-01 §3)
+# Context schema vocabularies (Varn 2026-05-01 sec. 3)
 # ---------------------------------------------------------------------------
 
 # Mission archetype.

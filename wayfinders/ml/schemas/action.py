@@ -1,5 +1,5 @@
-"""Action prose renderer — Varn 2026-05-01 §3, with sentence 9 dropped per
-Pax 2026-05-02 §5 lock.
+"""Action prose renderer -- Varn 2026-05-01 sec. 3, with sentence 9 dropped per
+Pax 2026-05-02 sec. 5 lock.
 
 Schema (9 sentences after sentence-9 drop):
     1. Action headline           ("The action is a stealth approach.")
@@ -10,7 +10,7 @@ Schema (9 sentences after sentence-9 drop):
     6. Tag line                  ("The action is tagged as ...")
     7. Stat line                 ("The action tests dexterity, opposed by...")
     8. Opposition vignette       ("The opposition is two human sentries...")
-    9. (DROPPED — was local legacy echo, now in character vector only)
+    9. (DROPPED -- was local legacy echo, now in character vector only)
    10. Stakes hint               ("A failed stealth approach typically means...")
 
 Renumbered after the drop: M1 emits 9 sentences total, in order 1, 2, 3, 4,
@@ -41,7 +41,7 @@ from wayfinders.ml.schemas.vocabularies import (
 
 
 class OppositionState(BaseModel):
-    """The immediate opposition for this action attempt (Varn §3 paragraph 8)."""
+    """The immediate opposition for this action attempt (Varn sec. 3 paragraph 8)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -59,26 +59,26 @@ class ActionCard(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    # Sentence 1 — verb headline (closed-vocab phrase, ~80 entries).
+    # Sentence 1 -- verb headline (closed-vocab phrase, ~80 entries).
     action_phrase: str  # e.g. "stealth approach", "frontal assault", "parley"
 
-    # Sentence 3 — direct-object clause.
+    # Sentence 3 -- direct-object clause.
     verb_progressive: str  # e.g. "sneaking past", "charging", "speaking with"
     target_phrase: str  # e.g. "two sentries posted at the watchtower"
 
-    # Sentence 4 — manner.
+    # Sentence 4 -- manner.
     time_phrase: TimeOfDay
     footing_phrase: Footing
     noise_phrase: Noise
 
-    # Sentence 5 — intent.
+    # Sentence 5 -- intent.
     intent_phrase: str  # e.g. "reach the ridge unseen and unheard"
 
-    # Sentence 6 — tag set + opposition family.
+    # Sentence 6 -- tag set + opposition family.
     tag_set: tuple[str, ...]  # e.g. ("stealth", "movement", "scouting")
     opposition_family: str  # e.g. "humanoids", "undead", "beasts", "machinery"
 
-    # Sentence 7 — stat tested + opposed-by stat.
+    # Sentence 7 -- stat tested + opposed-by stat.
     stat_tested: Literal[
         "strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"
     ]
@@ -87,7 +87,7 @@ class ActionCard(BaseModel):
         "charisma", "perception", "armor", "resolve",
     ]
 
-    # Sentence 10 — failure stakes (slotted from card).
+    # Sentence 10 -- failure stakes (slotted from card).
     failure_template: str = Field(
         ...,
         description=(
@@ -97,7 +97,7 @@ class ActionCard(BaseModel):
         ),
     )
 
-    # Optional success template — UI-side localization key. NOT used by
+    # Optional success template -- UI-side localization key. NOT used by
     # render_action(); kept on the card for downstream display.
     success_template_key: str | None = None
 
@@ -167,7 +167,7 @@ def render_action(
     """Render an action attempt to encoder-ready English prose.
 
     Pure function, byte-stable, EN-pinned. Sentence 9 (local legacy echo)
-    is dropped per Pax 2026-05-02 §5 lock.
+    is dropped per Pax 2026-05-02 sec. 5 lock.
     """
     sentences: list[str] = [
         _render_headline(card),
