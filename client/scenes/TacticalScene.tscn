@@ -1,0 +1,11 @@
+[gd_scene load_steps=2 format=3 uid="uid://btactical00001"]
+
+[ext_resource type="Script" path="res://scenes/TacticalScene.cs" id="1_tactical"]
+
+[node name="Tactical" type="Node2D"]
+script = ExtResource("1_tactical")
+y_sort_enabled = true
+
+[node name="Ground" type="TileMapLayer" parent="."]
+y_sort_enabled = true
+position = Vector2(640, 64)
