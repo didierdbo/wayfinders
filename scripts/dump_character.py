@@ -20,7 +20,7 @@ def jsonify(obj):
     """
     if isinstance(obj, dict):
         return {(k.name if isinstance(k, Enum) else k): jsonify(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple, set)):
+    if isinstance(obj, list | tuple | set):
         return [jsonify(v) for v in obj]
     if isinstance(obj, Enum):
         return obj.name

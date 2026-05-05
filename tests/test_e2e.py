@@ -34,7 +34,6 @@ def create_kira_character():
 
 
 def create_games_state(character: Character):
-
     party = Party(
         members=[character],
         soul_level=0,
@@ -209,7 +208,6 @@ def create_alden_character():
 
 
 def create_games_state_two(character1: Character, character2: Character):
-
     party = Party(
         members=[character1, character2],
         soul_level=0,

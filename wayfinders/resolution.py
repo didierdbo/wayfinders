@@ -1,4 +1,4 @@
-from typing import Literal, Protocol
+from typing import Literal, Protocol, cast
 
 from wayfinders.models import ActionCard, Character, Resolution, Stat
 
@@ -62,7 +62,8 @@ def compute_modifiers(
     for tag in action.tags:
         for trait in character.traits:
             if tag in trait.roll_modifier:
-                modifiers.append(trait.roll_modifier[tag])
+                # tag is checked at runtime; narrow for the strict Literal dict key.
+                modifiers.append(trait.roll_modifier[cast(Literal["risky", "safe", "loot"], tag)])
 
     modifiers.append(STRESS_MODIFIERS[stress_state])
 
