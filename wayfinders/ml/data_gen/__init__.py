@@ -10,3 +10,27 @@ Pipeline (Pax 2026-05-02 sec. 4):
 M1 ships scaffolding for steps 1, 2, 4. Step 3 (encoder + cache) lives in
 ``inference/encoder.py`` and is wired into ``training/dataset.py``.
 """
+
+from wayfinders.ml.data_gen.designer_modifiers import (
+    DELTA_MAX,
+    DELTA_MIN,
+    compute_delta,
+    compute_label,
+)
+from wayfinders.ml.data_gen.rollouts import (
+    Rollout,
+    generate_rollouts,
+    load_rollouts_jsonl,
+    serialize_rollouts_jsonl,
+)
+
+__all__ = [
+    "DELTA_MAX",
+    "DELTA_MIN",
+    "Rollout",
+    "compute_delta",
+    "compute_label",
+    "generate_rollouts",
+    "load_rollouts_jsonl",
+    "serialize_rollouts_jsonl",
+]
