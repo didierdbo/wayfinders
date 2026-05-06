@@ -214,6 +214,21 @@ public sealed class MiniLmEncoder : IDisposable
     {
         if (_disposed) throw new ObjectDisposedException(nameof(MiniLmEncoder));
         ArgumentNullException.ThrowIfNull(text);
+
+        // L4 tokenizer fix: HuggingFace `BertTokenizerFast` (canonical Google
+        // BERT behaviour) splits on `_` (U+005F) as ASCII punctuation;
+        // `Microsoft.ML.Tokenizers.BertTokenizer` 1.0.1 does not. On rollout
+        // prose like `Mira_0` this produced `[mira, ##_, ##0]` C#-side vs
+        // `[mira, _, 0]` Python-side -- 18/18 rollout records diverged at L4
+        // parity. Surrounding `_` with spaces lets BasicTokenizer's whitespace
+        // pass do the split, after which WordPiece looks `_` up directly
+        // (id 1035) and the C# token stream matches HF.
+        // Single point of normalization: `Encode()` calls `TokenizeForTest()`,
+        // so this covers both production and test paths. Other ASCII
+        // punctuation chars (`-`, `'`, dash unicode) are punted to L5 audit.
+        // Refs: Owner's Inbox/Game Design/Coda - L4 Tokenizer Divergence Probe - 2026-05-06.md
+        text = text.Replace("_", " _ ");
+
         // EncodeToIds(text, addSpecialTokens, considerPreTokenization, considerNormalization)
         // addSpecialTokens=true        -> prepend [CLS] (101), append [SEP] (102)
         // considerPreTokenization=true -> apply BasicTokenizer (whitespace + punctuation split)

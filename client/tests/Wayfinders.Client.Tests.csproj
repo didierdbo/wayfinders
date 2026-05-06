@@ -10,8 +10,8 @@
     <!-- We do NOT ProjectReference the Godot client csproj. It uses the
          Godot.NET.Sdk and a ProjectReference would drag GodotSharp + the
          engine binding into a plain test host that has no Godot runtime.
-         Instead, we cherry-pick the Godot-free source file (MiniLmEncoder.cs)
-         via <Compile Include> below. Cleaner, faster, AOT-friendly. -->
+         Instead, we cherry-pick the Godot-free source files via
+         <Compile Include> below. Cleaner, faster, AOT-friendly. -->
   </PropertyGroup>
 
   <ItemGroup>
@@ -31,10 +31,15 @@
   </ItemGroup>
 
   <!-- Compile the ML source files directly into the test assembly.
-       Both MiniLmEncoder.cs and ResolutionHead.cs have no Godot dependency. -->
+       IClassifier, MiniLmEncoder, ResolutionHead, and OnnxClassifier all
+       have no Godot dependency by design (the Godot bridge lives in
+       ClassifierService, which we deliberately do not test from xUnit; it
+       would require a live Godot runtime, see L4 brief §5.3). -->
   <ItemGroup>
+    <Compile Include="..\ml\IClassifier.cs" Link="src\IClassifier.cs" />
     <Compile Include="..\ml\MiniLmEncoder.cs" Link="src\MiniLmEncoder.cs" />
     <Compile Include="..\ml\ResolutionHead.cs" Link="src\ResolutionHead.cs" />
+    <Compile Include="..\ml\OnnxClassifier.cs" Link="src\OnnxClassifier.cs" />
   </ItemGroup>
 
 </Project>

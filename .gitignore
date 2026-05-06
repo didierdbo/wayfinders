@@ -107,6 +107,13 @@ client/*.translation
 # assets, fetched manually into client/ml/ before running the test suite.
 # Same discipline as the top-level artifacts/ folder. Commit the C# source
 # and the small derived parity fixture (parity/), never the binary blobs.
+#
+# Exception (Phase 6 L4): the resolution-head ONNX (~3 MB fp32) IS committed
+# under client/ml/. Asymmetry is size-driven, not aesthetic -- the head is
+# small enough to ship with the source (no release-asset fetch step on a
+# fresh clone) and is the contract artefact OnnxClassifier composes with the
+# encoder. The encoder stays out (45 MB blows the repo).
 client/ml/*.onnx
+!client/ml/resolution-head-v0.1.onnx
 client/ml/tokenizer.json
 client/ml/vocab.txt

@@ -16,6 +16,11 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=500]
+        # Exception (Phase 6 L4): the resolution-head ONNX (~1.25 MB) is
+        # the contract artefact OnnxClassifier composes with the encoder
+        # and is intentionally tracked. Mirror of the .gitignore exception
+        # below the same path. Ratified in the L4 pre-brief §11.6.
+        exclude: ^client/ml/resolution-head-v0\.1\.onnx$
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.20.2

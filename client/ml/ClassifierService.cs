@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Godot;
@@ -7,7 +8,8 @@ namespace Wayfinders.Client.Ml;
 /// <summary>
 /// Autoload <see cref="Node"/> that owns the current
 /// <see cref="IClassifier"/> implementation and exposes a single
-/// <see cref="ResolveDeltaAsync"/> entrypoint to scene code (Phase 6 L1).
+/// <see cref="ResolveDeltaAsync"/> entrypoint to scene code (Phase 6 L1,
+/// production swap landed at L4).
 ///
 /// <para>
 /// <b>Why an autoload, not a static factory or a property-injected
@@ -23,7 +25,7 @@ namespace Wayfinders.Client.Ml;
 /// <para>
 /// <b>Why a wrapper Node around an <see cref="IClassifier"/> field, not
 /// a Node that <i>is</i> an <see cref="IClassifier"/>.</b> The
-/// implementation pick (mock for L1, ONNX-backed for L4) is data, not
+/// implementation pick (mock for L1, ONNX-backed at L4) is data, not
 /// identity — a one-line swap inside <see cref="_Ready"/>. Keeping
 /// <see cref="IClassifier"/> as a plain C# interface implemented by
 /// plain C# classes (not a <see cref="Node"/>) means the L4 ONNX
@@ -39,10 +41,9 @@ namespace Wayfinders.Client.Ml;
 /// own <see cref="Node._Ready"/>/<see cref="Node._ExitTree"/>; every
 /// <see cref="ResolveDeltaAsync"/> call links the caller's token with
 /// the shutdown token so cancellation from either side wins. App exit
-/// cancels all in-flight inferences cleanly. Today the mock returns
-/// instantly so this is mostly future-proofing for L4, but the
-/// boundary is the right place to build it now — once the real ONNX
-/// path arrives, callers do not change.
+/// cancels all in-flight inferences cleanly. At L4 the implementation
+/// runs three encoder passes plus one head pass per call (~30 ms warm),
+/// so the cancellation discipline finally pays off.
 /// </para>
 ///
 /// <para>
@@ -57,14 +58,13 @@ namespace Wayfinders.Client.Ml;
 /// </para>
 ///
 /// <para>
-/// <b>L4 swap point.</b> When Coda ships the ONNX head and Rune lands
-/// the encoder integration (L2 + L3), the only line that changes is
-/// the assignment in <see cref="_Ready"/>:
-/// <c>_implementation = new MockClassifier();</c> becomes
-/// <c>_implementation = new OnnxClassifier(encoderPath, headPath);</c>.
-/// Every caller in <see cref="Wayfinders.Client.Scenes.TacticalScene"/>
-/// is unaffected. That is the swap-friendliness this whole boundary
-/// exists for.
+/// <b>L4 swap point.</b> The two surgical edits compared to L1 are:
+/// (1) <see cref="_Ready"/> now globalises the three <c>res://ml/</c>
+/// asset paths and instantiates <see cref="OnnxClassifier"/> instead of
+/// the mock, and (2) <see cref="_ExitTree"/> disposes the implementation
+/// when it is <see cref="IDisposable"/>. Every caller in
+/// <see cref="Wayfinders.Client.Scenes.TacticalScene"/> is unaffected --
+/// the boundary did its job.
 /// </para>
 /// </summary>
 public partial class ClassifierService : Node
@@ -76,10 +76,17 @@ public partial class ClassifierService : Node
     {
         _shutdownCts = new CancellationTokenSource();
 
-        // L1: ship the boundary with the mock. L4 swaps this single
-        // line for `new OnnxClassifier(...)`. The autoload, the
-        // shutdown CTS, and every caller stay untouched.
-        _implementation = new MockClassifier();
+        // L4: compose encoder + head into the production classifier.
+        // ProjectSettings.GlobalizePath is the bridge between Godot's
+        // res:// URIs and the absolute filesystem paths OnnxClassifier
+        // expects. We resolve the paths once here -- inside the
+        // classifier itself, the API stays Godot-agnostic and remains
+        // unit-testable from xUnit.
+        string encoderPath = ProjectSettings.GlobalizePath("res://ml/encoder.onnx");
+        string vocabPath = ProjectSettings.GlobalizePath("res://ml/vocab.txt");
+        string headPath = ProjectSettings.GlobalizePath("res://ml/resolution-head-v0.1.onnx");
+
+        _implementation = new OnnxClassifier(encoderPath, vocabPath, headPath);
 
         GD.Print(
             $"[ClassifierService] ready, implementation = " +
@@ -88,13 +95,19 @@ public partial class ClassifierService : Node
 
     public override void _ExitTree()
     {
-        // Cancel any in-flight inference before the autoload tears down.
-        // Mirrors ApiClient. Today the mock is instantaneous so nothing
-        // is in flight; the discipline is here so L4's 50-100 ms ONNX
-        // inferences are properly cancelled when the scene unloads or
-        // the app exits.
+        // Cancel any in-flight inference before the autoload tears down,
+        // then dispose the implementation if it owns native resources
+        // (OnnxClassifier owns two ORT InferenceSessions; MockClassifier
+        // does not implement IDisposable, hence the runtime check rather
+        // than baking IDisposable into the IClassifier contract -- see
+        // L4 brief §11.3).
         _shutdownCts.Cancel();
         _shutdownCts.Dispose();
+
+        if (_implementation is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
 
         GD.Print("[ClassifierService] disposed");
     }
