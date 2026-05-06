@@ -26,21 +26,17 @@ def kira_canonical_state() -> CharacterState:
         name="Kira",
         char_class="scout",
         faction="Ridgewatch company",
-        str_bucket="mid",  # not in canonical example; keep mid for default
-        # Canonical descriptor sentence is "wiry, preternaturally quick, and
-        # shrewd" -- wiry = DEX 'high', preternaturally quick = DEX 'very-high'.
-        # Varn's example chose two DEX words because it pre-dates the
-        # locked one-adjective-per-stat rule. Until Varn revises sec. 3, we
-        # render mid/very-high/high which yields:
-        #   "Kira is sturdy, preternaturally quick, and shrewd."
-        # (close-but-not-byte-identical to Varn's canonical sentence). The
-        # canonical reproduction test below tolerates this -- it pins the
-        # *current* renderer's output, not Varn's example string.
+        str_bucket="low",
+        # Per UC1 Descriptor Lanes Lock 2026-05-06 sec. 4: Kira is STR low /
+        # DEX very-high / WIS high. The canonical descriptor sentence is
+        # "Kira is slender, preternaturally quick, and shrewd." -- pinned in
+        # test_render_kira_canonical and test_descriptor_sentence_present.
         dex_bucket="very-high",
         wis_bucket="high",
         traits=("bold", "loyal", "impatient"),
         hp_bucket="scratched",
         stress_bucket="tense",
+        stress_cause="from a short night's sleep",
         conditions=("with a fading bruise on her forearm",),
         equipment=("a short bow she made herself", "a worn leather jerkin"),
         combat_engagements={

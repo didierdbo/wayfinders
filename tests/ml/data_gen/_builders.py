@@ -1,9 +1,9 @@
 """Reusable builders for designer-modifier tests.
 
 We can't use ``tests.ml.schemas._fixtures.kira_canonical_state`` directly for
-table verification because that fixture pre-dates Varn's v0.5 table and pins
-``dex_bucket='very-high'`` (which the table maps to +3) where Varn's worked
-Example 1 places Kira at +2 ('wiry/agile' lane). This module ships fresh
+table verification because that fixture pins ``dex_bucket='very-high'``
+(which the table maps to +3) where Varn's worked Example 1 places Kira at +2
+(DEX 'high' = 'nimble' lane in the locked vocab). This module ships fresh
 states tuned to the table's worked examples.
 """
 
@@ -25,7 +25,7 @@ from wayfinders.ml.schemas.context import FactionStance, PartyMember
 def kira_for_table_v05() -> CharacterState:
     """Kira tuned to Varn worked Example 1: descriptors +2, traits -1, legacy +4.
 
-    DEX 'high' (Varn's 'wiry/agile' = +2 in the 5-bucket compression),
+    DEX 'high' (locked vocab: 'nimble', Varn table +1 cell = +2 after WIS),
     WIS 'high' (+1), traits ('bold','loyal','impatient') = 0+0-1, equipment
     leather + soft-soled = 0+1, legacy stealth 8/3 + scouting 80h + best-of-all
     location familiarity, no episodic stealth match.

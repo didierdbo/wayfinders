@@ -13,36 +13,40 @@ from collections.abc import Mapping
 from typing import Final, Literal
 
 # ---------------------------------------------------------------------------
-# Character schema vocabularies (Varn 2026-04-30 sec. 3)
+# Character schema vocabularies (Varn - UC1 Descriptor Lanes Lock 2026-05-06)
 # ---------------------------------------------------------------------------
 
 # Descriptor lanes -- STR / DEX / WIS rendered as adjective from a 5-bucket
 # bucketing of the underlying score. Buckets are: very-low / low / mid /
 # high / very-high. Lookup is keyed by bucket label.
+#
+# Rule (locked 2026-05-06): one adjective per stat, fixed order STR/DEX/WIS,
+# no cross-lane vocabulary overlap. Every word belongs to exactly one stat.
+# See lock doc sec. 2 for rationale (encoder auditability + no redundant signal).
 type DescriptorBucket = Literal["very-low", "low", "mid", "high", "very-high"]
 
 STR_LANES: Final[Mapping[DescriptorBucket, str]] = {
     "very-low": "frail",
-    "low": "slight",
+    "low": "slender",  # replaces "slight" (leaked DEX signal to encoder)
     "mid": "sturdy",
     "high": "strong-armed",
-    "very-high": "iron-thewed",
+    "very-high": "mighty",  # replaces "iron-thewed" (archaic; breaks Pratchett tonal DNA)
 }
 
 DEX_LANES: Final[Mapping[DescriptorBucket, str]] = {
-    "very-low": "ponderous",
-    "low": "deliberate",
-    "mid": "quick-handed",
-    "high": "wiry",
+    "very-low": "clumsy",  # replaces "ponderous" (read as STR-shaped, not DEX)
+    "low": "stiff",  # replaces "deliberate" (temperament/WIS word)
+    "mid": "steady",  # replaces "quick-handed" (too high for mid bucket)
+    "high": "nimble",  # replaces "wiry" (cross-coded STR+DEX; retired entirely)
     "very-high": "preternaturally quick",
 }
 
 WIS_LANES: Final[Mapping[DescriptorBucket, str]] = {
     "very-low": "credulous",
-    "low": "plain-spoken",
+    "low": "naive",  # replaces "plain-spoken" (CHA/social word, not WIS)
     "mid": "level-headed",
     "high": "shrewd",
-    "very-high": "uncannily perceptive",
+    "very-high": "uncannily wise",  # replaces "uncannily perceptive" ("perceptive" leans INT)
 }
 
 # HP condition lane -- bucket of (current_hp / max_hp).

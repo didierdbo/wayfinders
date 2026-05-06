@@ -16,14 +16,13 @@ ruff catches accidental mutation. Lookup logic lives in
 **Closed-vocab adapter notes:**
 
 The codebase ships closed lanes that don't always match Varn's
-designer-facing table strings 1:1. Varn references e.g. "preternaturally
-quick / quick / wiry / steady / slow-handed / clumsy" (6 cells) for DEX,
-but the schema's `DescriptorBucket` is a 5-bucket lane. I map by **bucket
-*level*** (ordinal position) rather than by string, which keeps the schema
-authoritative and the table interpretable. Where Varn lists strings the
-vocab does not contain (e.g. "in fog" lighting, "ice" footing), the entry
-is omitted with a code comment and v1 either extends the vocab or drops
-the rule.
+designer-facing table strings 1:1. Varn's v0.5 designer table references a
+6-cell DEX string (including "wiry" -- retired by UC1 Descriptor Lanes Lock
+2026-05-06); the locked vocab is 5-bucket only. I map by **bucket *level***
+(ordinal position) rather than by string, which keeps the schema authoritative
+and the table interpretable. Where Varn lists strings the vocab does not
+contain (e.g. "in fog" lighting, "ice" footing), the entry is omitted with a
+code comment and v1 either extends the vocab or drops the rule.
 """
 
 from __future__ import annotations
@@ -56,17 +55,16 @@ from wayfinders.ml.schemas.vocabularies import (
 # ---------------------------------------------------------------------------
 
 # DEX lane mapped to stealth_approach / ranged_attack (full magnitude).
-# Codebase string lanes: ponderous / deliberate / quick-handed / wiry /
-# preternaturally quick. We align with Varn's 6-cell table by string identity
-# (the codebase 'wiry' = Varn 'wiry/agile' = +1, etc.) and collapse Varn's
-# 'quick/nimble (+2)' and 'preternaturally quick (+3)' onto the single
-# 'very-high' lane at +3 -- conservative for stealth.
+# Locked vocab (2026-05-06): clumsy / stiff / steady / nimble / preternaturally quick.
+# Varn's v0.5 designer table used a 6-cell DEX string ("wiry/agile" etc.) -- we
+# align by bucket *ordinal* (not string), collapse Varn's top two cells onto
+# 'very-high' at +3, and map 'nimble' (DEX high) to +1.
 DEX_DELTA_FULL: Final[Mapping[DescriptorBucket, int]] = {
     "very-high": 3,  # 'preternaturally quick'
-    "high": 1,  # 'wiry' -> Varn's +1 cell (Kira lands here)
-    "mid": 0,  # 'quick-handed' -> treated as Varn 'steady' baseline
-    "low": -1,  # 'deliberate' -> Varn 'slow-handed'
-    "very-low": -2,  # 'ponderous' -> Varn 'clumsy'
+    "high": 1,  # 'nimble' -> Varn's +1 cell (Kira lands here in the table example)
+    "mid": 0,  # 'steady' -> Varn 'steady' baseline
+    "low": -1,  # 'stiff' -> Varn 'slow-handed'
+    "very-low": -2,  # 'clumsy' -> Varn 'clumsy'
 }
 
 # DEX lane scaled down for the `move` action (Varn §1.1: "magnitude réduite").
@@ -79,7 +77,7 @@ DEX_DELTA_MOVE: Final[Mapping[DescriptorBucket, int]] = {
 }
 
 # STR lane for melee_attack. Same 5-to-6 collapse as DEX_DELTA_FULL --
-# 'iron-thewed' (very-high) absorbs Varn's '+3'/'+2' top cells, 'strong-armed'
+# 'mighty' (very-high) absorbs Varn's '+3'/'+2' top cells, 'strong-armed'
 # (high) maps to '+1', 'sturdy' (mid) to '0', etc.
 STR_DELTA_MELEE: Final[Mapping[DescriptorBucket, int]] = {
     "very-high": 3,

@@ -4,11 +4,10 @@ Determinism is the load-bearing property: same state -> same string, forever.
 The canonical reproduction test pins the exact rendered output; if Varn revises
 the schema, update _KIRA_CANONICAL_DOC in the same commit as the renderer change.
 
-Known divergence from Varn 2026-04-30 sec. 2: the original example has
-"wiry, preternaturally quick, and shrewd" (two DEX adjectives). The locked
-one-adjective-per-stat rule maps mid/very-high/high to
-"sturdy, preternaturally quick, and shrewd". The fixture and snapshot below
-reflect the locked renderer output, not Varn's pre-lock example string.
+Descriptor sentence is locked per UC1 Descriptor Lanes Lock 2026-05-06 sec. 4:
+Kira is STR low / DEX very-high / WIS high ->
+"Kira is slender, preternaturally quick, and shrewd."
+The previous divergence (str_bucket=mid, "sturdy") is resolved by this lock.
 """
 
 from __future__ import annotations
@@ -30,8 +29,9 @@ from wayfinders.ml.schemas.character import (
 # ---------------------------------------------------------------------------
 _KIRA_CANONICAL_DOC = (
     "Kira is a scout of the Ridgewatch company.\n"
-    # Descriptor: mid(STR)=sturdy / very-high(DEX)=preternaturally quick / high(WIS)=shrewd
-    "Kira is sturdy, preternaturally quick, and shrewd.\n"
+    # Descriptor: low(STR)=slender / very-high(DEX)=preternaturally quick / high(WIS)=shrewd
+    # Locked per UC1 Descriptor Lanes Lock 2026-05-06 sec. 4.
+    "Kira is slender, preternaturally quick, and shrewd.\n"
     # Traits: sorted alpha from (bold, loyal, impatient)
     "Kira is bold, impatient, and loyal.\n"
     # Status: scratched + condition + tense
@@ -188,8 +188,8 @@ class TestStructure:
 
     def test_descriptor_sentence_present(self) -> None:
         out = render_character(kira_canonical_state())
-        # mid(STR) / very-high(DEX) / high(WIS)
-        assert "Kira is sturdy, preternaturally quick, and shrewd." in out
+        # low(STR) / very-high(DEX) / high(WIS) -- locked 2026-05-06
+        assert "Kira is slender, preternaturally quick, and shrewd." in out
 
     def test_traits_alphabetical(self) -> None:
         out = render_character(kira_canonical_state())

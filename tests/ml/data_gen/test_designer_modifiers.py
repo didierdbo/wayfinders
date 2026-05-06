@@ -254,8 +254,8 @@ class TestCharacterComponents:
         action = stealth_card_starlight_scree()
         assert _char_legacy_delta(char, action) == 4
 
-    def test_descriptor_kira_wiry_shrewd(self):  # type: ignore[no-untyped-def]
-        """Kira at DEX 'high' (wiry) + WIS 'high' (shrewd) -> +1 + +1 = +2."""
+    def test_descriptor_kira_nimble_shrewd(self):  # type: ignore[no-untyped-def]
+        """Kira at DEX 'high' (nimble) + WIS 'high' (shrewd) -> +1 + +1 = +2."""
         char = kira_for_table_v05()
         action = stealth_card_starlight_scree()
         assert _char_descriptor_delta(char, action) == 2
