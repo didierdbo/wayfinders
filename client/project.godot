@@ -11,13 +11,14 @@ config_version=5
 [application]
 
 config/name="Wayfinders"
-run/main_scene="res://scenes/RosterScene.tscn"
+run/main_scene="uid://c01itlccoem53"
 config/features=PackedStringArray("4.6", "C#", "Forward Plus")
 config/icon="res://icon.svg"
 
 [autoload]
 
 ApiClient="*res://services/ApiClient.tscn"
+Classifier="*res://ml/ClassifierService.tscn"
 
 [dotnet]
 

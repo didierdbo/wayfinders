@@ -1,6 +1,10 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Godot;
+using Wayfinders.Client.Ml;
 using Wayfinders.Client.Simulation;
 using Wayfinders.Client.Units;
 
@@ -325,6 +329,28 @@ public partial class TacticalScene : Node2D
     /// </summary>
     private string? _selectedUnitId;
 
+    /// <summary>
+    /// Cached reference to the autoload <see cref="ClassifierService"/>
+    /// (Phase 6 L1). Resolved once in <see cref="_Ready"/> via
+    /// <c>GetNode</c> on the well-known autoload path; held for the
+    /// lifetime of the scene. Same shape as the
+    /// <see cref="Wayfinders.Client.Services.ApiClient"/> reference
+    /// pattern that callers will pick up later.
+    /// </summary>
+    private ClassifierService _classifier = null!;
+
+    /// <summary>
+    /// Scene-scoped cancellation source for in-flight ML inferences.
+    /// Cancelled in <see cref="_ExitTree"/> so a click that fires an
+    /// inference moments before the scene unloads cannot complete on a
+    /// disposed autoload or a freed marker. Mirrors the
+    /// <see cref="Wayfinders.Client.Services.ApiClient"/> shutdown
+    /// discipline at the scene level rather than the autoload level —
+    /// the autoload has its own CTS for app-exit; this one is for
+    /// scene-exit, narrower and shorter-lived.
+    /// </summary>
+    private CancellationTokenSource _inferenceCts = null!;
+
     public override void _Ready()
     {
         _ground = GetNode<TileMapLayer>("Ground");
@@ -350,11 +376,29 @@ public partial class TacticalScene : Node2D
         // solid.
         SpawnParty();
 
+        // Phase 6 L1: resolve the classifier autoload once and own a
+        // scene-scoped CTS for any inference fired from this scene. The
+        // mock returns Δ=0 instantly today; the wiring is here for L4.
+        _classifier = GetNode<ClassifierService>("/root/Classifier");
+        _inferenceCts = new CancellationTokenSource();
+
         GD.Print(
             $"TacticalScene: rendered {MapWidth}x{MapHeight} iso grid from " +
             $"simulation; {_markers.Count} units spawned; " +
-            $"pathfinding service ready. " +
+            $"pathfinding service ready; " +
+            $"classifier wired ({_classifier.Name}). " +
             $"Click a unit to select; click a cell to preview a path.");
+    }
+
+    public override void _ExitTree()
+    {
+        // Cancel any in-flight ML inference fired from this scene before
+        // the scene's nodes are freed. Without this, a click made just
+        // before scene unload could resume on a freed marker / disposed
+        // autoload — the same lesson L4 of Arc 1 taught for HTTP, applied
+        // to ML inference.
+        _inferenceCts.Cancel();
+        _inferenceCts.Dispose();
     }
 
     /// <summary>
@@ -548,6 +592,65 @@ public partial class TacticalScene : Node2D
         }
         StampHighlight(path[0], EndpointAtlasCoord);
         StampHighlight(path[^1], EndpointAtlasCoord);
+
+        // Phase 6 L1: fire the classifier on the same scenario the path
+        // preview just rendered. Discarded Task — fire-and-forget keeps
+        // PreviewPathTo synchronous so it can be called straight from
+        // _UnhandledInput. The helper catches its own OperationCanceledException;
+        // the only thing that escapes is a real bug we want to see in
+        // the editor's stderr.
+        _ = ResolveAndLogDeltaAsync(selectedId, origin, targetCoord, _inferenceCts.Token);
+    }
+
+    /// <summary>
+    /// Phase 6 L1 wiring helper. Runs the classifier on the unit's
+    /// stub prose triple, logs the resulting Δ, and absorbs cancellation
+    /// quietly. Today the underlying implementation is
+    /// <see cref="MockClassifier"/>, which returns Δ=0; the log line is
+    /// the visible proof the seam is alive end-to-end.
+    ///
+    /// <para>
+    /// <b>Why a separate <c>async</c> helper instead of awaiting
+    /// directly in <see cref="PreviewPathTo"/>.</b> <see cref="PreviewPathTo"/>
+    /// is invoked synchronously from <see cref="_UnhandledInput"/>;
+    /// turning the chain async would force the input handler to be
+    /// async, which Godot does not naturally call as such. Fire-and-
+    /// forget on a discarded <see cref="Task"/> is the idiomatic Godot
+    /// + C# pattern: the input handler stays a sync sink, the side-
+    /// effect (an inference + a log) runs on its own task, and the
+    /// scene-scoped CTS gives us cancellation discipline at scene exit.
+    /// </para>
+    /// </summary>
+    private async Task ResolveAndLogDeltaAsync(
+        string unitId,
+        Vector2I origin,
+        Vector2I targetCoord,
+        CancellationToken ct)
+    {
+        ProseTriple prose = ProseStubs.ForUnit(unitId);
+
+        try
+        {
+            float delta = await _classifier
+                .ResolveDeltaAsync(prose.Character, prose.Action, prose.Context, ct)
+                .ConfigureAwait(false);
+
+            // GD.Print is thread-safe; no main-thread hop needed for
+            // logging alone. If we ever mutate Node state from this
+            // continuation (e.g. apply Δ to a HUD label), the
+            // CallDeferred / ToSignal(ProcessFrame) hop becomes
+            // mandatory — flagged here so the discipline is visible at
+            // the call site when L4 lands.
+            GD.Print(
+                $"Classifier: Δ={delta:+0.00;-0.00;0.00} for " +
+                $"{unitId} {origin} -> {targetCoord}");
+        }
+        catch (OperationCanceledException)
+        {
+            // Scene unloaded between the click and the inference
+            // completing. Quiet drop is the contract; nothing to log
+            // because the scene is going away.
+        }
     }
 
     private void ClearHighlights()
