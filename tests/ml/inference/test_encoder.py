@@ -313,6 +313,18 @@ class TestConstantsExposed:
 # ---------------------------------------------------------------------------
 
 
+def _numeric_atol(enc: MiniLMEncoder) -> float:
+    """Return the appropriate absolute tolerance for tensor comparisons.
+
+    fp16 on CUDA uses different cuDNN kernel paths for batched vs sequential
+    ops (e.g. batched matmul vs sequential einsum variants).  These paths
+    accumulate rounding differently, so batch==sequential diverges at ~1e-4
+    even when both calls are bit-reproducible on their own.  fp32 (CPU or GPU)
+    stays within 1e-5 and we keep that strict threshold to catch real bugs.
+    """
+    return 1e-3 if enc.use_fp16 else 1e-5
+
+
 @pytest.mark.integration
 class TestIntegrationRealModel:
     """Integration tests that load the real sentence-transformers model."""
@@ -352,7 +364,7 @@ class TestIntegrationRealModel:
         prose = "Kira sneaks past two sentries at the watchtower under starlight."
         a = enc.encode(prose)
         b = enc.encode(prose)
-        assert torch.allclose(a.float(), b.float(), atol=1e-5)
+        assert torch.allclose(a.float(), b.float(), atol=_numeric_atol(enc))
 
     def test_batch_equals_sequential(self, enc: MiniLMEncoder) -> None:
         """encode_batch([s1, s2]) must match [encode(s1), encode(s2)] row-by-row."""
@@ -361,8 +373,9 @@ class TestIntegrationRealModel:
         batch = enc.encode_batch([prose_a, prose_b])
         single_a = enc.encode(prose_a)
         single_b = enc.encode(prose_b)
-        assert torch.allclose(batch[0].float(), single_a.float(), atol=1e-5)
-        assert torch.allclose(batch[1].float(), single_b.float(), atol=1e-5)
+        atol = _numeric_atol(enc)
+        assert torch.allclose(batch[0].float(), single_a.float(), atol=atol)
+        assert torch.allclose(batch[1].float(), single_b.float(), atol=atol)
 
     def test_no_grad_invariant_holds_after_encode(self, enc: MiniLMEncoder) -> None:
         """Encoding must not accumulate gradients (frozen contract)."""
