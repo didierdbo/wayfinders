@@ -1,78 +1,151 @@
+using System.Collections.Generic;
+using System.Linq;
 using Godot;
 using Wayfinders.Client.Simulation;
 
 namespace Wayfinders.Client.Scenes;
 
 /// <summary>
-/// First tactical scene (Phase 5 L1 + L2).
+/// First tactical scene (Phase 5 L1 → L4).
 ///
 /// <para>
-/// <b>What this layer ships (L1 + L2):</b> a 24×24 isometric
-/// <see cref="TileMapLayer"/> rendered with a programmatically-generated
-/// placeholder tile, Y-sort plumbing wired so future units occlude
-/// correctly, a parallel logical <see cref="SimulationGrid"/> seeded with
-/// the UC1 ridge-mission shape, and a click-to-cell debug surface that
-/// prints both the <see cref="Vector2I"/> cell coordinate of the tile
-/// under the mouse <i>and</i> the matching <see cref="Cell"/> payload —
-/// proof that the visual and logical halves are kept in sync.
+/// <b>What this layer ships now (L3 + L4 added on top of L1 + L2):</b>
+/// the 24×24 isometric <see cref="TileMapLayer"/> from L1 stamped per-cell
+/// from the L2 <see cref="SimulationGrid"/> with three distinct terrain
+/// visuals (L3), plus an <see cref="AStarGrid2D"/>-backed
+/// <see cref="PathfindingService"/> exposed through a click-driven smoke
+/// test that picks a from-cell, a to-cell, and renders the resulting path
+/// on a second <see cref="TileMapLayer"/> overlay (L4).
 /// </para>
 ///
 /// <para>
-/// <b>What this layer is NOT:</b> no terrain visual variation yet (L3),
-/// no pathfinding (L4), no units on the grid (L5). L2 stops at "the iso
-/// grid renders, the simulation grid exists, and the click reports
-/// both."
+/// <b>What this layer is still NOT:</b> no units (L5), no real art (Mira's
+/// assets), no turn manager, no AI. The pathfinding visualization is the
+/// debug surface for a system that L5 will consume — when units exist,
+/// they will call <see cref="PathfindingService.FindPath"/> the same way
+/// the click handler does today.
 /// </para>
 ///
 /// <para>
-/// <b>Visual grid vs simulation grid (the load-bearing lesson, now
-/// realized).</b> <see cref="TileMapLayer"/> is what the player
-/// <i>sees</i>. The game <i>state</i> — who occupies a cell, terrain
-/// type, elevation, cover — lives in <see cref="SimulationGrid"/>, a
-/// plain C# class held as a field on this scene. The
-/// <see cref="TileMapLayer"/> is never the source of truth for game
-/// state. Going forward (L3+) the two halves are kept in sync via
-/// explicit code paths: when the simulation says "this cell is loose
-/// scree", L3's stamp-pass writes the matching atlas coord to the visual
-/// layer. The reverse never happens.
+/// <b>Visual / simulation / pathfinding — three layers, one direction.</b>
+/// <see cref="SimulationGrid"/> is the source of truth (L2 lock). The
+/// <see cref="TileMapLayer"/> for terrain (Ground) is a render of the
+/// simulation. The <see cref="PathfindingService"/> is a query cache
+/// derived from the simulation. The path-highlight overlay
+/// (<c>PathHighlight</c>) is a render of pathfinding query results. None
+/// of the downstream layers ever feed back upstream — if the simulation
+/// changes (a boulder is destroyed, a unit blocks a cell), we re-stamp the
+/// Ground layer and call <see cref="PathfindingService.Invalidate"/>; we
+/// never read state back out of the renderers.
 /// </para>
 ///
 /// <para>
-/// <b>Why <see cref="SimulationGrid"/> is held as a field, not an
-/// autoload.</b> The grid's lifetime is the lifetime of one tactical
-/// encounter — when the scene exits the tree, the grid is gone with it.
-/// An autoload would imply "shared across scenes" semantics that are
-/// wrong here. If a future feature needs cross-scene grid state (e.g.
-/// returning to a paused mission), that is a save/load concern, not an
-/// autoload concern.
+/// <b>Two TileMapLayers, two TileSets.</b> Each layer owns its own
+/// <see cref="TileSet"/>. Sharing one would let any layer stamp any tile
+/// — the kind of accidental coupling that causes "why is the path-highlight
+/// drawing terrain?" bugs at 11pm. Per-layer TileSets make the boundaries
+/// explicit and keep the placeholder atlases small. When Mira's iso art
+/// lands the Ground TileSet becomes a <c>.tres</c> asset; the PathHighlight
+/// TileSet stays code-generated because debug overlays are not designer
+/// surface.
 /// </para>
 ///
 /// <para>
-/// <b>Why the TileSet is built in code.</b> Mira has not delivered art yet
-/// and we do not want a binary placeholder asset cluttering the repo. The
-/// <see cref="TileSet"/> is generated at <c>_Ready</c> from a programmatic
-/// <see cref="Image"/> — a 64×32 iso diamond filled with a placeholder color
-/// plus a darker border for visibility. Once real art lands the TileSet
-/// becomes a <c>.tres</c> referencing real textures; the rest of this code
-/// does not change.
+/// <b>Why the path overlay is a TileMapLayer, not <see cref="Line2D"/> or
+/// <see cref="Sprite2D"/> markers.</b> Three options were on the table:
+/// <list type="bullet">
+///   <item><b><see cref="TileMapLayer"/> overlay</b> (chosen): reuses the
+///   exact same coord system and iso transform as the gameplay grid;
+///   <see cref="TileMapLayer.SetCell"/> is the API we already speak in
+///   this scene; clearing the overlay is one
+///   <see cref="TileMapLayer.Clear"/> call. Y-sort behavior matches the
+///   ground layer for free.</item>
+///   <item><b><see cref="Line2D"/></b>: cheap to draw, but each path step
+///   would need <see cref="TileMapLayer.MapToLocal"/> conversion, and a
+///   line drawn between iso tile centers feels off — the player reads the
+///   grid as discrete tiles and a continuous line breaks that mental
+///   model.</item>
+///   <item><b><see cref="Sprite2D"/> markers</b>: N nodes per path step,
+///   each manually placed. Verbose, lifecycle to manage, no idiomatic
+///   advantage over a TileMapLayer.</item>
+/// </list>
 /// </para>
 ///
 /// <para>
-/// <b>Iso math is the engine's job.</b> The cell↔pixel conversion uses
-/// <see cref="TileMapLayer.LocalToMap(Vector2)"/> and
-/// <see cref="TileMapLayer.MapToLocal(Vector2I)"/>. Hand-rolled
-/// <c>screenX = (cellX - cellY) * tileWidth/2</c> trigonometry is a
-/// code-review red flag — the helpers exist for a reason and they handle
-/// the iso shape, the tile size, and the layer transform together.
+/// <b>Click state machine.</b> Three clicks form a cycle:
+/// <list type="number">
+///   <item>1st click: pick the <c>from</c> cell. Highlight it as an
+///   endpoint.</item>
+///   <item>2nd click: pick the <c>to</c> cell, query the
+///   <see cref="PathfindingService"/>, render the resulting path.</item>
+///   <item>3rd click: clear the overlay <i>and</i> become the new
+///   <c>from</c> for the next cycle. The cycle never has a "do nothing"
+///   click — every press advances state.</item>
+/// </list>
+/// Clicks on solid (Blocked) cells while picking <c>to</c> render an empty
+/// path, which we surface with a console log and a single endpoint
+/// highlight. Clicks outside the grid are dropped with a log.
 /// </para>
 ///
 /// <para>
-/// <b>Y-sort cascade.</b> The <see cref="Node2D"/> root sets
-/// <see cref="CanvasItem.YSortEnabled"/>. The <see cref="TileMapLayer"/>
-/// has its own per-layer y-sort flag set on the node. Future units (L5)
-/// will be siblings of <c>Ground</c> under a Y-sorted parent, and their
-/// global Y will determine their draw order against the tiles and against
-/// each other — the standard 2.5D iso convention.
+/// <b>Hover-cell debug overlay (temporary).</b> A
+/// <see cref="DebugOverlay/HoverCellLabel"/> in a screen-space
+/// <see cref="CanvasLayer"/> shows the iso cell currently under the mouse,
+/// updated every frame. This exists to let the owner calibrate "where I
+/// think I clicked" against "what cell Godot resolved" while we diagnose
+/// the click-mapping discrepancy reported on PR #15. Removing the overlay
+/// is a one-line change in the <c>.tscn</c> plus the
+/// <see cref="_Process"/> call below; planned chore once the iso-mapping
+/// hypothesis is confirmed and (if needed) fixed.
+/// </para>
+///
+/// <para>
+/// <b>Camera centering.</b> A <c>Camera2D</c> child of the scene is
+/// positioned at the center of the iso diamond
+/// (<c>(0, MapHeight * TileHeight / 2)</c> with the TileMapLayers anchored
+/// at origin) and zoomed out to 0.65 so the full 24×24 grid fits in the
+/// default 1152×648 viewport. The previous arrangement — TileMapLayers
+/// offset by <c>(640, 64)</c> with no camera — pushed the right half of
+/// the diamond off-screen because the diamond is 1472px wide at zoom 1.0
+/// and the iso transform sweeps east as X grows. Anchoring the layers at
+/// origin keeps <c>LocalToMap</c> arithmetic clean (cell <c>(0,0)</c> at
+/// world <c>(0,0)</c>); the camera owns presentation. This also rules out
+/// hypothesis 2 of the click-mapping diag (a stale offset confusing the
+/// inverse transform).
+/// </para>
+///
+/// <para>
+/// <b>TileLayout = DiamondDown (the iso-coherent neighbor convention).</b>
+/// Both TileSets explicitly set
+/// <see cref="TileSet.TileLayoutEnum.DiamondDown"/>. The Godot 4 default
+/// (<see cref="TileSet.TileLayoutEnum.Stacked"/>) gives parity-dependent
+/// neighborhoods on iso-shape tiles: rows with odd <c>y</c> are visually
+/// offset by half a tile width, so <see cref="AStarGrid2D"/>'s
+/// rectangular-grid neighbor model produces paths that step inconsistently
+/// when crossing parity boundaries — the textbook "broken iso staircase"
+/// bug observed empirically on PR #15 (Test 2: a diagonal path produced
+/// alternating <c>(+1,+1)</c> / <c>(0,+1)</c> Δ steps that rendered as a
+/// jagged line on screen).
+/// <br/><br/>
+/// With <see cref="TileSet.TileLayoutEnum.DiamondDown"/> the screen
+/// projection is <c>pixel = ((x - y) * TW/2, (x + y) * TH/2)</c> — every
+/// rectangular-grid neighbor maps to a uniform iso neighbor on screen,
+/// independent of parity. Concretely: cell-coord <c>Δ=(+1,-1)</c> moves
+/// pure east on screen, <c>Δ=(+1,+1)</c> moves pure south,
+/// <c>Δ=(+1,0)</c> moves SE, <c>Δ=(0,+1)</c> moves SW. AStar paths produce
+/// continuous traînées with this layout because every step the search
+/// considers is a real visual step. This is the convention Battle
+/// Brothers / XCOM-shaped iso tactical grids use, and the convention this
+/// project committed to in the Phase 5 pre-brief.
+/// <br/><br/>
+/// Side effect on <see cref="SimulationGrid.BuildRidgeMission"/>: with
+/// <c>DiamondDown</c>, "screen vertical position" is governed by
+/// <c>(x + y)</c>, not <c>y</c> alone. Bands of constant <c>y</c> appear
+/// as SE-going diagonals on screen. To keep the ridge mission's
+/// horizontal-band silhouette (ridge at the top of the screen, scree slope
+/// in the middle, approach corridor at the bottom),
+/// <see cref="SimulationGrid.BuildRidgeMission"/> partitions on
+/// <c>(x + y)</c>. See its docstring for the band thresholds.
 /// </para>
 /// </summary>
 public partial class TacticalScene : Node2D
@@ -91,8 +164,7 @@ public partial class TacticalScene : Node2D
 
     /// <summary>
     /// Iso tile texture width in pixels. Standard 2:1 iso ratio with
-    /// <see cref="TileHeight"/>. The placeholder diamond is drawn inside
-    /// this rectangle.
+    /// <see cref="TileHeight"/>.
     /// </summary>
     private const int TileWidth = 64;
 
@@ -103,79 +175,166 @@ public partial class TacticalScene : Node2D
     private const int TileHeight = 32;
 
     /// <summary>
-    /// Atlas-source ID we register the placeholder tile under. Single
-    /// source for L1; L3 will introduce more.
+    /// Atlas-source ID for the terrain tiles on the Ground layer. Single
+    /// atlas source holds all three terrain variants at three atlas coords.
     /// </summary>
-    private const int PlaceholderSourceId = 0;
+    private const int TerrainSourceId = 0;
 
     /// <summary>
-    /// The cell coordinate inside the atlas texture at which our single
-    /// placeholder tile sits. The atlas is 1×1 tiles wide so this is
-    /// always (0, 0).
+    /// Atlas-source ID for the highlight tiles on the PathHighlight layer.
+    /// Separate <see cref="TileSet"/> entirely, so the two layers cannot
+    /// accidentally cross-stamp.
     /// </summary>
-    private static readonly Vector2I PlaceholderAtlasCoord = new(0, 0);
+    private const int HighlightSourceId = 0;
+
+    /// <summary>
+    /// Atlas coordinate of the walkable-terrain tile inside the terrain
+    /// atlas.
+    /// </summary>
+    private static readonly Vector2I WalkableAtlasCoord = new(0, 0);
+
+    /// <summary>
+    /// Atlas coordinate of the loose-scree terrain tile.
+    /// </summary>
+    private static readonly Vector2I LooseScreeAtlasCoord = new(1, 0);
+
+    /// <summary>
+    /// Atlas coordinate of the blocked-terrain tile (boulder / palisade
+    /// footing).
+    /// </summary>
+    private static readonly Vector2I BlockedAtlasCoord = new(2, 0);
+
+    /// <summary>
+    /// Atlas coordinate of the path-step highlight tile (cyan, semi-
+    /// transparent).
+    /// </summary>
+    private static readonly Vector2I PathStepAtlasCoord = new(0, 0);
+
+    /// <summary>
+    /// Atlas coordinate of the endpoint highlight tile (yellow, semi-
+    /// transparent). Used for both <c>from</c> and <c>to</c> markers.
+    /// </summary>
+    private static readonly Vector2I EndpointAtlasCoord = new(1, 0);
+
+    /// <summary>
+    /// Lookup from <see cref="TerrainType"/> to atlas coord on the terrain
+    /// atlas. Built once at static init; switched lookup is one
+    /// <see cref="Dictionary{TKey, TValue}.TryGetValue"/> call. A
+    /// <c>switch</c> expression would be equivalent here — the dictionary
+    /// version reads more like a data table, which is what this is.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<TerrainType, Vector2I>
+        TerrainAtlasLookup = new Dictionary<TerrainType, Vector2I>
+        {
+            [TerrainType.Walkable] = WalkableAtlasCoord,
+            [TerrainType.LooseScree] = LooseScreeAtlasCoord,
+            [TerrainType.Blocked] = BlockedAtlasCoord,
+        };
 
     private TileMapLayer _ground = null!;
+    private TileMapLayer _pathHighlight = null!;
+
+    /// <summary>
+    /// Screen-space label that displays the iso cell currently under the
+    /// mouse cursor. Temporary diagnostic surface — see class-doc note on
+    /// the hover-cell debug overlay.
+    /// </summary>
+    private Label _hoverCellLabel = null!;
 
     /// <summary>
     /// Authoritative game state for the tactical map. Built once in
-    /// <see cref="_Ready"/> and held for the lifetime of the scene. Not
-    /// a <see cref="Node"/> — see class doc.
+    /// <see cref="_Ready"/> and held for the lifetime of the scene.
     /// </summary>
     private SimulationGrid _simulation = null!;
+
+    /// <summary>
+    /// Pathfinding service derived from <see cref="_simulation"/>. Same
+    /// lifetime as the scene; rebuilt via
+    /// <see cref="PathfindingService.Invalidate"/> when the simulation
+    /// mutates (no mutation paths exist yet — that is L5).
+    /// </summary>
+    private PathfindingService _pathfinding = null!;
+
+    /// <summary>
+    /// Click-cycle state. <see cref="ClickPhase.PickingFrom"/> is the
+    /// initial and post-reset state.
+    /// </summary>
+    private ClickPhase _clickPhase = ClickPhase.PickingFrom;
+
+    /// <summary>
+    /// First endpoint of the current pathfinding query. Valid only when
+    /// <see cref="_clickPhase"/> is <see cref="ClickPhase.PickingTo"/> or
+    /// <see cref="ClickPhase.ShowingPath"/>.
+    /// </summary>
+    private Vector2I _pathFrom;
 
     public override void _Ready()
     {
         _ground = GetNode<TileMapLayer>("Ground");
+        _pathHighlight = GetNode<TileMapLayer>("PathHighlight");
+        _hoverCellLabel = GetNode<Label>("DebugOverlay/HoverCellLabel");
 
-        // The TileSet is generated in code — see class doc for why.
-        _ground.TileSet = BuildPlaceholderTileSet();
+        _ground.TileSet = BuildTerrainTileSet();
+        _pathHighlight.TileSet = BuildHighlightTileSet();
 
-        // Stamp the 24×24 diamond. Every cell points at the single
-        // placeholder atlas coord. L3 will vary this per terrain type.
-        for (int x = 0; x < MapWidth; x++)
-        {
-            for (int y = 0; y < MapHeight; y++)
-            {
-                _ground.SetCell(
-                    new Vector2I(x, y),
-                    PlaceholderSourceId,
-                    PlaceholderAtlasCoord);
-            }
-        }
-
-        // Build the simulation grid. The visual layer above is rendered
-        // uniformly for L2; L3 will read terrain back from the simulation
-        // and pick the matching atlas coord per cell.
+        // Build the simulation first; the visual stamp pass below reads
+        // from it. This ordering — sim before visual — is the lesson the
+        // visual/simulation split is meant to teach.
         _simulation = SimulationGrid.BuildRidgeMission();
 
+        StampGroundFromSimulation();
+
+        _pathfinding = new PathfindingService(_simulation);
+
         GD.Print(
-            $"TacticalScene: rendered {MapWidth}x{MapHeight} iso grid; " +
-            $"simulation grid initialized with ridge-mission terrain.");
+            $"TacticalScene: rendered {MapWidth}x{MapHeight} iso grid from " +
+            $"simulation; pathfinding service ready. " +
+            $"Click a cell to pick path origin.");
     }
 
     /// <summary>
-    /// Click-to-cell debug surface. Listens on <c>_UnhandledInput</c> so a
-    /// future pause menu or HUD can intercept events first; the tactical
-    /// world only sees clicks that no UI ate.
+    /// Update the hover-cell debug label every frame. Uses the exact same
+    /// screen → cell conversion chain as the click handler
+    /// (<see cref="GetGlobalMousePosition"/> → <see cref="Node2D.ToLocal"/>
+    /// → <see cref="TileMapLayer.LocalToMap"/>) so any discrepancy between
+    /// "what I see" and "what I click" surfaces here too — the overlay
+    /// shares the alleged bug with the click path, which is the point.
     ///
     /// <para>
-    /// The conversion chain is screen → world → layer-local → cell.
-    /// <see cref="Node2D.GetGlobalMousePosition"/> handles the screen → world
-    /// step (camera transform applied). <see cref="Node2D.ToLocal(Vector2)"/>
-    /// on the <see cref="TileMapLayer"/> handles world → layer-local.
-    /// <see cref="TileMapLayer.LocalToMap(Vector2)"/> handles the iso math.
-    /// Each step has a single owner; we do not collapse them.
+    /// Reading the mouse position every frame is cheap (one transform per
+    /// frame, no allocations). Once the click-mapping diagnosis is closed
+    /// out, this method and the
+    /// <see cref="DebugOverlay/HoverCellLabel"/> node go away together.
+    /// </para>
+    /// </summary>
+    public override void _Process(double delta)
+    {
+        Vector2 worldPos = GetGlobalMousePosition();
+        Vector2 layerLocalPos = _ground.ToLocal(worldPos);
+        Vector2I coord = _ground.LocalToMap(layerLocalPos);
+
+        string status = _simulation.IsInBounds(coord) ? "in" : "out";
+        _hoverCellLabel.Text =
+            $"hover cell: {coord} ({status})\n" +
+            $"world: {worldPos.X:F0}, {worldPos.Y:F0}";
+    }
+
+    /// <summary>
+    /// Click-driven pathfinding smoke test. The state machine is described
+    /// in the class doc.
+    ///
+    /// <para>
+    /// Listens on <c>_UnhandledInput</c> so a future pause menu or HUD can
+    /// intercept events first; the tactical world only sees clicks that no
+    /// UI ate.
     /// </para>
     ///
     /// <para>
-    /// L2 addition: once we have a clicked cell coord, we read the
-    /// <see cref="Cell"/> from <see cref="_simulation"/> and print it
-    /// alongside. This is the smoke test for the visual↔logical mapping —
-    /// click on a boulder cell, see <c>Terrain=Blocked</c>; click on the
-    /// scree band, see <c>Terrain=LooseScree, Elevation=1</c>; click on a
-    /// designer-placed partial-cover spot, see <c>Cover=Partial</c>. If
-    /// the two ever drift, this print is where it shows.
+    /// The screen → cell conversion chain
+    /// (<see cref="Node2D.GetGlobalMousePosition"/> →
+    /// <see cref="Node2D.ToLocal"/> →
+    /// <see cref="TileMapLayer.LocalToMap"/>) is unchanged from L2;
+    /// each step has a single owner and we do not collapse them.
     /// </para>
     /// </summary>
     public override void _UnhandledInput(InputEvent @event)
@@ -184,9 +343,6 @@ public partial class TacticalScene : Node2D
         {
             return;
         }
-
-        // Only react on the press edge of the left button. Releases and
-        // right-clicks are out of scope for L1/L2.
         if (mb.ButtonIndex != MouseButton.Left || !mb.Pressed)
         {
             return;
@@ -202,74 +358,281 @@ public partial class TacticalScene : Node2D
             return;
         }
 
+        switch (_clickPhase)
+        {
+            case ClickPhase.PickingFrom:
+                BeginPathFrom(coord);
+                break;
+            case ClickPhase.PickingTo:
+                ResolvePathTo(coord);
+                break;
+            case ClickPhase.ShowingPath:
+                // Third click: clear the overlay and use this click as the
+                // new origin. One press, two state effects — keeps the
+                // cycle tight (every click advances state, none are
+                // "wasted" on pure reset).
+                ClearHighlights();
+                BeginPathFrom(coord);
+                break;
+        }
+    }
+
+    private void BeginPathFrom(Vector2I coord)
+    {
         Cell cell = _simulation.GetCell(coord);
         GD.Print(
-            $"TacticalScene: clicked cell {coord} -> " +
-            $"Terrain={cell.Terrain}, " +
-            $"Elevation={cell.Elevation}, " +
-            $"Cover={cell.Cover}, " +
-            $"OccupantId={cell.OccupantId ?? "<empty>"}.");
+            $"TacticalScene: path origin set to {coord} " +
+            $"(Terrain={cell.Terrain}, Cover={cell.Cover}).");
+
+        _pathFrom = coord;
+        _clickPhase = ClickPhase.PickingTo;
+
+        StampHighlight(coord, EndpointAtlasCoord);
+    }
+
+    private void ResolvePathTo(Vector2I coord)
+    {
+        Cell cell = _simulation.GetCell(coord);
+        Vector2I[] path = _pathfinding.FindPath(_pathFrom, coord);
+
+        if (path.Length == 0)
+        {
+            GD.Print(
+                $"TacticalScene: no path from {_pathFrom} to {coord} " +
+                $"(Terrain={cell.Terrain}). Click again to reset.");
+            // Still mark the destination so the player sees what they
+            // clicked. The two endpoints stay highlighted; no path
+            // between them.
+            StampHighlight(coord, EndpointAtlasCoord);
+            _clickPhase = ClickPhase.ShowingPath;
+            return;
+        }
+
+        float cost = _pathfinding.ComputePathCost(path);
+        GD.Print(
+            $"TacticalScene: path {_pathFrom} -> {coord}, " +
+            $"length {path.Length} cells, cost {cost:F1}. " +
+            $"Coords: {string.Join(", ", path.Select(p => p.ToString()))}");
+
+        // Endpoints get the endpoint highlight; the steps in between get
+        // the path-step highlight. The endpoint stamps overwrite step
+        // stamps if any happen to collide (they will not, because path
+        // is a simple sequence with distinct first and last cells).
+        for (int i = 1; i < path.Length - 1; i++)
+        {
+            StampHighlight(path[i], PathStepAtlasCoord);
+        }
+        StampHighlight(path[0], EndpointAtlasCoord);
+        StampHighlight(path[^1], EndpointAtlasCoord);
+
+        _clickPhase = ClickPhase.ShowingPath;
+    }
+
+    private void ClearHighlights()
+    {
+        _pathHighlight.Clear();
+    }
+
+    private void StampHighlight(Vector2I coord, Vector2I atlasCoord)
+    {
+        // Diagnostic log kept in place after the L4 path-highlight gap bug
+        // (see commit message of fix). The label tells you at a glance
+        // which atlas variant landed at which cell — if a future stamp
+        // ever fails to land, the missing log line is the smoking gun.
+        string label = atlasCoord == PathStepAtlasCoord ? "cyan"
+                     : atlasCoord == EndpointAtlasCoord ? "yellow"
+                     : atlasCoord.ToString();
+        GD.Print($"TacticalScene.StampHighlight: cell={coord} atlas={label}");
+        _pathHighlight.SetCell(coord, HighlightSourceId, atlasCoord);
     }
 
     /// <summary>
-    /// Build a one-tile <see cref="TileSet"/> in iso shape, backed by a
-    /// programmatically-drawn placeholder texture. No binary asset
-    /// dependency; everything reproducible from source.
+    /// Stamp the Ground layer from the simulation grid. Single direction
+    /// — read sim, write tile. Called once at <c>_Ready</c>; will be
+    /// called again from L5+ mutation paths (when terrain changes mid-
+    /// mission), at which point this method may grow a "dirty cells"
+    /// argument to avoid restamping the entire 576-cell grid. Premature
+    /// for now.
+    /// </summary>
+    private void StampGroundFromSimulation()
+    {
+        foreach (var (coord, cell) in _simulation.GetAllCells())
+        {
+            Vector2I atlasCoord = TerrainAtlasLookup[cell.Terrain];
+            _ground.SetCell(coord, TerrainSourceId, atlasCoord);
+        }
+    }
+
+    /// <summary>
+    /// Build the Ground layer's <see cref="TileSet"/>: one atlas source,
+    /// three iso-diamond tiles at distinct atlas coords, one per
+    /// <see cref="TerrainType"/>. The atlas texture is laid out as a
+    /// 3-tile horizontal strip (192×32 pixels).
     ///
     /// <para>
-    /// <see cref="TileSet.TileShape"/> = isometric is what makes the layer
-    /// render diamonds; <see cref="TileSet.TileLayout"/> stays at the
-    /// default <c>Stacked</c> which matches Godot's standard iso layout
-    /// where each row is offset half a tile.
+    /// <b>TileLayout = DiamondDown</b> is set explicitly. See class doc
+    /// for the full rationale; in short, Godot 4's default
+    /// <see cref="TileSet.TileLayoutEnum.Stacked"/> gives parity-dependent
+    /// neighborhoods on iso shapes that confuse <see cref="AStarGrid2D"/>,
+    /// while <see cref="TileSet.TileLayoutEnum.DiamondDown"/> gives the
+    /// classic iso-coherent <c>pixel = ((x-y)*TW/2, (x+y)*TH/2)</c>
+    /// projection where every cell-coord neighbor is a clean visual
+    /// neighbor.
     /// </para>
     /// </summary>
-    private static TileSet BuildPlaceholderTileSet()
+    private static TileSet BuildTerrainTileSet()
     {
         var tileSet = new TileSet
         {
             TileShape = TileSet.TileShapeEnum.Isometric,
+            TileLayout = TileSet.TileLayoutEnum.DiamondDown,
             TileSize = new Vector2I(TileWidth, TileHeight),
         };
 
         var atlas = new TileSetAtlasSource
         {
-            Texture = BuildPlaceholderTileTexture(),
+            Texture = BuildTerrainAtlasTexture(),
             TextureRegionSize = new Vector2I(TileWidth, TileHeight),
         };
 
-        // Register the single placeholder tile at atlas coord (0, 0).
-        atlas.CreateTile(PlaceholderAtlasCoord);
+        atlas.CreateTile(WalkableAtlasCoord);
+        atlas.CreateTile(LooseScreeAtlasCoord);
+        atlas.CreateTile(BlockedAtlasCoord);
 
-        tileSet.AddSource(atlas, PlaceholderSourceId);
+        tileSet.AddSource(atlas, TerrainSourceId);
         return tileSet;
     }
 
     /// <summary>
-    /// Draw a 64×32 iso diamond placeholder into an <see cref="Image"/> and
-    /// wrap it in an <see cref="ImageTexture"/>. Solid fill plus a one-pixel
-    /// border so adjacent tiles read as separate at a glance.
+    /// Build the PathHighlight layer's <see cref="TileSet"/>: two iso-
+    /// diamond tiles, drawn as semi-transparent overlays so the terrain
+    /// underneath stays readable through the highlight.
     ///
     /// <para>
-    /// The diamond is the set of pixels satisfying
-    /// <c>|x - cx| / (w/2) + |y - cy| / (h/2) &lt;= 1</c> where <c>(cx, cy)</c>
-    /// is the texture center. That is the standard "1.0-bounded L1 norm"
-    /// that defines a diamond / rhombus.
+    /// <b>TileLayout = DiamondDown</b> must match the Ground layer's
+    /// TileSet exactly, otherwise the same cell-coord would project to
+    /// different screen positions on the two layers and the path overlay
+    /// would visually drift off the terrain it is supposed to highlight.
     /// </para>
     /// </summary>
-    private static ImageTexture BuildPlaceholderTileTexture()
+    private static TileSet BuildHighlightTileSet()
     {
-        var image = Image.CreateEmpty(TileWidth, TileHeight, false, Image.Format.Rgba8);
+        var tileSet = new TileSet
+        {
+            TileShape = TileSet.TileShapeEnum.Isometric,
+            TileLayout = TileSet.TileLayoutEnum.DiamondDown,
+            TileSize = new Vector2I(TileWidth, TileHeight),
+        };
 
-        // Transparent background so non-diamond pixels do not draw.
+        var atlas = new TileSetAtlasSource
+        {
+            Texture = BuildHighlightAtlasTexture(),
+            TextureRegionSize = new Vector2I(TileWidth, TileHeight),
+        };
+
+        atlas.CreateTile(PathStepAtlasCoord);
+        atlas.CreateTile(EndpointAtlasCoord);
+
+        tileSet.AddSource(atlas, HighlightSourceId);
+        return tileSet;
+    }
+
+    /// <summary>
+    /// Draw a 192×32 atlas containing three 64×32 iso diamonds side by
+    /// side: walkable (muted green), loose-scree (sandy gray with stipple),
+    /// blocked (dark slate). Each diamond is the standard L1-norm
+    /// rhombus, with a darker border ring for tile separation.
+    /// </summary>
+    private static ImageTexture BuildTerrainAtlasTexture()
+    {
+        const int TileCount = 3;
+        int atlasWidth = TileWidth * TileCount;
+        var image = Image.CreateEmpty(atlasWidth, TileHeight, false, Image.Format.Rgba8);
         image.Fill(new Color(0, 0, 0, 0));
 
-        var fill = new Color(0.45f, 0.55f, 0.40f); // muted ridge-grass green
-        var border = new Color(0.20f, 0.25f, 0.15f); // darker outline
+        // Color choices are debug-grade but distinguishable at a glance:
+        // green = safe ground, gray = loose footing, dark slate = blocked.
+        // Mira will replace these with real iso art; the lookup keys do
+        // not change.
+        DrawIsoDiamond(
+            image,
+            originX: WalkableAtlasCoord.X * TileWidth,
+            fill: new Color(0.45f, 0.55f, 0.40f),
+            border: new Color(0.20f, 0.25f, 0.15f),
+            stipple: false);
 
+        DrawIsoDiamond(
+            image,
+            originX: LooseScreeAtlasCoord.X * TileWidth,
+            fill: new Color(0.65f, 0.60f, 0.50f),
+            border: new Color(0.35f, 0.30f, 0.20f),
+            stipple: true);
+
+        DrawIsoDiamond(
+            image,
+            originX: BlockedAtlasCoord.X * TileWidth,
+            fill: new Color(0.25f, 0.25f, 0.30f),
+            border: new Color(0.10f, 0.10f, 0.15f),
+            stipple: false);
+
+        return ImageTexture.CreateFromImage(image);
+    }
+
+    /// <summary>
+    /// Draw a 128×32 atlas containing two 64×32 iso diamonds: path-step
+    /// (cyan, alpha) and endpoint (yellow, alpha). Both are semi-
+    /// transparent so the terrain stays readable underneath.
+    /// </summary>
+    private static ImageTexture BuildHighlightAtlasTexture()
+    {
+        const int TileCount = 2;
+        int atlasWidth = TileWidth * TileCount;
+        var image = Image.CreateEmpty(atlasWidth, TileHeight, false, Image.Format.Rgba8);
+        image.Fill(new Color(0, 0, 0, 0));
+
+        DrawIsoDiamond(
+            image,
+            originX: PathStepAtlasCoord.X * TileWidth,
+            fill: new Color(0.30f, 0.80f, 0.90f, 0.55f),
+            border: new Color(0.10f, 0.40f, 0.55f, 0.85f),
+            stipple: false);
+
+        DrawIsoDiamond(
+            image,
+            originX: EndpointAtlasCoord.X * TileWidth,
+            fill: new Color(0.95f, 0.85f, 0.20f, 0.65f),
+            border: new Color(0.60f, 0.45f, 0.05f, 0.95f),
+            stipple: false);
+
+        return ImageTexture.CreateFromImage(image);
+    }
+
+    /// <summary>
+    /// Draw a single 64×32 iso diamond into <paramref name="image"/>
+    /// starting at horizontal offset <paramref name="originX"/>. The
+    /// diamond is the L1-norm rhombus
+    /// <c>|x - cx| / (w/2) + |y - cy| / (h/2) &lt;= 1</c>; the outer 8% is
+    /// drawn with the border color. If <paramref name="stipple"/> is true,
+    /// every fourth pixel of the fill is darkened — gives the loose-scree
+    /// tile a visible "rough" texture without needing real art.
+    /// </summary>
+    private static void DrawIsoDiamond(
+        Image image,
+        int originX,
+        Color fill,
+        Color border,
+        bool stipple)
+    {
         float halfW = TileWidth / 2f;
         float halfH = TileHeight / 2f;
         float cx = halfW;
         float cy = halfH;
+
+        Color stippleColor = new(
+            fill.R * 0.7f,
+            fill.G * 0.7f,
+            fill.B * 0.7f,
+            fill.A);
 
         for (int y = 0; y < TileHeight; y++)
         {
@@ -281,15 +644,51 @@ public partial class TacticalScene : Node2D
 
                 if (d > 1.0f)
                 {
-                    continue; // outside the diamond, leave transparent
+                    continue;
                 }
 
-                // The outer 8% of the diamond is the border ring.
                 bool onBorder = d > 0.92f;
-                image.SetPixel(x, y, onBorder ? border : fill);
+                Color c;
+                if (onBorder)
+                {
+                    c = border;
+                }
+                else if (stipple && ((x + y) % 3 == 0))
+                {
+                    c = stippleColor;
+                }
+                else
+                {
+                    c = fill;
+                }
+
+                image.SetPixel(originX + x, y, c);
             }
         }
+    }
 
-        return ImageTexture.CreateFromImage(image);
+    /// <summary>
+    /// Click cycle for the L4 pathfinding smoke test. See class doc for
+    /// the full state-machine description.
+    /// </summary>
+    private enum ClickPhase
+    {
+        /// <summary>
+        /// Initial / post-reset state. Next click sets the path origin.
+        /// </summary>
+        PickingFrom,
+
+        /// <summary>
+        /// Origin has been picked; next click sets the destination and
+        /// triggers a pathfinding query.
+        /// </summary>
+        PickingTo,
+
+        /// <summary>
+        /// Origin and destination are both set, path (or empty) is
+        /// rendered. Next click clears the overlay and immediately starts
+        /// a new cycle with that click as the new origin.
+        /// </summary>
+        ShowingPath,
     }
 }
