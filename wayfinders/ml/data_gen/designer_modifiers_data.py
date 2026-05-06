@@ -419,13 +419,11 @@ STAKES_DELTA: Final[Mapping[StakesTier, int]] = {
 WOUND_DELTA: Final[Mapping[WoundBucket, int]] = {
     "unhurt": 0,
     "lightly wounded": 0,
-    "wounded": -1,
     "battered": -2,
 }
 
 SUPPLY_DELTA: Final[Mapping[SupplyBucket, int]] = {
     "well-supplied": 0,
-    "adequately supplied": 0,
     "low on rations": -1,
     "starving": -2,
 }
@@ -434,7 +432,6 @@ FATIGUE_DELTA: Final[Mapping[FatigueBucket, int]] = {
     "rested": 1,
     "short on sleep": -1,
     "exhausted": -2,
-    "spent": -2,
 }
 
 # ---------------------------------------------------------------------------

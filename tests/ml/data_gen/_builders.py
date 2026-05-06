@@ -92,7 +92,7 @@ def two_ordinary_human_sentries() -> OppositionState:
 
 def ridge_scene_high_stakes() -> SceneState:
     return SceneState(
-        mission_type="ridge reconnaissance",
+        mission_type="reconnaissance",
         sponsor_faction="Ridgewatch company",
         objective_phrase="map the enemy camp beyond the ridge before dawn",
         stakes_tier="high",

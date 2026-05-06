@@ -34,7 +34,7 @@ class TestStructure:
 
     def test_mission_identity(self) -> None:
         out = render_context(ridge_scene(), ridge_party(), ridge_world(), ridge_campaign())
-        assert out.startswith("The mission is a ridge reconnaissance for the Ridgewatch company.")
+        assert out.startswith("The mission is a reconnaissance for the Ridgewatch company.")
 
     def test_mission_objective(self) -> None:
         out = render_context(ridge_scene(), ridge_party(), ridge_world(), ridge_campaign())
@@ -100,7 +100,7 @@ class TestEdgeCases:
         out = render_context(ridge_scene(), empty_party, ridge_world(), ridge_campaign())
         assert "The party is" not in out
         # Solo mission still produces a valid prose doc
-        assert "The mission is a ridge reconnaissance" in out.split("\n")[0]
+        assert "The mission is a reconnaissance" in out.split("\n")[0]
 
     def test_no_factions_drops_relations_sentence(self) -> None:
         peaceful_world = ridge_world().model_copy(update={"faction_stances": ()})
