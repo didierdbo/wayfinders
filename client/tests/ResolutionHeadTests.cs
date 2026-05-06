@@ -1,6 +1,7 @@
-// Risk 7.1 (encoder fixture fp16 vs L3 reference torch fp32) is open: the two
-// kira parity tests are [Fact(Skip=...)] pending Coda/Tess fixture regen.
-// Full diagnostic in Owner's Inbox/Godot Coaching/2026-05-06-Phase-6-L3-Closeout.md §3.
+// Phase 6 L3 parity tests: head fp32 ONNX (CPU EP) vs the regenerated python
+// reference (Tess 2026-05-06, fixture key delta_onnx_e2e_v0_1, ORT-fp16-CPU
+// path). Risk 7.1 (encoder fixture fp16 vs torch fp32 baseline) is closed --
+// see Owner's Inbox/Godot Coaching/2026-05-06-Phase-6-L3-Closeout.md postscript.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -14,7 +15,7 @@ namespace Wayfinders.Client.Tests;
 
 /// <summary>
 /// Phase 6 L3 parity tests. Validates that the C# <see cref="ResolutionHead"/>
-/// reproduces the Python torch reference &#916; on the two canonical kira
+/// reproduces the python ONNX reference &#916; on the two canonical kira
 /// cases within <c>atol=1e-4</c>.
 ///
 /// <para>
@@ -22,7 +23,7 @@ namespace Wayfinders.Client.Tests;
 /// tests feed the L2 encoder fixture (<c>parity/encoder_embeddings_v0.1.json</c>,
 /// produced by the same encoder ONNX, sha pinned in the JSON header) into the
 /// head, and compare the resulting scalar to
-/// <c>parity/python_reference_v0.1.json::records[*].delta_torch_v0_1</c>.
+/// <c>parity/python_reference_v0.1.json::records[*].delta_onnx_e2e_v0_1</c>.
 /// The 18 <c>rollout_*</c> records are deferred to L4 end-to-end -- the
 /// encoder fixture only covers the 2 kira cases.
 /// </para>
@@ -67,13 +68,13 @@ public sealed class ResolutionHeadTests : IDisposable
 
     public void Dispose() => _head.Dispose();
 
-    [Fact(Skip="risk 7.1: pending Coda/Tess fixture regen — see L3 closeout §3")]
+    [Fact]
     public void RunHead_KiraStealthRidge_MatchesPythonReference()
     {
         AssertParityForCase("kira_stealth_ridge");
     }
 
-    [Fact(Skip="risk 7.1: pending Coda/Tess fixture regen — see L3 closeout §3")]
+    [Fact]
     public void RunHead_KiraStealthFestival_MatchesPythonReference()
     {
         AssertParityForCase("kira_stealth_festival");
@@ -161,7 +162,7 @@ public sealed class ResolutionHeadTests : IDisposable
         {
             if (rec.GetProperty("id").GetString() == caseId)
             {
-                return (float)rec.GetProperty("delta_torch_v0_1").GetDouble();
+                return (float)rec.GetProperty("delta_onnx_e2e_v0_1").GetDouble();
             }
         }
         throw new InvalidOperationException(
