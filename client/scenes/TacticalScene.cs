@@ -113,6 +113,40 @@ namespace Wayfinders.Client.Scenes;
 /// hypothesis 2 of the click-mapping diag (a stale offset confusing the
 /// inverse transform).
 /// </para>
+///
+/// <para>
+/// <b>TileLayout = DiamondDown (the iso-coherent neighbor convention).</b>
+/// Both TileSets explicitly set
+/// <see cref="TileSet.TileLayoutEnum.DiamondDown"/>. The Godot 4 default
+/// (<see cref="TileSet.TileLayoutEnum.Stacked"/>) gives parity-dependent
+/// neighborhoods on iso-shape tiles: rows with odd <c>y</c> are visually
+/// offset by half a tile width, so <see cref="AStarGrid2D"/>'s
+/// rectangular-grid neighbor model produces paths that step inconsistently
+/// when crossing parity boundaries — the textbook "broken iso staircase"
+/// bug observed empirically on PR #15 (Test 2: a diagonal path produced
+/// alternating <c>(+1,+1)</c> / <c>(0,+1)</c> Δ steps that rendered as a
+/// jagged line on screen).
+/// <br/><br/>
+/// With <see cref="TileSet.TileLayoutEnum.DiamondDown"/> the screen
+/// projection is <c>pixel = ((x - y) * TW/2, (x + y) * TH/2)</c> — every
+/// rectangular-grid neighbor maps to a uniform iso neighbor on screen,
+/// independent of parity. Concretely: cell-coord <c>Δ=(+1,-1)</c> moves
+/// pure east on screen, <c>Δ=(+1,+1)</c> moves pure south,
+/// <c>Δ=(+1,0)</c> moves SE, <c>Δ=(0,+1)</c> moves SW. AStar paths produce
+/// continuous traînées with this layout because every step the search
+/// considers is a real visual step. This is the convention Battle
+/// Brothers / XCOM-shaped iso tactical grids use, and the convention this
+/// project committed to in the Phase 5 pre-brief.
+/// <br/><br/>
+/// Side effect on <see cref="SimulationGrid.BuildRidgeMission"/>: with
+/// <c>DiamondDown</c>, "screen vertical position" is governed by
+/// <c>(x + y)</c>, not <c>y</c> alone. Bands of constant <c>y</c> appear
+/// as SE-going diagonals on screen. To keep the ridge mission's
+/// horizontal-band silhouette (ridge at the top of the screen, scree slope
+/// in the middle, approach corridor at the bottom),
+/// <see cref="SimulationGrid.BuildRidgeMission"/> partitions on
+/// <c>(x + y)</c>. See its docstring for the band thresholds.
+/// </para>
 /// </summary>
 public partial class TacticalScene : Node2D
 {
@@ -434,12 +468,24 @@ public partial class TacticalScene : Node2D
     /// three iso-diamond tiles at distinct atlas coords, one per
     /// <see cref="TerrainType"/>. The atlas texture is laid out as a
     /// 3-tile horizontal strip (192×32 pixels).
+    ///
+    /// <para>
+    /// <b>TileLayout = DiamondDown</b> is set explicitly. See class doc
+    /// for the full rationale; in short, Godot 4's default
+    /// <see cref="TileSet.TileLayoutEnum.Stacked"/> gives parity-dependent
+    /// neighborhoods on iso shapes that confuse <see cref="AStarGrid2D"/>,
+    /// while <see cref="TileSet.TileLayoutEnum.DiamondDown"/> gives the
+    /// classic iso-coherent <c>pixel = ((x-y)*TW/2, (x+y)*TH/2)</c>
+    /// projection where every cell-coord neighbor is a clean visual
+    /// neighbor.
+    /// </para>
     /// </summary>
     private static TileSet BuildTerrainTileSet()
     {
         var tileSet = new TileSet
         {
             TileShape = TileSet.TileShapeEnum.Isometric,
+            TileLayout = TileSet.TileLayoutEnum.DiamondDown,
             TileSize = new Vector2I(TileWidth, TileHeight),
         };
 
@@ -461,12 +507,20 @@ public partial class TacticalScene : Node2D
     /// Build the PathHighlight layer's <see cref="TileSet"/>: two iso-
     /// diamond tiles, drawn as semi-transparent overlays so the terrain
     /// underneath stays readable through the highlight.
+    ///
+    /// <para>
+    /// <b>TileLayout = DiamondDown</b> must match the Ground layer's
+    /// TileSet exactly, otherwise the same cell-coord would project to
+    /// different screen positions on the two layers and the path overlay
+    /// would visually drift off the terrain it is supposed to highlight.
+    /// </para>
     /// </summary>
     private static TileSet BuildHighlightTileSet()
     {
         var tileSet = new TileSet
         {
             TileShape = TileSet.TileShapeEnum.Isometric,
+            TileLayout = TileSet.TileLayoutEnum.DiamondDown,
             TileSize = new Vector2I(TileWidth, TileHeight),
         };
 
