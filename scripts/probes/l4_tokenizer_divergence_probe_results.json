@@ -1,0 +1,431 @@
+{
+  "fixture": "parity\\python_reference_v0.1.json",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "fast_class": "BertTokenizerFast",
+  "slow_class": "BertTokenizer",
+  "n_records": 20,
+  "records_with_divergence": 0,
+  "field_divergences": 0,
+  "results": [
+    {
+      "record_id": "kira_stealth_ridge",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 223,
+      "slow_len": 223
+    },
+    {
+      "record_id": "kira_stealth_ridge",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 121,
+      "slow_len": 121
+    },
+    {
+      "record_id": "kira_stealth_ridge",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 186,
+      "slow_len": 186
+    },
+    {
+      "record_id": "kira_stealth_festival",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 223,
+      "slow_len": 223
+    },
+    {
+      "record_id": "kira_stealth_festival",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 121,
+      "slow_len": 121
+    },
+    {
+      "record_id": "kira_stealth_festival",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 179,
+      "slow_len": 179
+    },
+    {
+      "record_id": "rollout_000_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 117,
+      "slow_len": 117
+    },
+    {
+      "record_id": "rollout_000_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 115,
+      "slow_len": 115
+    },
+    {
+      "record_id": "rollout_000_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 159,
+      "slow_len": 159
+    },
+    {
+      "record_id": "rollout_001_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 89,
+      "slow_len": 89
+    },
+    {
+      "record_id": "rollout_001_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 117,
+      "slow_len": 117
+    },
+    {
+      "record_id": "rollout_001_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 179,
+      "slow_len": 179
+    },
+    {
+      "record_id": "rollout_002_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 106,
+      "slow_len": 106
+    },
+    {
+      "record_id": "rollout_002_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 121,
+      "slow_len": 121
+    },
+    {
+      "record_id": "rollout_002_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 168,
+      "slow_len": 168
+    },
+    {
+      "record_id": "rollout_003_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 107,
+      "slow_len": 107
+    },
+    {
+      "record_id": "rollout_003_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 125,
+      "slow_len": 125
+    },
+    {
+      "record_id": "rollout_003_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 160,
+      "slow_len": 160
+    },
+    {
+      "record_id": "rollout_004_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 152,
+      "slow_len": 152
+    },
+    {
+      "record_id": "rollout_004_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 89,
+      "slow_len": 89
+    },
+    {
+      "record_id": "rollout_004_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 162,
+      "slow_len": 162
+    },
+    {
+      "record_id": "rollout_005_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 113,
+      "slow_len": 113
+    },
+    {
+      "record_id": "rollout_005_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 118,
+      "slow_len": 118
+    },
+    {
+      "record_id": "rollout_005_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 150,
+      "slow_len": 150
+    },
+    {
+      "record_id": "rollout_006_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 176,
+      "slow_len": 176
+    },
+    {
+      "record_id": "rollout_006_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 120,
+      "slow_len": 120
+    },
+    {
+      "record_id": "rollout_006_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 187,
+      "slow_len": 187
+    },
+    {
+      "record_id": "rollout_007_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 115,
+      "slow_len": 115
+    },
+    {
+      "record_id": "rollout_007_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 121,
+      "slow_len": 121
+    },
+    {
+      "record_id": "rollout_007_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 180,
+      "slow_len": 180
+    },
+    {
+      "record_id": "rollout_008_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 98,
+      "slow_len": 98
+    },
+    {
+      "record_id": "rollout_008_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 114,
+      "slow_len": 114
+    },
+    {
+      "record_id": "rollout_008_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 184,
+      "slow_len": 184
+    },
+    {
+      "record_id": "rollout_009_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 142,
+      "slow_len": 142
+    },
+    {
+      "record_id": "rollout_009_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 123,
+      "slow_len": 123
+    },
+    {
+      "record_id": "rollout_009_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 161,
+      "slow_len": 161
+    },
+    {
+      "record_id": "rollout_010_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 130,
+      "slow_len": 130
+    },
+    {
+      "record_id": "rollout_010_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 125,
+      "slow_len": 125
+    },
+    {
+      "record_id": "rollout_010_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 161,
+      "slow_len": 161
+    },
+    {
+      "record_id": "rollout_011_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 181,
+      "slow_len": 181
+    },
+    {
+      "record_id": "rollout_011_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 107,
+      "slow_len": 107
+    },
+    {
+      "record_id": "rollout_011_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 186,
+      "slow_len": 186
+    },
+    {
+      "record_id": "rollout_012_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 170,
+      "slow_len": 170
+    },
+    {
+      "record_id": "rollout_012_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 124,
+      "slow_len": 124
+    },
+    {
+      "record_id": "rollout_012_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 155,
+      "slow_len": 155
+    },
+    {
+      "record_id": "rollout_013_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 132,
+      "slow_len": 132
+    },
+    {
+      "record_id": "rollout_013_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 119,
+      "slow_len": 119
+    },
+    {
+      "record_id": "rollout_013_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 177,
+      "slow_len": 177
+    },
+    {
+      "record_id": "rollout_014_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 121,
+      "slow_len": 121
+    },
+    {
+      "record_id": "rollout_014_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 105,
+      "slow_len": 105
+    },
+    {
+      "record_id": "rollout_014_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 152,
+      "slow_len": 152
+    },
+    {
+      "record_id": "rollout_015_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 111,
+      "slow_len": 111
+    },
+    {
+      "record_id": "rollout_015_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 111,
+      "slow_len": 111
+    },
+    {
+      "record_id": "rollout_015_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 141,
+      "slow_len": 141
+    },
+    {
+      "record_id": "rollout_016_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 125,
+      "slow_len": 125
+    },
+    {
+      "record_id": "rollout_016_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 121,
+      "slow_len": 121
+    },
+    {
+      "record_id": "rollout_016_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 155,
+      "slow_len": 155
+    },
+    {
+      "record_id": "rollout_017_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "fast_len": 128,
+      "slow_len": 128
+    },
+    {
+      "record_id": "rollout_017_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "fast_len": 111,
+      "slow_len": 111
+    },
+    {
+      "record_id": "rollout_017_seed777",
+      "field": "prose_context",
+      "agree": true,
+      "fast_len": 173,
+      "slow_len": 173
+    }
+  ]
+}

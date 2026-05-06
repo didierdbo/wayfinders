@@ -93,9 +93,35 @@ client/.godot/
 client/.import/
 client/bin/
 client/obj/
+client/tests/bin/
+client/tests/obj/
 client/*.user
 client/*.suo
 client/exports/
 client/builds/
 client/*.pck
 client/*.translation
+
+# --- ML model artefacts inside client (Phase 6 L2+) ---
+# The encoder ONNX (~45 MB fp16) and tokenizer/vocab files ship as release
+# assets, fetched manually into client/ml/ before running the test suite.
+# Same discipline as the top-level artifacts/ folder. Commit the C# source
+# and the small derived parity fixture (parity/), never the binary blobs.
+#
+# Exception (Phase 6 L4): the resolution-head ONNX (~3 MB fp32) IS committed
+# under client/ml/. Asymmetry is size-driven, not aesthetic -- the head is
+# small enough to ship with the source (no release-asset fetch step on a
+# fresh clone) and is the contract artefact OnnxClassifier composes with the
+# encoder. The encoder stays out (45 MB blows the repo).
+client/ml/*.onnx
+!client/ml/resolution-head-v0.1.onnx
+client/ml/tokenizer.json
+client/ml/vocab.txt
+
+# --- Probes (scripts/probes/) ---
+# One-off investigation scripts (Python + a small C# console probe used
+# during the L4 tokenizer divergence audit). Source + JSON results are
+# committed for audit/repro; .NET build artefacts of the C# probe are
+# local-only.
+scripts/probes/csharp_tokenizer_probe/bin/
+scripts/probes/csharp_tokenizer_probe/obj/
