@@ -134,9 +134,20 @@ class CampaignState(BaseModel):
 # Renderer
 # ---------------------------------------------------------------------------
 
+_VOWELS = frozenset("aeiouAEIOU")
+
+
+def _a_or_an(word: str) -> str:
+    """Return 'an' if word starts with a vowel sound, 'a' otherwise.
+
+    Covers the closed MissionType vocabulary. No edge cases in current vocab.
+    """
+    return "an" if word and word[0] in _VOWELS else "a"
+
 
 def _render_mission_identity(scene: SceneState) -> str:
-    return f"The mission is a {scene.mission_type} for the {scene.sponsor_faction}."
+    article = _a_or_an(scene.mission_type)
+    return f"The mission is {article} {scene.mission_type} for the {scene.sponsor_faction}."
 
 
 def _render_mission_objective(scene: SceneState) -> str:

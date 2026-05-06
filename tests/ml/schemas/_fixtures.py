@@ -1,4 +1,4 @@
-"""Shared fixtures: canonical Kira state matching Varn 2026-04-30 sec. 2."""
+"""Shared fixtures: canonical states matching Varn 2026-04-30 and 2026-05-01 sec. 2/6."""
 
 from __future__ import annotations
 
@@ -153,4 +153,63 @@ def ridge_campaign() -> CampaignState:
     return CampaignState(
         season_number=3,
         holdings_phrase="holding two ridges and having lost one",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Festival / Fenmarch canonical -- Varn Context 2026-05-01 sec. 6
+# (cross-scene differentiation test; exercises WindDirection "river" and
+#  TerrainModifier "festival lanterns strung overhead")
+# ---------------------------------------------------------------------------
+
+
+def festival_scene() -> SceneState:
+    """Varn Context sec. 6 festival/Fenmarch scene (cross-scene canonical)."""
+    return SceneState(
+        mission_type="infiltration",
+        sponsor_faction="river clans",
+        objective_phrase="recover the stolen seal before the festival ends at dusk",
+        stakes_tier="serious",
+        failure_phrase="the seal passes out of the city by morning",
+        watch="late afternoon",
+        countdown_hours=3,
+        deadline_label="dusk",
+    )
+
+
+def festival_party() -> PartyState:
+    return PartyState(
+        members=(
+            PartyMember(name="Kira", char_class="scout", initiative_index=0),
+            PartyMember(name="Mira", char_class="cleric", initiative_index=1),
+        ),
+        wound_bucket="unhurt",
+        supply_bucket="well-supplied",
+        fatigue_bucket="rested",
+    )
+
+
+def festival_world() -> WorldState:
+    return WorldState(
+        region="city of Fenmarch",
+        season="late summer",
+        sky_phrase="a full harvest moon",
+        temperature="warm",
+        precipitation="dry",
+        wind="a light breeze",
+        wind_direction="river",
+        terrain_primary="paved streets and crowded squares",
+        terrain_modifier="festival lanterns strung overhead",
+        faction_stances=(
+            # Alphabetical by other_faction: Ashen Hand, Ridgewatch company
+            FactionStance(other_faction="Ashen Hand", relation="at war"),
+            FactionStance(other_faction="Ridgewatch company", relation="at uneasy peace"),
+        ),
+    )
+
+
+def festival_campaign() -> CampaignState:
+    return CampaignState(
+        season_number=3,
+        holdings_phrase="holding the river bend and the markets",
     )
