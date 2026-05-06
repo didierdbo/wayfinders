@@ -12,6 +12,9 @@ y_sort_enabled = true
 [node name="PathHighlight" type="TileMapLayer" parent="."]
 y_sort_enabled = true
 
+[node name="Units" type="Node2D" parent="."]
+y_sort_enabled = true
+
 [node name="Camera2D" type="Camera2D" parent="."]
 position = Vector2(0, 368)
 zoom = Vector2(0.65, 0.65)
