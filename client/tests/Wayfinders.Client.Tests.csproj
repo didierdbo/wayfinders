@@ -30,10 +30,11 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
-  <!-- Compile the encoder source file directly into the test assembly.
-       MiniLmEncoder.cs has no Godot dependency. -->
+  <!-- Compile the ML source files directly into the test assembly.
+       Both MiniLmEncoder.cs and ResolutionHead.cs have no Godot dependency. -->
   <ItemGroup>
     <Compile Include="..\ml\MiniLmEncoder.cs" Link="src\MiniLmEncoder.cs" />
+    <Compile Include="..\ml\ResolutionHead.cs" Link="src\ResolutionHead.cs" />
   </ItemGroup>
 
 </Project>
