@@ -102,6 +102,12 @@ def _make_encoder_with_stub(
 
     Patches sentence_transformers.SentenceTransformer so the real model is
     never loaded.
+
+    Also patches _resolve_weights_from_hf_cache to return None so unit tests
+    are fully isolated from the real HuggingFace on-disk cache.  Without this,
+    any machine (including CI) that has the model in its HF cache will cause
+    weights_sha256 to return a real hash rather than None, breaking tests that
+    assert the None path.
     """
     if stub is None:
         stub = _make_stub_module()
@@ -109,7 +115,13 @@ def _make_encoder_with_stub(
     st_module = types.ModuleType("sentence_transformers")
     st_module.SentenceTransformer = MagicMock(return_value=stub)  # type: ignore[attr-defined]
 
-    with patch.dict("sys.modules", {"sentence_transformers": st_module}):
+    with (
+        patch.dict("sys.modules", {"sentence_transformers": st_module}),
+        patch(
+            "wayfinders.ml.inference.encoder._resolve_weights_from_hf_cache",
+            return_value=None,
+        ),
+    ):
         enc = MiniLMEncoder(device=device)
 
     return enc
