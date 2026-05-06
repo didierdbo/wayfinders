@@ -47,6 +47,31 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _resolve_weights_from_hf_cache() -> Path | None:
+    """Return the model.safetensors path from the HuggingFace local cache.
+
+    Resolves via ``huggingface_hub.constants.HF_HUB_CACHE`` so it works even
+    when ``sentence-transformers v3+`` sets ``auto_model.name_or_path`` to the
+    model-ID string rather than a local directory path.  Flagged as a bug in
+    substep 7; fixed in M1.11.
+    """
+    try:
+        import huggingface_hub
+
+        cache_root = Path(huggingface_hub.constants.HF_HUB_CACHE)
+        model_folder = cache_root / "models--sentence-transformers--all-MiniLM-L6-v2"
+        snapshots_dir = model_folder / "snapshots"
+        if not snapshots_dir.is_dir():
+            return None
+        for snapshot in snapshots_dir.iterdir():
+            candidate = snapshot / "model.safetensors"
+            if candidate.is_file():
+                return candidate
+    except Exception:  # pragma: no cover -- defensive
+        pass
+    return None
+
+
 def _find_weights_file(model_dir: str | Path) -> Path | None:
     """Return the primary weights file inside *model_dir*, or None.
 
@@ -140,20 +165,26 @@ class MiniLMEncoder:
 
         # Locate weights file for SHA-256 manifest (may be None if the model
         # lives inside a non-standard directory layout).
-        self._weights_path: Path | None = None
-        try:
-            # SentenceTransformer stores the save_dir as _model_card_text path
-            # or via the first module's `auto_model` _name_or_path attribute.
-            first_module = next(iter(self._model.modules()))
-            raw_path: str | None = getattr(
-                getattr(first_module, "auto_model", None),
-                "name_or_path",
-                None,
-            )
-            if raw_path and Path(raw_path).is_dir():
-                self._weights_path = _find_weights_file(raw_path)
-        except StopIteration:  # pragma: no cover -- defensive
-            pass
+        #
+        # M1.11 fix: sentence-transformers v3+ sets `auto_model.name_or_path`
+        # to the model-ID string ("sentence-transformers/all-MiniLM-L6-v2"),
+        # not a local path, so `Path(raw_path).is_dir()` is always False.
+        # Resolution: walk the HuggingFace cache via huggingface_hub directly.
+        self._weights_path: Path | None = _resolve_weights_from_hf_cache()
+        if self._weights_path is None:
+            # Secondary fallback: try the name_or_path attribute in case the
+            # model was loaded from a local directory rather than the HF cache.
+            try:
+                first_module = next(iter(self._model.modules()))
+                raw_path: str | None = getattr(
+                    getattr(first_module, "auto_model", None),
+                    "name_or_path",
+                    None,
+                )
+                if raw_path and Path(raw_path).is_dir():
+                    self._weights_path = _find_weights_file(raw_path)
+            except StopIteration:  # pragma: no cover -- defensive
+                pass
 
         logger.info(
             "MiniLMEncoder ready. device=%s fp16=%s weights=%s",
