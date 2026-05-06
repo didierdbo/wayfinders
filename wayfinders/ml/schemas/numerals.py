@@ -109,7 +109,9 @@ def hours_to_words(h: int) -> str:
     if h <= 99:
         return int_to_words(h)
     # Canonical Kira example values -- match Varn 2026-04-30 byte-for-byte.
-    _canonical: Final[dict[int, str]] = {
+    # Note: Final[] is meaningless inside a function scope (mypy ignores it);
+    # this is a plain dict, kept as a named constant for readability only.
+    _canonical: dict[int, str] = {
         80: "eighty",
         1240: "one thousand two hundred forty",
     }
