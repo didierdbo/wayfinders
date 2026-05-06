@@ -86,6 +86,18 @@ namespace Wayfinders.Client.Scenes;
 /// path, which we surface with a console log and a single endpoint
 /// highlight. Clicks outside the grid are dropped with a log.
 /// </para>
+///
+/// <para>
+/// <b>Hover-cell debug overlay (temporary).</b> A
+/// <see cref="DebugOverlay/HoverCellLabel"/> in a screen-space
+/// <see cref="CanvasLayer"/> shows the iso cell currently under the mouse,
+/// updated every frame. This exists to let the owner calibrate "where I
+/// think I clicked" against "what cell Godot resolved" while we diagnose
+/// the click-mapping discrepancy reported on PR #15. Removing the overlay
+/// is a one-line change in the <c>.tscn</c> plus the
+/// <see cref="_Process"/> call below; planned chore once the iso-mapping
+/// hypothesis is confirmed and (if needed) fixed.
+/// </para>
 /// </summary>
 public partial class TacticalScene : Node2D
 {
@@ -174,6 +186,13 @@ public partial class TacticalScene : Node2D
     private TileMapLayer _pathHighlight = null!;
 
     /// <summary>
+    /// Screen-space label that displays the iso cell currently under the
+    /// mouse cursor. Temporary diagnostic surface — see class-doc note on
+    /// the hover-cell debug overlay.
+    /// </summary>
+    private Label _hoverCellLabel = null!;
+
+    /// <summary>
     /// Authoritative game state for the tactical map. Built once in
     /// <see cref="_Ready"/> and held for the lifetime of the scene.
     /// </summary>
@@ -204,6 +223,7 @@ public partial class TacticalScene : Node2D
     {
         _ground = GetNode<TileMapLayer>("Ground");
         _pathHighlight = GetNode<TileMapLayer>("PathHighlight");
+        _hoverCellLabel = GetNode<Label>("DebugOverlay/HoverCellLabel");
 
         _ground.TileSet = BuildTerrainTileSet();
         _pathHighlight.TileSet = BuildHighlightTileSet();
@@ -221,6 +241,33 @@ public partial class TacticalScene : Node2D
             $"TacticalScene: rendered {MapWidth}x{MapHeight} iso grid from " +
             $"simulation; pathfinding service ready. " +
             $"Click a cell to pick path origin.");
+    }
+
+    /// <summary>
+    /// Update the hover-cell debug label every frame. Uses the exact same
+    /// screen → cell conversion chain as the click handler
+    /// (<see cref="GetGlobalMousePosition"/> → <see cref="Node2D.ToLocal"/>
+    /// → <see cref="TileMapLayer.LocalToMap"/>) so any discrepancy between
+    /// "what I see" and "what I click" surfaces here too — the overlay
+    /// shares the alleged bug with the click path, which is the point.
+    ///
+    /// <para>
+    /// Reading the mouse position every frame is cheap (one transform per
+    /// frame, no allocations). Once the click-mapping diagnosis is closed
+    /// out, this method and the
+    /// <see cref="DebugOverlay/HoverCellLabel"/> node go away together.
+    /// </para>
+    /// </summary>
+    public override void _Process(double delta)
+    {
+        Vector2 worldPos = GetGlobalMousePosition();
+        Vector2 layerLocalPos = _ground.ToLocal(worldPos);
+        Vector2I coord = _ground.LocalToMap(layerLocalPos);
+
+        string status = _simulation.IsInBounds(coord) ? "in" : "out";
+        _hoverCellLabel.Text =
+            $"hover cell: {coord} ({status})\n" +
+            $"world: {worldPos.X:F0}, {worldPos.Y:F0}";
     }
 
     /// <summary>
