@@ -95,9 +95,13 @@ class CharacterState(BaseModel):
     # Status vignette
     hp_bucket: HpBucket
     stress_bucket: StressBucket
+    stress_cause: str | None = None
+    # Optional cause phrase appended to the stress bucket word, e.g.
+    # "from a short night's sleep". When None the stress word stands alone
+    # ("Kira is ... composed."). Set on Kira's canonical fixture; absent on
+    # generic characters so they don't render nonsense suffixes.
     conditions: tuple[str, ...] = Field(default_factory=tuple)
-    # conditions are short prose snippets like
-    # "with a fading bruise on her forearm" or "from a short night's sleep".
+    # conditions are short prose snippets like "with a fading bruise on her forearm".
 
     # Equipment -- list of full noun phrases. M1 keeps it simple ; tier handling
     # comes in M2 when item cards land.
@@ -162,13 +166,10 @@ def _render_traits(state: CharacterState) -> str | None:
 def _render_status(state: CharacterState) -> str:
     parts = [HP_BUCKETS[state.hp_bucket]]
     parts.extend(state.conditions)
-    parts.append(f"{STRESS_BUCKETS[state.stress_bucket]} from a short night's sleep")
-    # Above is Varn's canonical Kira example pattern. Real rendering joins
-    # arbitrary condition snippets with commas. For the canonical reproduction
-    # we expect conditions=("with a fading bruise on her forearm",) and the
-    # final stress bucket clause picks up "tense from a short night's sleep".
-    # M2 will replace this with a more general status grammar -- for now we
-    # match the canonical example shape.
+    stress_clause = STRESS_BUCKETS[state.stress_bucket]
+    if state.stress_cause is not None:
+        stress_clause = f"{stress_clause} {state.stress_cause}"
+    parts.append(stress_clause)
     body = ", ".join(parts[:-1]) + f", and {parts[-1]}." if len(parts) > 1 else f"{parts[0]}."
     return f"{state.name} is {body}"
 
