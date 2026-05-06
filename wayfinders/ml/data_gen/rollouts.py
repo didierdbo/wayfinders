@@ -26,11 +26,15 @@ import json
 import random
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Final, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from wayfinders.ml.data_gen.designer_modifiers import compute_delta
+
+if TYPE_CHECKING:
+    from wayfinders.ml.data_gen.policies import Policy
+
 from wayfinders.ml.schemas import (
     ActionCard,
     Bond,
@@ -103,6 +107,12 @@ class Rollout(BaseModel):
     prose_character: str = ""
     prose_action: str = ""
     prose_context: str = ""
+
+    # Traceability -- records the generation context so a rollout can be
+    # replayed or audited later.  Optional at structural-build time (defaults
+    # preserve backward compat with older serialized JSONL that lacks them).
+    seed: int | None = Field(default=None, description="RNG seed used for this rollout")
+    policy_name: str = Field(default="", description="Policy that generated this rollout")
 
 
 # ---------------------------------------------------------------------------
@@ -711,21 +721,38 @@ def _build_campaign(rng: random.Random) -> CampaignState:
     )
 
 
-def _build_rollout(rollout_id: int, rng: random.Random) -> Rollout:
+def _build_rollout(
+    rollout_id: int,
+    rng: random.Random,
+    policy: Policy | None = None,
+    *,
+    seed: int | None = None,
+) -> Rollout:
     """Construct one Rollout, deterministic per ``rng``.
+
+    When ``policy`` is not None the action/opposition/scene/party/world/campaign
+    tuple is drawn via ``policy.sample(rng)``.  When it is None the legacy
+    flat samplers are used (backward-compatible path, same RNG trajectory as
+    before this change).
 
     The fixed sub-build order below is part of the determinism contract --
     changing it would change the RNG trajectory and break replayability of
     existing seeds.
     """
-    verb = rng.choices(list(SUPPORTED_VERBS), weights=list(VERB_WEIGHTS), k=1)[0]
-    char = _build_character(rng, verb)
-    action = _build_action(rng, verb)
-    opposition = _build_opposition(rng, verb)
-    scene = _build_scene(rng)
-    party = _build_party(rng)
-    world = _build_world(rng)
-    campaign = _build_campaign(rng)
+    if policy is not None:
+        verb, action, opposition, scene, party, world, campaign = policy.sample(rng)
+        char = _build_character(rng, verb)
+        policy_name = policy.name
+    else:
+        verb = rng.choices(list(SUPPORTED_VERBS), weights=list(VERB_WEIGHTS), k=1)[0]
+        char = _build_character(rng, verb)
+        action = _build_action(rng, verb)
+        opposition = _build_opposition(rng, verb)
+        scene = _build_scene(rng)
+        party = _build_party(rng)
+        world = _build_world(rng)
+        campaign = _build_campaign(rng)
+        policy_name = "default"
 
     label = compute_delta(
         character=char,
@@ -752,6 +779,8 @@ def _build_rollout(rollout_id: int, rng: random.Random) -> Rollout:
         prose_character=prose_c,
         prose_action=prose_a,
         prose_context=prose_x,
+        seed=seed,
+        policy_name=policy_name,
     )
 
 
@@ -760,7 +789,11 @@ def _build_rollout(rollout_id: int, rng: random.Random) -> Rollout:
 # ---------------------------------------------------------------------------
 
 
-def generate_rollouts(n: int, seed: int) -> Iterator[Rollout]:
+def generate_rollouts(
+    n: int,
+    seed: int,
+    policy: Policy | None = None,
+) -> Iterator[Rollout]:
     """Lazily yield ``n`` Rollouts deterministically from ``seed``.
 
     Determinism: each rollout uses an independent ``random.Random`` seeded
@@ -768,14 +801,18 @@ def generate_rollouts(n: int, seed: int) -> Iterator[Rollout]:
     hash). Partial generation, parallel evaluation, or replays all yield the
     same Rollout for a given ``(seed, rollout_id)``.
 
-    Same ``(n, seed)`` -> same iterator output, byte-for-byte.
+    Same ``(n, seed, policy)`` -> same iterator output, byte-for-byte.
+
+    When ``policy`` is None the legacy default flat sampler is used (same
+    RNG trajectory as substep 2 / PR #14 -- no behavioral change for existing
+    callers).  Pass a ``Policy`` instance to use correlated or mixed sampling.
     """
     if n < 0:
         raise ValueError(f"n must be non-negative, got {n}")
     for rollout_id in range(n):
         sub_seed = (seed * 2654435761 + rollout_id) & 0xFFFFFFFF
         rng = random.Random(sub_seed)
-        yield _build_rollout(rollout_id, rng)
+        yield _build_rollout(rollout_id, rng, policy=policy, seed=seed)
 
 
 def serialize_rollouts_jsonl(rollouts: Iterator[Rollout], out_path: Path) -> int:

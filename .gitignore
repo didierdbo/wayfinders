@@ -58,6 +58,7 @@ wandb/
 *.pkl
 *.npz
 checkpoints/
+artifacts/
 
 # Jupyter (if notebooks are added later)
 .ipynb_checkpoints/
