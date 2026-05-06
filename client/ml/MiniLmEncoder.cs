@@ -226,7 +226,9 @@ public sealed class MiniLmEncoder : IDisposable
         // Single point of normalization: `Encode()` calls `TokenizeForTest()`,
         // so this covers both production and test paths. Other ASCII
         // punctuation chars (`-`, `'`, dash unicode) are punted to L5 audit.
-        // Refs: Owner's Inbox/Game Design/Coda - L4 Tokenizer Divergence Probe - 2026-05-06.md
+        // Refs:
+        //   - Owner's Inbox/Game Design/Coda - L4 Tokenizer Divergence Probe - 2026-05-06.md
+        //   - Owner's Inbox/Game Design/Pax - Tokenizer Invariant Ratification - 2026-05-06.md
         text = text.Replace("_", " _ ");
 
         // EncodeToIds(text, addSpecialTokens, considerPreTokenization, considerNormalization)
