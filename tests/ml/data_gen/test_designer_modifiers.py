@@ -354,3 +354,316 @@ def test_compute_label_wrapper_matches_compute_delta() -> None:
         campaign=campaign,
     )
     assert via_wrapper == via_direct
+
+
+# ---------------------------------------------------------------------------
+# Layer 4 -- per-rule nominal / off-case coverage (substep 5 contract)
+#
+# For each rule group in designer_modifiers_data, one test verifies the rule
+# fires in its nominal case (expected non-zero delta) and one verifies it
+# does NOT fire on a neutral / off-case input.  This makes the table itself
+# the tested specification -- if Varn revises a rule, the broken test is the
+# diagnostic.
+# ---------------------------------------------------------------------------
+
+
+class TestRuleNominalAndOffCase:
+    """Each top-level rule fires on its trigger and stays silent off-trigger."""
+
+    # -- §2.3 Time-of-day: starlight gives +2, noon gives -3 ----
+
+    def test_starlight_fires(self) -> None:
+        # Direct table lookup -- the authoritative check for this rule.
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.TIME_OF_DAY_DELTA_STEALTH["under starlight"] == 2
+
+    def test_noon_fires_negative(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.TIME_OF_DAY_DELTA_STEALTH["at noon"] == -3
+
+    def test_neutral_time_is_zero(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.TIME_OF_DAY_DELTA_STEALTH["in the late afternoon"] == 0
+
+    # -- §2.2 Footing: loose scree -2, firm stone +1 ----
+
+    def test_loose_scree_fires_negative(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.FOOTING_DELTA_STEALTH["loose scree"] == -2
+
+    def test_firm_stone_fires_positive(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.FOOTING_DELTA_STEALTH["firm stone"] == 1
+
+    def test_wet_leaves_is_zero(self) -> None:
+        """wet leaves is neutral for stealth (sound absorbed by dampness)."""
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.FOOTING_DELTA_STEALTH["wet leaves"] == 0
+
+    # -- §2.7 Opposition alertness ----
+
+    def test_drowsy_opponent_fires_positive(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.OPPOSITION_ALERTNESS_DELTA["drowsy"] == 2
+
+    def test_alarmed_opponent_fires_negative(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.OPPOSITION_ALERTNESS_DELTA["alarmed and searching"] == -3
+
+    def test_alert_and_rested_baseline_is_zero(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.OPPOSITION_ALERTNESS_DELTA["alert and rested"] == 0
+
+    # -- §1.5.1 Legacy success tiers ----
+
+    def test_legacy_expert_fires(self) -> None:
+        """10+ stealth successes gives +3 (expert tier)."""
+        char = kira_for_table_v05().model_copy(
+            update={
+                "action_counters": {"stealth approaches": (15, 0)},
+                "profession_hours": {},
+                "location_familiarity": {},
+            }
+        )
+        action = stealth_card_starlight_scree()
+        from wayfinders.ml.data_gen.designer_modifiers import _char_legacy_delta
+
+        delta = _char_legacy_delta(char, action)
+        # 15 successes (+3), no failures, no scouting, no familiarity -> raw = +3.
+        assert delta == 3
+
+    def test_legacy_novice_is_zero(self) -> None:
+        """0 stealth successes, no professions -> legacy +0."""
+        char = kira_for_table_v05().model_copy(
+            update={
+                "action_counters": {"stealth approaches": (0, 0)},
+                "profession_hours": {},
+                "location_familiarity": {},
+            }
+        )
+        action = stealth_card_starlight_scree()
+        from wayfinders.ml.data_gen.designer_modifiers import _char_legacy_delta
+
+        assert _char_legacy_delta(char, action) == 0
+
+    # -- §1.5.2 Terrain familiarity ----
+
+    def test_terrain_familiarity_best_fires(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.TERRAIN_FAMILIARITY_DELTA["best of all"] == 2
+
+    def test_terrain_familiarity_barely_fires_negative(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.TERRAIN_FAMILIARITY_DELTA["barely"] == -1
+
+    def test_terrain_familiarity_moderately_is_zero(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.TERRAIN_FAMILIARITY_DELTA["moderately"] == 0
+
+    # -- §1.4 Equipment: soft-soled boots +1, plate armor -3 ----
+
+    def test_soft_soled_fires_positive(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.EQUIPMENT_KEYWORD_DELTA_STEALTH["soft-soled"] == 1
+
+    def test_plate_fires_negative(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.EQUIPMENT_KEYWORD_DELTA_STEALTH["plate"] == -3
+
+    def test_leather_jerkin_is_zero(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.EQUIPMENT_KEYWORD_DELTA_STEALTH["leather jerkin"] == 0
+
+    # -- §3.1 Mission stakes ----
+
+    def test_high_stakes_fires_negative(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.STAKES_DELTA["high"] == -1
+
+    def test_dire_stakes_fires_more_negative(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.STAKES_DELTA["dire"] == -2
+
+    def test_trivial_stakes_fires_positive(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.STAKES_DELTA["trivial"] == 1
+
+    # -- §1.2 Traits: reckless is penalized in stealth ----
+
+    def test_reckless_penalized_in_stealth(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.TRAIT_DELTA_STEALTH["reckless"] == -2
+
+    def test_reckless_less_penalized_in_melee(self) -> None:
+        """In melee, reckless is only -1 (not as severe as in stealth)."""
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.TRAIT_DELTA_MELEE["reckless"] == -1
+
+    def test_patient_positive_in_stealth(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.TRAIT_DELTA_STEALTH["patient"] == 1
+
+    def test_patient_neutral_in_melee(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.TRAIT_DELTA_MELEE["patient"] == 0
+
+    # -- §3.5 Terrain primary: deep forest +2, open plains -2 ----
+
+    def test_deep_forest_fires_positive(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.TERRAIN_PRIMARY_DELTA["deep forest"] == 2
+
+    def test_open_plains_fires_negative(self) -> None:
+        from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+        assert tbl.TERRAIN_PRIMARY_DELTA["open plains"] == -2
+
+
+# ---------------------------------------------------------------------------
+# Layer 5 -- range, determinism, and addressability (substep 5 contract)
+# ---------------------------------------------------------------------------
+
+
+def test_compute_label_range_over_1000_rollouts() -> None:
+    """For 1000 generated rollouts, every label_delta is strictly in [-5, +5].
+
+    Uses the rollout generator with seed=42 (deterministic).  This exercises
+    the full table -- char + action + context -- across diverse sampled states.
+    """
+    from wayfinders.ml.data_gen.rollouts import generate_rollouts
+
+    for rollout in generate_rollouts(n=1000, seed=42):
+        assert rollout.label_delta is not None
+        assert DELTA_MIN <= rollout.label_delta <= DELTA_MAX, (
+            f"rollout_id={rollout.rollout_id} label_delta={rollout.label_delta} out of range"
+        )
+
+
+def test_compute_label_determinism_100x() -> None:
+    """compute_label(rollout) called 100 times returns the exact same float.
+
+    Pure function contract: same inputs -> same output, bit-exact.
+    """
+    char = kira_for_table_v05()
+    action = stealth_card_starlight_scree()
+    opp = two_ordinary_human_sentries()
+    scene = ridge_scene_high_stakes()
+    party = ridge_party_lightly_wounded()
+    world = ridge_world_at_war()
+    campaign = ridge_campaign_even()
+    rollout = Rollout(
+        rollout_id=0,
+        character=char,
+        action=action,
+        opposition=opp,
+        scene=scene,
+        party=party,
+        world=world,
+        campaign=campaign,
+    )
+    first = compute_label(rollout)
+    for _ in range(99):
+        assert compute_label(rollout) == first, "compute_label is not bit-exact deterministic"
+
+
+def test_table_is_addressable() -> None:
+    """The designer modifier table must be listable and dumpable for debugging.
+
+    All top-level data tables in designer_modifiers_data must be non-empty
+    Mapping or tuple instances, iterable, and not None.  This ensures the
+    table can be serialized for designer review (e.g. as JSON for Varn).
+    """
+    from wayfinders.ml.data_gen import designer_modifiers_data as tbl
+
+    # All Mapping-type tables: non-empty, string-serializable keys.
+    mapping_tables = [
+        ("DEX_DELTA_FULL", tbl.DEX_DELTA_FULL),
+        ("DEX_DELTA_MOVE", tbl.DEX_DELTA_MOVE),
+        ("STR_DELTA_MELEE", tbl.STR_DELTA_MELEE),
+        ("WIS_DELTA_STEALTH", tbl.WIS_DELTA_STEALTH),
+        ("WIS_DELTA_SIGNAL", tbl.WIS_DELTA_SIGNAL),
+        ("TRAIT_DELTA_STEALTH", tbl.TRAIT_DELTA_STEALTH),
+        ("TRAIT_DELTA_MELEE", tbl.TRAIT_DELTA_MELEE),
+        ("HP_DELTA", tbl.HP_DELTA),
+        ("STRESS_DELTA", tbl.STRESS_DELTA),
+        ("CONDITION_KEYWORD_DELTA", tbl.CONDITION_KEYWORD_DELTA),
+        ("EQUIPMENT_KEYWORD_DELTA_STEALTH", tbl.EQUIPMENT_KEYWORD_DELTA_STEALTH),
+        ("TERRAIN_FAMILIARITY_DELTA", tbl.TERRAIN_FAMILIARITY_DELTA),
+        ("ACTION_BASE_DIFFICULTY", tbl.ACTION_BASE_DIFFICULTY),
+        ("FOOTING_DELTA_STEALTH", tbl.FOOTING_DELTA_STEALTH),
+        ("FOOTING_DELTA_MOVE", tbl.FOOTING_DELTA_MOVE),
+        ("TIME_OF_DAY_DELTA_STEALTH", tbl.TIME_OF_DAY_DELTA_STEALTH),
+        ("NOISE_DELTA_STEALTH", tbl.NOISE_DELTA_STEALTH),
+        ("OPPOSITION_ALERTNESS_DELTA", tbl.OPPOSITION_ALERTNESS_DELTA),
+        ("OPPOSITION_SKILL_DELTA", tbl.OPPOSITION_SKILL_DELTA),
+        ("FAMILY_KEYWORD_DELTA", tbl.FAMILY_KEYWORD_DELTA),
+        ("STAKES_DELTA", tbl.STAKES_DELTA),
+        ("WOUND_DELTA", tbl.WOUND_DELTA),
+        ("SUPPLY_DELTA", tbl.SUPPLY_DELTA),
+        ("FATIGUE_DELTA", tbl.FATIGUE_DELTA),
+        ("PRECIPITATION_DELTA", tbl.PRECIPITATION_DELTA),
+        ("WIND_DELTA_STEALTH", tbl.WIND_DELTA_STEALTH),
+        ("TEMPERATURE_DELTA", tbl.TEMPERATURE_DELTA),
+        ("TERRAIN_PRIMARY_DELTA", tbl.TERRAIN_PRIMARY_DELTA),
+        ("FACTION_RELATION_DELTA", tbl.FACTION_RELATION_DELTA),
+        ("CAMPAIGN_KEYWORD_DELTA", tbl.CAMPAIGN_KEYWORD_DELTA),
+    ]
+    for name, table in mapping_tables:
+        assert len(table) > 0, f"{name} is empty"
+        # Every value is an int (Δ-component).
+        for k, v in table.items():
+            assert isinstance(v, int), f"{name}[{k!r}] is not int: {v!r}"
+
+    # Tier tables: non-empty tuples of (threshold, delta) pairs.
+    tier_tables = [
+        ("STEALTH_SUCCESS_TIERS", tbl.STEALTH_SUCCESS_TIERS),
+        ("STEALTH_FAILURE_TIERS", tbl.STEALTH_FAILURE_TIERS),
+        ("SCOUTING_PROFESSION_TIERS", tbl.SCOUTING_PROFESSION_TIERS),
+        ("OPPOSITION_COUNT_TIERS", tbl.OPPOSITION_COUNT_TIERS),
+        ("COUNTDOWN_TIERS", tbl.COUNTDOWN_TIERS),
+    ]
+    for name, tiers in tier_tables:
+        assert len(tiers) > 0, f"{name} is empty"
+        for threshold, delta in tiers:
+            assert isinstance(threshold, int), f"{name} threshold not int"
+            assert isinstance(delta, int), f"{name} delta not int"
+
+    # Frozenset tables: non-empty.
+    assert len(tbl.ADJACENT_PROFESSIONS_STEALTH) > 0
+    assert len(tbl.EPISODIC_KEYWORD_HITS) > 0
+
+    # Scalar constants.
+    assert isinstance(tbl.TANH_OUTPUT_SCALE, float)
+    assert isinstance(tbl.TANH_INPUT_SCALE, float)
+    assert tbl.TANH_OUTPUT_SCALE == 5.0
+    assert tbl.TANH_INPUT_SCALE == 5.0
+
+    # Total rule count: sum of entries across all Mapping tables >= 100
+    # (proves the table is substantive enough for training signal).
+    total_entries = sum(len(t) for _, t in mapping_tables)
+    assert total_entries >= 100, (
+        f"Table has only {total_entries} entries -- may be too sparse for training signal"
+    )
