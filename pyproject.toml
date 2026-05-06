@@ -53,6 +53,9 @@ packages = ["wayfinders"]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config"
 xfail_strict = true
+markers = [
+    "integration: requires model download / network / slow I/O (run with -m integration)",
+]
 
 [tool.ruff]
 line-length = 100
