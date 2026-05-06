@@ -134,3 +134,22 @@ Training target: NVIDIA RTX A2000 (4 GB VRAM) + 32 GB system RAM.
 - Encoder forward at fp16 is ~5-8 ms/doc on the A2000 ; cache aggressively.
 - ONNX inference on Rune's Steam target is CPU-bound, not GPU — so build artefacts
   with CPU runtime in mind (no CUDA-only ops in the graph).
+
+## Setup — torch CUDA pin
+
+`torch` is pinned to the PyTorch **cu124** index in `pyproject.toml` via
+`[tool.uv.sources]`.  This prevents `uv sync --all-extras --dev` from silently
+pulling the `+cpu` build that PyPI serves by default on Windows.
+
+On a dev machine with a CUDA-capable GPU:
+
+```bash
+uv sync --all-extras --dev
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+# expected: 2.6.0+cu124 True
+```
+
+On a machine without a GPU the cu124 wheel still installs fine;
+`torch.cuda.is_available()` will return `False`, which is expected for CI or
+API-only environments.  Do **not** run `uv sync --extra ml` (or any single-extra
+variant) — that silently drops the other extras.
