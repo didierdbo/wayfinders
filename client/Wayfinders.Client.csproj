@@ -7,6 +7,36 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <LangVersion>latest</LangVersion>
+    <!--
+      Phase 6 L5a : AOT analyzer audit toggles (audit-as-code).
+      ====================================================================
+      IsAotCompatible (.NET 8+) activates the Roslyn analyzers that flag
+      reflection / dynamic-code paths incompatible with NativeAOT (warnings
+      IL2026, IL2104, IL3050, IL2070, IL2075, ...). EnableTrimAnalyzer is
+      the trim-only subset (IL2xxx); kept explicit for readability.
+
+      Important: these are *analyzer* toggles only. They do not invoke
+      `dotnet publish -p:PublishAot=true` ; that is L5c, which requires
+      a native toolchain (C++ Build Tools + Windows SDK) and a real
+      self-contained publish. L5a is audit amont, not the publish.
+
+      L5a audit pass (2026-05-06) result: 0 findings on the client diff.
+      JSON path was already source-genned at L2 (ApiJsonContext +
+      JsonTypeInfo<T> overload). ORT 1.20.1 + Microsoft.ML.Tokenizers 1.0.1
+      both surface as analyzer-clean for the tensor types we use (long,
+      Float16, float). Godot.NET.Sdk 4.6.2 source-gen covers the editor
+      reflection seam. See Owner's Inbox/Godot Coaching/L5a-AOT-Audit-Findings.md
+      for the full inventory.
+
+      Punted to L5c (true `dotnet publish -p:PublishAot=true`):
+      * EnableDynamicLoading x NativeAOT interaction (Godot dynamically
+        loads the assembly; NativeAOT statically links ; the two flags'
+        joint behaviour needs a real publish to validate).
+      * ILC-time warnings (analyzer is strictly amont; ILC may surface
+        additional findings only visible during native compilation).
+    -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
   </PropertyGroup>
   <!-- Exclude the test project sources from the Godot client build. The test
        project is a separate Microsoft.NET.Sdk csproj under client/tests/ and
