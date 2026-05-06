@@ -10,6 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from wayfinders.ml.data_gen.designer_modifiers import DELTA_MAX, DELTA_MIN
+from wayfinders.ml.data_gen.policies import MixedPolicy, RandomPolicy, ScriptedPolicy
 from wayfinders.ml.data_gen.rollouts import (
     Rollout,
     generate_rollouts,
@@ -160,3 +161,95 @@ class TestPerformance:
         elapsed = time.perf_counter() - start
         assert len(rollouts) == 1000
         assert elapsed < 5.0, f"1000 rollouts took {elapsed:.2f}s, expected <5s"
+
+    def test_first_rollout_from_large_generator_under_100ms(self) -> None:
+        """next(generate_rollouts(50_000, 0)) must return in < 100ms.
+
+        This validates the generator is lazy -- it must not materialise all
+        50k rollouts before yielding the first one.
+        """
+        start = time.perf_counter()
+        r = next(generate_rollouts(50_000, seed=0))
+        elapsed = time.perf_counter() - start
+        assert r is not None
+        assert elapsed < 0.1, (
+            f"first rollout from 50k generator took {elapsed * 1000:.1f}ms, expected <100ms"
+        )
+
+
+# ---------------------------------------------------------------------------
+# M1.6 additions -- policy integration + traceability fields
+# ---------------------------------------------------------------------------
+
+
+class TestPolicyIntegration:
+    """generate_rollouts(n, seed, policy=X) wires the policy into generation."""
+
+    def test_default_policy_is_deterministic(self) -> None:
+        """No policy (None) must give same results as before M1.6."""
+        a = [r.model_dump_json() for r in generate_rollouts(20, seed=42)]
+        b = [r.model_dump_json() for r in generate_rollouts(20, seed=42)]
+        assert a == b
+
+    def test_random_policy_determinism(self) -> None:
+        pol = RandomPolicy()
+        a = [r.model_dump_json() for r in generate_rollouts(20, seed=42, policy=pol)]
+        b = [r.model_dump_json() for r in generate_rollouts(20, seed=42, policy=pol)]
+        assert a == b
+
+    def test_scripted_policy_determinism(self) -> None:
+        pol = ScriptedPolicy()
+        a = [r.model_dump_json() for r in generate_rollouts(20, seed=7, policy=pol)]
+        b = [r.model_dump_json() for r in generate_rollouts(20, seed=7, policy=pol)]
+        assert a == b
+
+    def test_mixed_policy_determinism(self) -> None:
+        pol = MixedPolicy()
+        a = [r.model_dump_json() for r in generate_rollouts(20, seed=99, policy=pol)]
+        b = [r.model_dump_json() for r in generate_rollouts(20, seed=99, policy=pol)]
+        assert a == b
+
+    def test_different_policies_produce_different_rollouts(self) -> None:
+        """RandomPolicy vs ScriptedPolicy must differ on at least 1 rollout out of 20."""
+        n, seed = 20, 42
+        rand_r = [r.model_dump_json() for r in generate_rollouts(n, seed, RandomPolicy())]
+        scr_r = [r.model_dump_json() for r in generate_rollouts(n, seed, ScriptedPolicy())]
+        assert any(a != b for a, b in zip(rand_r, scr_r, strict=True)), (
+            "RandomPolicy and ScriptedPolicy produced identical rollouts -- unexpected"
+        )
+
+    def test_all_policies_produce_valid_label_range(self) -> None:
+        for policy in [None, RandomPolicy(), ScriptedPolicy(), MixedPolicy()]:
+            for r in generate_rollouts(50, seed=11, policy=policy):
+                assert r.label_delta is not None
+                assert DELTA_MIN <= r.label_delta <= DELTA_MAX
+
+
+class TestTraceabilityFields:
+    """Rollout.seed and Rollout.policy_name are populated by generate_rollouts."""
+
+    def test_seed_is_stored_on_rollout(self) -> None:
+        for r in generate_rollouts(10, seed=7):
+            assert r.seed == 7
+
+    def test_policy_name_default_is_populated(self) -> None:
+        for r in generate_rollouts(10, seed=0):
+            assert r.policy_name == "default"
+
+    def test_policy_name_matches_policy(self) -> None:
+        for r in generate_rollouts(5, seed=0, policy=RandomPolicy()):
+            assert r.policy_name == "random"
+        for r in generate_rollouts(5, seed=0, policy=ScriptedPolicy()):
+            assert r.policy_name == "scripted"
+        for r in generate_rollouts(5, seed=0, policy=MixedPolicy()):
+            assert r.policy_name == "mixed"
+
+    def test_traceability_fields_survive_jsonl_roundtrip(self, tmp_path: Path) -> None:
+        """seed and policy_name must survive serialize → load roundtrip."""
+        rollouts = list(generate_rollouts(10, seed=42, policy=ScriptedPolicy()))
+        out = tmp_path / "trace.jsonl"
+        serialize_rollouts_jsonl(iter(rollouts), out)
+        loaded = list(load_rollouts_jsonl(out))
+        for orig, back in zip(rollouts, loaded, strict=True):
+            assert back.seed == orig.seed
+            assert back.policy_name == orig.policy_name
