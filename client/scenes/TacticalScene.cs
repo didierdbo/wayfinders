@@ -2,28 +2,31 @@ using System.Collections.Generic;
 using System.Linq;
 using Godot;
 using Wayfinders.Client.Simulation;
+using Wayfinders.Client.Units;
 
 namespace Wayfinders.Client.Scenes;
 
 /// <summary>
-/// First tactical scene (Phase 5 L1 → L4).
+/// First tactical scene (Phase 5 L1 → L5).
 ///
 /// <para>
-/// <b>What this layer ships now (L3 + L4 added on top of L1 + L2):</b>
-/// the 24×24 isometric <see cref="TileMapLayer"/> from L1 stamped per-cell
-/// from the L2 <see cref="SimulationGrid"/> with three distinct terrain
-/// visuals (L3), plus an <see cref="AStarGrid2D"/>-backed
-/// <see cref="PathfindingService"/> exposed through a click-driven smoke
-/// test that picks a from-cell, a to-cell, and renders the resulting path
-/// on a second <see cref="TileMapLayer"/> overlay (L4).
+/// <b>What this layer ships now (L5 added on top of L1–L4):</b> in
+/// addition to the iso 24×24 ground (L1+L3), simulation grid (L2), and
+/// AStar pathfinding with click-cycle preview (L4), three placeholder
+/// party units — Kira, Brann, Edda — are spawned on the ridge plateau at
+/// startup. Each unit writes its <see cref="Cell.OccupantId"/> on the
+/// simulation grid; <see cref="PathfindingService"/> is then invalidated
+/// so subsequent path queries treat occupied cells as solid (you cannot
+/// path through a friendly unit).
 /// </para>
 ///
 /// <para>
-/// <b>What this layer is still NOT:</b> no units (L5), no real art (Mira's
-/// assets), no turn manager, no AI. The pathfinding visualization is the
-/// debug surface for a system that L5 will consume — when units exist,
-/// they will call <see cref="PathfindingService.FindPath"/> the same way
-/// the click handler does today.
+/// <b>What this layer is still NOT:</b> no real movement (units cannot
+/// be commanded to walk yet — L5 is spawn-only); no real art (Mira's
+/// portrait set replaces <see cref="UnitMarker"/> later); no turn
+/// manager, no AI, no API fetch (the trio is hardcoded for the slice;
+/// L6 swaps in a fetch-from-FastAPI flow once the roster endpoint
+/// returns mission-ready data).
 /// </para>
 ///
 /// <para>
@@ -32,11 +35,14 @@ namespace Wayfinders.Client.Scenes;
 /// <see cref="TileMapLayer"/> for terrain (Ground) is a render of the
 /// simulation. The <see cref="PathfindingService"/> is a query cache
 /// derived from the simulation. The path-highlight overlay
-/// (<c>PathHighlight</c>) is a render of pathfinding query results. None
-/// of the downstream layers ever feed back upstream — if the simulation
-/// changes (a boulder is destroyed, a unit blocks a cell), we re-stamp the
-/// Ground layer and call <see cref="PathfindingService.Invalidate"/>; we
-/// never read state back out of the renderers.
+/// (<c>PathHighlight</c>) is a render of pathfinding query results. The
+/// <c>Units</c> branch is a render of <see cref="PartyUnit"/> instances
+/// whose authoritative position lives in <see cref="Cell.OccupantId"/>.
+/// None of the downstream layers ever feed back upstream — if the
+/// simulation changes (a boulder is destroyed, a unit moves), we
+/// re-stamp the ground, call <see cref="PathfindingService.Invalidate"/>,
+/// and reposition the marker; we never read state back out of the
+/// renderers.
 /// </para>
 ///
 /// <para>
@@ -82,9 +88,45 @@ namespace Wayfinders.Client.Scenes;
 ///   <c>from</c> for the next cycle. The cycle never has a "do nothing"
 ///   click — every press advances state.</item>
 /// </list>
-/// Clicks on solid (Blocked) cells while picking <c>to</c> render an empty
-/// path, which we surface with a console log and a single endpoint
-/// highlight. Clicks outside the grid are dropped with a log.
+/// Clicks on solid (Blocked or occupied) cells while picking <c>to</c>
+/// render an empty path, which we surface with a console log and a single
+/// endpoint highlight. Clicks outside the grid are dropped with a log.
+/// Pathing <i>from</i> a unit-occupied cell still works because
+/// <see cref="PathfindingService.FindPath"/> exempts the start cell from
+/// the solid check.
+/// </para>
+///
+/// <para>
+/// <b>L5 spawn coords — ridge plateau.</b> The three party units land at
+/// <c>(3,5)</c>, <c>(4,5)</c>, <c>(5,5)</c> — anti-diagonals 8, 9, 10,
+/// firmly inside the ridge plateau band (<c>x + y &lt; 12</c>) defined by
+/// <see cref="SimulationGrid.BuildRidgeMission"/>. All three are walkable
+/// elevation-2 cells with no boulders or partial-cover, so no terrain
+/// rule is violated when their <see cref="Cell.OccupantId"/> is written.
+/// They are adjacent on screen (since constant-y bands run along the SE
+/// diagonal under <c>DiamondDown</c>, three cells with the same y read as
+/// a small SE-going line on screen — close enough to read as "a party",
+/// far enough apart to see each one). The arrangement is hardcoded for
+/// the L5 slice; the real mission script will own placement when Varn's
+/// designer hooks land.
+/// </para>
+///
+/// <para>
+/// <b>Y-sort and the Units branch.</b> The <c>Units</c>
+/// <see cref="Node2D"/> has <c>y_sort_enabled = true</c>, and each
+/// <see cref="UnitMarker"/> is positioned at
+/// <see cref="TileMapLayer.MapToLocal"/> of its cell. Godot's Y-sort
+/// renders children with smaller <c>position.y</c> behind children with
+/// larger <c>position.y</c>, which on an iso projection is exactly the
+/// "south is in front" rule a tactical RPG wants. No manual z-index
+/// management; the engine does it. The Units branch is a sibling to
+/// Ground and PathHighlight, not a child — siblings in a Y-sorted parent
+/// participate in a single sort, so a unit on row 5 renders behind a
+/// boulder visual on row 6 if the boulder is on the same parent (it is
+/// not — boulders are in the Ground TileMapLayer, which is sorted as a
+/// whole, not per-cell). Practical effect: units always render above the
+/// terrain they stand on, and units further south render in front of
+/// units further north. Good enough for the slice.
 /// </para>
 ///
 /// <para>
@@ -231,8 +273,36 @@ public partial class TacticalScene : Node2D
             [TerrainType.Blocked] = BlockedAtlasCoord,
         };
 
+    /// <summary>
+    /// Hardcoded L5 party trio. Pratchett-flavored canonical names from
+    /// the slice (see <c>project_wayfinders_tonal_dna.md</c>); positions
+    /// are on the ridge plateau (<c>x + y &lt; 12</c>). The Ids are
+    /// placeholder slugs — when L6 swaps in the FastAPI fetch flow, the
+    /// server will issue real opaque ids.
+    /// </summary>
+    private static readonly PartyUnit[] PartyRoster =
+    {
+        new(Id: "kira",  DisplayName: "Kira",  Position: new Vector2I(3, 5)),
+        new(Id: "brann", DisplayName: "Brann", Position: new Vector2I(4, 5)),
+        new(Id: "edda",  DisplayName: "Edda",  Position: new Vector2I(5, 5)),
+    };
+
+    /// <summary>
+    /// Body color per party unit. Distinct enough to tell at a glance
+    /// while the placeholder visual ships; replaced wholesale when Mira
+    /// delivers portraits.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, Color> PartyColors =
+        new Dictionary<string, Color>
+        {
+            ["kira"]  = new Color(0.85f, 0.55f, 0.30f), // warm orange
+            ["brann"] = new Color(0.45f, 0.70f, 0.50f), // muted green
+            ["edda"]  = new Color(0.55f, 0.55f, 0.85f), // muted violet
+        };
+
     private TileMapLayer _ground = null!;
     private TileMapLayer _pathHighlight = null!;
+    private Node2D _unitsRoot = null!;
 
     /// <summary>
     /// Screen-space label that displays the iso cell currently under the
@@ -251,9 +321,18 @@ public partial class TacticalScene : Node2D
     /// Pathfinding service derived from <see cref="_simulation"/>. Same
     /// lifetime as the scene; rebuilt via
     /// <see cref="PathfindingService.Invalidate"/> when the simulation
-    /// mutates (no mutation paths exist yet — that is L5).
+    /// mutates. The L5 spawn flow calls <see cref="PathfindingService.Invalidate"/>
+    /// once after writing all three <see cref="Cell.OccupantId"/> values.
     /// </summary>
     private PathfindingService _pathfinding = null!;
+
+    /// <summary>
+    /// Live <see cref="UnitMarker"/> nodes by unit id. Used for visual
+    /// updates (selection, future movement). The cell positions live on
+    /// the simulation grid (<see cref="Cell.OccupantId"/>); this map is
+    /// just the rendering side's lookup.
+    /// </summary>
+    private readonly Dictionary<string, UnitMarker> _markers = new();
 
     /// <summary>
     /// Click-cycle state. <see cref="ClickPhase.PickingFrom"/> is the
@@ -272,6 +351,7 @@ public partial class TacticalScene : Node2D
     {
         _ground = GetNode<TileMapLayer>("Ground");
         _pathHighlight = GetNode<TileMapLayer>("PathHighlight");
+        _unitsRoot = GetNode<Node2D>("Units");
         _hoverCellLabel = GetNode<Label>("DebugOverlay/HoverCellLabel");
 
         _ground.TileSet = BuildTerrainTileSet();
@@ -286,10 +366,16 @@ public partial class TacticalScene : Node2D
 
         _pathfinding = new PathfindingService(_simulation);
 
+        // L5: populate the party. Writes OccupantId on three plateau
+        // cells, instantiates a marker per unit, then invalidates the
+        // pathfinder so subsequent queries see the now-occupied cells as
+        // solid.
+        SpawnParty();
+
         GD.Print(
             $"TacticalScene: rendered {MapWidth}x{MapHeight} iso grid from " +
-            $"simulation; pathfinding service ready. " +
-            $"Click a cell to pick path origin.");
+            $"simulation; {_markers.Count} units spawned; " +
+            $"pathfinding service ready. Click a cell to pick path origin.");
     }
 
     /// <summary>
@@ -380,9 +466,10 @@ public partial class TacticalScene : Node2D
     private void BeginPathFrom(Vector2I coord)
     {
         Cell cell = _simulation.GetCell(coord);
+        string occ = cell.OccupantId ?? "(none)";
         GD.Print(
             $"TacticalScene: path origin set to {coord} " +
-            $"(Terrain={cell.Terrain}, Cover={cell.Cover}).");
+            $"(Terrain={cell.Terrain}, Cover={cell.Cover}, Occupant={occ}).");
 
         _pathFrom = coord;
         _clickPhase = ClickPhase.PickingTo;
@@ -397,9 +484,11 @@ public partial class TacticalScene : Node2D
 
         if (path.Length == 0)
         {
+            string occ = cell.OccupantId ?? "(none)";
             GD.Print(
                 $"TacticalScene: no path from {_pathFrom} to {coord} " +
-                $"(Terrain={cell.Terrain}). Click again to reset.");
+                $"(Terrain={cell.Terrain}, Occupant={occ}). " +
+                $"Click again to reset.");
             // Still mark the destination so the player sees what they
             // clicked. The two endpoints stay highlighted; no path
             // between them.
@@ -461,6 +550,88 @@ public partial class TacticalScene : Node2D
             Vector2I atlasCoord = TerrainAtlasLookup[cell.Terrain];
             _ground.SetCell(coord, TerrainSourceId, atlasCoord);
         }
+    }
+
+    /// <summary>
+    /// Hardcode-spawn the L5 trio onto the simulation grid and the scene
+    /// tree, then invalidate the pathfinder once so it picks up the new
+    /// occupancy.
+    ///
+    /// <para>
+    /// <b>Spawn order is load-bearing.</b> First, write
+    /// <see cref="Cell.OccupantId"/> on each unit's cell — the simulation
+    /// is the source of truth, so it gets written first. Second, build
+    /// the visual marker per unit and add it to the <c>Units</c> branch.
+    /// Third, call <see cref="PathfindingService.Invalidate"/> ONCE at
+    /// the end — invalidating per-unit would re-seed the entire grid
+    /// three times for nothing. The pattern generalizes: if N occupancy
+    /// changes happen in a frame, do them all on the simulation, then
+    /// invalidate once.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Spawn-cell sanity.</b> Each spawn cell is read first; if it is
+    /// already occupied or impassable, we log and skip rather than
+    /// silently overwriting. The hardcoded trio respects this constraint
+    /// by construction (three distinct empty walkable plateau cells), but
+    /// the guard lives here because the L6+ flow will eventually feed
+    /// dynamic positions into this method and a position-assignment bug
+    /// in mission scripting should fail loud, not corrupt the grid.
+    /// </para>
+    /// </summary>
+    private void SpawnParty()
+    {
+        foreach (var unit in PartyRoster)
+        {
+            if (!_simulation.IsInBounds(unit.Position))
+            {
+                GD.PushError(
+                    $"SpawnParty: unit {unit.Id} position {unit.Position} " +
+                    $"is out of bounds. Skipping.");
+                continue;
+            }
+
+            Cell existing = _simulation.GetCell(unit.Position);
+            if (!existing.IsPassable)
+            {
+                GD.PushError(
+                    $"SpawnParty: unit {unit.Id} target cell {unit.Position} " +
+                    $"is impassable (Terrain={existing.Terrain}). Skipping.");
+                continue;
+            }
+            if (!existing.IsEmpty)
+            {
+                GD.PushError(
+                    $"SpawnParty: unit {unit.Id} target cell {unit.Position} " +
+                    $"is already occupied by '{existing.OccupantId}'. Skipping.");
+                continue;
+            }
+
+            // Simulation side: write the occupant.
+            _simulation.SetCell(unit.Position, existing with { OccupantId = unit.Id });
+
+            // Visual side: instantiate a marker, position it via the same
+            // MapToLocal the ground layer uses (so it lands on tile
+            // center), color it, attach it under the Y-sorted Units root.
+            var marker = new UnitMarker
+            {
+                Name = $"Unit_{unit.Id}",
+                Position = _ground.MapToLocal(unit.Position),
+            };
+            if (PartyColors.TryGetValue(unit.Id, out Color color))
+            {
+                marker.SetBodyColor(color);
+            }
+            _unitsRoot.AddChild(marker);
+            _markers[unit.Id] = marker;
+
+            GD.Print(
+                $"SpawnParty: {unit.DisplayName} ({unit.Id}) spawned at " +
+                $"{unit.Position} (screen {marker.Position}).");
+        }
+
+        // Pathfinder picks up the three new solids in one re-seed.
+        _pathfinding.Invalidate();
     }
 
     /// <summary>
