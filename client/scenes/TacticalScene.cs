@@ -339,6 +339,14 @@ public partial class TacticalScene : Node2D
 
     private void StampHighlight(Vector2I coord, Vector2I atlasCoord)
     {
+        // Diagnostic log kept in place after the L4 path-highlight gap bug
+        // (see commit message of fix). The label tells you at a glance
+        // which atlas variant landed at which cell — if a future stamp
+        // ever fails to land, the missing log line is the smoking gun.
+        string label = atlasCoord == PathStepAtlasCoord ? "cyan"
+                     : atlasCoord == EndpointAtlasCoord ? "yellow"
+                     : atlasCoord.ToString();
+        GD.Print($"TacticalScene.StampHighlight: cell={coord} atlas={label}");
         _pathHighlight.SetCell(coord, HighlightSourceId, atlasCoord);
     }
 
