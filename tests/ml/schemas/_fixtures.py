@@ -107,7 +107,7 @@ def ridge_opposition() -> OppositionState:
 
 def ridge_scene() -> SceneState:
     return SceneState(
-        mission_type="ridge reconnaissance",
+        mission_type="reconnaissance",
         sponsor_faction="Ridgewatch company",
         objective_phrase="map the enemy camp beyond the ridge before dawn",
         stakes_tier="high",

@@ -1,7 +1,7 @@
 """Context prose renderer -- Varn 2026-05-01 sec. 3.
 
 Schema (11 sentences):
-    1. Mission identity       ("The mission is a ridge reconnaissance...")
+    1. Mission identity       ("The mission is a reconnaissance...")
     2. Mission objective      ("The mission objective is to map...")
     3. Stakes line            ("The stakes are high: failure means...")
     4. Party roster           ("The party is three: Kira the scout, ...")

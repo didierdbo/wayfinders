@@ -180,7 +180,7 @@ _SKILL_LANES: Final[tuple[SkillTier, ...]] = (
 )
 
 _MISSION_LANES: Final[tuple[MissionType, ...]] = (
-    "ridge reconnaissance",
+    "reconnaissance",
     "infiltration",
     "escort",
     "ambush",
@@ -213,12 +213,10 @@ _WATCH_LANES: Final[tuple[Watch, ...]] = (
 _WOUND_LANES: Final[tuple[WoundBucket, ...]] = (
     "unhurt",
     "lightly wounded",
-    "wounded",
     "battered",
 )
 _SUPPLY_LANES: Final[tuple[SupplyBucket, ...]] = (
     "well-supplied",
-    "adequately supplied",
     "low on rations",
     "starving",
 )
@@ -226,7 +224,6 @@ _FATIGUE_LANES: Final[tuple[FatigueBucket, ...]] = (
     "rested",
     "short on sleep",
     "exhausted",
-    "spent",
 )
 _TEMPERATURE_LANES: Final[tuple[Temperature, ...]] = (
     "bitterly cold",
@@ -266,11 +263,14 @@ _TERRAIN_LANES: Final[tuple[TerrainPrimary, ...]] = (
 _TERRAIN_MODIFIER_LANES: Final[tuple[TerrainModifier, ...]] = (
     "sparse pine cover",
     "thick canopy overhead",
-    "with festival lanterns strung overhead",
-    "with old battlements above",
-    "with ruined walls flanking the path",
-    "with shallow water underfoot",
-    "with wind-scoured boulders",
+    "festival lanterns strung overhead",
+    "old battlements above",
+    "ruined walls flanking the path",
+    "shallow water underfoot",
+    "wind-scoured boulders",
+    "dense undergrowth",
+    "crowded rooftops above",
+    "frozen ground underfoot",
 )
 _FACTION_LANES: Final[tuple[FactionRelation, ...]] = (
     "at war",
