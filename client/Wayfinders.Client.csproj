@@ -8,4 +8,17 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
+  <!-- Exclude the test project sources from the Godot client build. The test
+       project is a separate Microsoft.NET.Sdk csproj under client/tests/ and
+       compiles MiniLmEncoder.cs via Compile Include from one folder up. If
+       Godot's default Compile Include glob grabs the test files too, we get
+       duplicate-symbol and missing-xunit-reference errors. -->
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+    <None Remove="tests/**/*" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
+    <PackageReference Include="Microsoft.ML.Tokenizers" Version="1.0.1" />
+  </ItemGroup>
 </Project>

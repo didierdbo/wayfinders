@@ -93,9 +93,20 @@ client/.godot/
 client/.import/
 client/bin/
 client/obj/
+client/tests/bin/
+client/tests/obj/
 client/*.user
 client/*.suo
 client/exports/
 client/builds/
 client/*.pck
 client/*.translation
+
+# --- ML model artefacts inside client (Phase 6 L2+) ---
+# The encoder ONNX (~45 MB fp16) and tokenizer/vocab files ship as release
+# assets, fetched manually into client/ml/ before running the test suite.
+# Same discipline as the top-level artifacts/ folder. Commit the C# source
+# and the small derived parity fixture (parity/), never the binary blobs.
+client/ml/*.onnx
+client/ml/tokenizer.json
+client/ml/vocab.txt

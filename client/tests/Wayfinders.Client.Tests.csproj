@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>Wayfinders.Client.Tests</RootNamespace>
+    <!-- We do NOT ProjectReference the Godot client csproj. It uses the
+         Godot.NET.Sdk and a ProjectReference would drag GodotSharp + the
+         engine binding into a plain test host that has no Godot runtime.
+         Instead, we cherry-pick the Godot-free source file (MiniLmEncoder.cs)
+         via <Compile Include> below. Cleaner, faster, AOT-friendly. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+    <!-- Same versions as the client csproj. Pinned so test parity matches
+         what production runs on. -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
+    <PackageReference Include="Microsoft.ML.Tokenizers" Version="1.0.1" />
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!-- Compile the encoder source file directly into the test assembly.
+       MiniLmEncoder.cs has no Godot dependency. -->
+  <ItemGroup>
+    <Compile Include="..\ml\MiniLmEncoder.cs" Link="src\MiniLmEncoder.cs" />
+  </ItemGroup>
+
+</Project>
