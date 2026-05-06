@@ -117,3 +117,11 @@ client/ml/*.onnx
 !client/ml/resolution-head-v0.1.onnx
 client/ml/tokenizer.json
 client/ml/vocab.txt
+
+# --- Probes (scripts/probes/) ---
+# One-off investigation scripts (Python + a small C# console probe used
+# during the L4 tokenizer divergence audit). Source + JSON results are
+# committed for audit/repro; .NET build artefacts of the C# probe are
+# local-only.
+scripts/probes/csharp_tokenizer_probe/bin/
+scripts/probes/csharp_tokenizer_probe/obj/

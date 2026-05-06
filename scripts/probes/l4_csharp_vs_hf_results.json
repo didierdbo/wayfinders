@@ -1,0 +1,1256 @@
+{
+  "fixture": "parity\\python_reference_v0.1.json",
+  "n_records": 20,
+  "records_with_divergence": 18,
+  "field_divergences": 18,
+  "results": [
+    {
+      "record_id": "kira_stealth_ridge",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 223,
+      "cs_len": 223
+    },
+    {
+      "record_id": "kira_stealth_ridge",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 121,
+      "cs_len": 121
+    },
+    {
+      "record_id": "kira_stealth_ridge",
+      "field": "prose_context",
+      "agree": true,
+      "hf_len": 186,
+      "cs_len": 186
+    },
+    {
+      "record_id": "kira_stealth_festival",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 223,
+      "cs_len": 223
+    },
+    {
+      "record_id": "kira_stealth_festival",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 121,
+      "cs_len": 121
+    },
+    {
+      "record_id": "kira_stealth_festival",
+      "field": "prose_context",
+      "agree": true,
+      "hf_len": 179,
+      "cs_len": 179
+    },
+    {
+      "record_id": "rollout_000_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 117,
+      "cs_len": 117
+    },
+    {
+      "record_id": "rollout_000_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 115,
+      "cs_len": 115
+    },
+    {
+      "record_id": "rollout_000_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 159,
+      "cs_len": 159,
+      "first_div_pos": 52,
+      "hf_window_ids": [
+        2048,
+        1024,
+        14916,
+        2078,
+        1035,
+        1014,
+        1996,
+        24688,
+        1998
+      ],
+      "cs_window_ids": [
+        2048,
+        1024,
+        14916,
+        2078,
+        29638,
+        2692,
+        1996,
+        24688,
+        1998
+      ],
+      "hf_window_tokens": [
+        "two",
+        ":",
+        "ren",
+        "##n",
+        "_",
+        "0",
+        "the",
+        "quartermaster",
+        "and"
+      ],
+      "cs_window_tokens": [
+        "two",
+        ":",
+        "ren",
+        "##n",
+        "##_",
+        "##0",
+        "the",
+        "quartermaster",
+        "and"
+      ],
+      "total_mismatches": 4
+    },
+    {
+      "record_id": "rollout_001_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 89,
+      "cs_len": 89
+    },
+    {
+      "record_id": "rollout_001_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 117,
+      "cs_len": 117
+    },
+    {
+      "record_id": "rollout_001_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 179,
+      "cs_len": 179,
+      "first_div_pos": 51,
+      "hf_window_ids": [
+        2003,
+        2093,
+        1024,
+        15163,
+        1035,
+        1014,
+        1996,
+        24688,
+        1010
+      ],
+      "cs_window_ids": [
+        2003,
+        2093,
+        1024,
+        15163,
+        29638,
+        2692,
+        1996,
+        24688,
+        1010
+      ],
+      "hf_window_tokens": [
+        "is",
+        "three",
+        ":",
+        "kira",
+        "_",
+        "0",
+        "the",
+        "quartermaster",
+        ","
+      ],
+      "cs_window_tokens": [
+        "is",
+        "three",
+        ":",
+        "kira",
+        "##_",
+        "##0",
+        "the",
+        "quartermaster",
+        ","
+      ],
+      "total_mismatches": 6
+    },
+    {
+      "record_id": "rollout_002_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 106,
+      "cs_len": 106
+    },
+    {
+      "record_id": "rollout_002_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 121,
+      "cs_len": 121
+    },
+    {
+      "record_id": "rollout_002_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 168,
+      "cs_len": 168,
+      "first_div_pos": 51,
+      "hf_window_ids": [
+        2003,
+        2176,
+        1024,
+        18062,
+        1035,
+        1014,
+        1996,
+        11505,
+        1010
+      ],
+      "cs_window_ids": [
+        2003,
+        2176,
+        1024,
+        18062,
+        29638,
+        2692,
+        1996,
+        11505,
+        1010
+      ],
+      "hf_window_tokens": [
+        "is",
+        "four",
+        ":",
+        "mira",
+        "_",
+        "0",
+        "the",
+        "ranger",
+        ","
+      ],
+      "cs_window_tokens": [
+        "is",
+        "four",
+        ":",
+        "mira",
+        "##_",
+        "##0",
+        "the",
+        "ranger",
+        ","
+      ],
+      "total_mismatches": 8
+    },
+    {
+      "record_id": "rollout_003_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 107,
+      "cs_len": 107
+    },
+    {
+      "record_id": "rollout_003_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 125,
+      "cs_len": 125
+    },
+    {
+      "record_id": "rollout_003_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 160,
+      "cs_len": 160,
+      "first_div_pos": 52,
+      "hf_window_ids": [
+        2028,
+        1024,
+        11085,
+        4181,
+        1035,
+        1014,
+        1996,
+        7464,
+        1012
+      ],
+      "cs_window_ids": [
+        2028,
+        1024,
+        11085,
+        4181,
+        29638,
+        2692,
+        1996,
+        7464,
+        1012
+      ],
+      "hf_window_tokens": [
+        "one",
+        ":",
+        "hal",
+        "##den",
+        "_",
+        "0",
+        "the",
+        "scout",
+        "."
+      ],
+      "cs_window_tokens": [
+        "one",
+        ":",
+        "hal",
+        "##den",
+        "##_",
+        "##0",
+        "the",
+        "scout",
+        "."
+      ],
+      "total_mismatches": 2
+    },
+    {
+      "record_id": "rollout_004_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 152,
+      "cs_len": 152
+    },
+    {
+      "record_id": "rollout_004_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 89,
+      "cs_len": 89
+    },
+    {
+      "record_id": "rollout_004_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 162,
+      "cs_len": 162,
+      "first_div_pos": 51,
+      "hf_window_ids": [
+        2003,
+        2028,
+        1024,
+        15163,
+        1035,
+        1014,
+        1996,
+        24688,
+        1012
+      ],
+      "cs_window_ids": [
+        2003,
+        2028,
+        1024,
+        15163,
+        29638,
+        2692,
+        1996,
+        24688,
+        1012
+      ],
+      "hf_window_tokens": [
+        "is",
+        "one",
+        ":",
+        "kira",
+        "_",
+        "0",
+        "the",
+        "quartermaster",
+        "."
+      ],
+      "cs_window_tokens": [
+        "is",
+        "one",
+        ":",
+        "kira",
+        "##_",
+        "##0",
+        "the",
+        "quartermaster",
+        "."
+      ],
+      "total_mismatches": 2
+    },
+    {
+      "record_id": "rollout_005_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 113,
+      "cs_len": 113
+    },
+    {
+      "record_id": "rollout_005_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 118,
+      "cs_len": 118
+    },
+    {
+      "record_id": "rollout_005_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 150,
+      "cs_len": 150,
+      "first_div_pos": 51,
+      "hf_window_ids": [
+        2003,
+        2048,
+        1024,
+        15163,
+        1035,
+        1014,
+        1996,
+        29307,
+        1998
+      ],
+      "cs_window_ids": [
+        2003,
+        2048,
+        1024,
+        15163,
+        29638,
+        2692,
+        1996,
+        29307,
+        1998
+      ],
+      "hf_window_tokens": [
+        "is",
+        "two",
+        ":",
+        "kira",
+        "_",
+        "0",
+        "the",
+        "cleric",
+        "and"
+      ],
+      "cs_window_tokens": [
+        "is",
+        "two",
+        ":",
+        "kira",
+        "##_",
+        "##0",
+        "the",
+        "cleric",
+        "and"
+      ],
+      "total_mismatches": 4
+    },
+    {
+      "record_id": "rollout_006_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 176,
+      "cs_len": 176
+    },
+    {
+      "record_id": "rollout_006_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 120,
+      "cs_len": 120
+    },
+    {
+      "record_id": "rollout_006_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 187,
+      "cs_len": 187,
+      "first_div_pos": 52,
+      "hf_window_ids": [
+        2003,
+        2176,
+        1024,
+        15163,
+        1035,
+        1014,
+        1996,
+        7464,
+        1010
+      ],
+      "cs_window_ids": [
+        2003,
+        2176,
+        1024,
+        15163,
+        29638,
+        2692,
+        1996,
+        7464,
+        1010
+      ],
+      "hf_window_tokens": [
+        "is",
+        "four",
+        ":",
+        "kira",
+        "_",
+        "0",
+        "the",
+        "scout",
+        ","
+      ],
+      "cs_window_tokens": [
+        "is",
+        "four",
+        ":",
+        "kira",
+        "##_",
+        "##0",
+        "the",
+        "scout",
+        ","
+      ],
+      "total_mismatches": 8
+    },
+    {
+      "record_id": "rollout_007_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 115,
+      "cs_len": 115
+    },
+    {
+      "record_id": "rollout_007_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 121,
+      "cs_len": 121
+    },
+    {
+      "record_id": "rollout_007_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 180,
+      "cs_len": 180,
+      "first_div_pos": 51,
+      "hf_window_ids": [
+        2003,
+        2048,
+        1024,
+        18062,
+        1035,
+        1014,
+        1996,
+        29307,
+        1998
+      ],
+      "cs_window_ids": [
+        2003,
+        2048,
+        1024,
+        18062,
+        29638,
+        2692,
+        1996,
+        29307,
+        1998
+      ],
+      "hf_window_tokens": [
+        "is",
+        "two",
+        ":",
+        "mira",
+        "_",
+        "0",
+        "the",
+        "cleric",
+        "and"
+      ],
+      "cs_window_tokens": [
+        "is",
+        "two",
+        ":",
+        "mira",
+        "##_",
+        "##0",
+        "the",
+        "cleric",
+        "and"
+      ],
+      "total_mismatches": 4
+    },
+    {
+      "record_id": "rollout_008_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 98,
+      "cs_len": 98
+    },
+    {
+      "record_id": "rollout_008_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 114,
+      "cs_len": 114
+    },
+    {
+      "record_id": "rollout_008_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 184,
+      "cs_len": 184,
+      "first_div_pos": 51,
+      "hf_window_ids": [
+        2003,
+        2093,
+        1024,
+        15163,
+        1035,
+        1014,
+        1996,
+        7464,
+        1010
+      ],
+      "cs_window_ids": [
+        2003,
+        2093,
+        1024,
+        15163,
+        29638,
+        2692,
+        1996,
+        7464,
+        1010
+      ],
+      "hf_window_tokens": [
+        "is",
+        "three",
+        ":",
+        "kira",
+        "_",
+        "0",
+        "the",
+        "scout",
+        ","
+      ],
+      "cs_window_tokens": [
+        "is",
+        "three",
+        ":",
+        "kira",
+        "##_",
+        "##0",
+        "the",
+        "scout",
+        ","
+      ],
+      "total_mismatches": 6
+    },
+    {
+      "record_id": "rollout_009_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 142,
+      "cs_len": 142
+    },
+    {
+      "record_id": "rollout_009_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 123,
+      "cs_len": 123
+    },
+    {
+      "record_id": "rollout_009_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 161,
+      "cs_len": 161,
+      "first_div_pos": 51,
+      "hf_window_ids": [
+        2003,
+        2028,
+        1024,
+        18062,
+        1035,
+        1014,
+        1996,
+        29307,
+        1012
+      ],
+      "cs_window_ids": [
+        2003,
+        2028,
+        1024,
+        18062,
+        29638,
+        2692,
+        1996,
+        29307,
+        1012
+      ],
+      "hf_window_tokens": [
+        "is",
+        "one",
+        ":",
+        "mira",
+        "_",
+        "0",
+        "the",
+        "cleric",
+        "."
+      ],
+      "cs_window_tokens": [
+        "is",
+        "one",
+        ":",
+        "mira",
+        "##_",
+        "##0",
+        "the",
+        "cleric",
+        "."
+      ],
+      "total_mismatches": 2
+    },
+    {
+      "record_id": "rollout_010_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 130,
+      "cs_len": 130
+    },
+    {
+      "record_id": "rollout_010_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 125,
+      "cs_len": 125
+    },
+    {
+      "record_id": "rollout_010_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 161,
+      "cs_len": 161,
+      "first_div_pos": 52,
+      "hf_window_ids": [
+        2028,
+        1024,
+        11085,
+        4181,
+        1035,
+        1014,
+        1996,
+        29307,
+        1012
+      ],
+      "cs_window_ids": [
+        2028,
+        1024,
+        11085,
+        4181,
+        29638,
+        2692,
+        1996,
+        29307,
+        1012
+      ],
+      "hf_window_tokens": [
+        "one",
+        ":",
+        "hal",
+        "##den",
+        "_",
+        "0",
+        "the",
+        "cleric",
+        "."
+      ],
+      "cs_window_tokens": [
+        "one",
+        ":",
+        "hal",
+        "##den",
+        "##_",
+        "##0",
+        "the",
+        "cleric",
+        "."
+      ],
+      "total_mismatches": 2
+    },
+    {
+      "record_id": "rollout_011_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 181,
+      "cs_len": 181
+    },
+    {
+      "record_id": "rollout_011_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 107,
+      "cs_len": 107
+    },
+    {
+      "record_id": "rollout_011_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 186,
+      "cs_len": 186,
+      "first_div_pos": 52,
+      "hf_window_ids": [
+        2003,
+        2093,
+        1024,
+        18062,
+        1035,
+        1014,
+        1996,
+        29307,
+        1010
+      ],
+      "cs_window_ids": [
+        2003,
+        2093,
+        1024,
+        18062,
+        29638,
+        2692,
+        1996,
+        29307,
+        1010
+      ],
+      "hf_window_tokens": [
+        "is",
+        "three",
+        ":",
+        "mira",
+        "_",
+        "0",
+        "the",
+        "cleric",
+        ","
+      ],
+      "cs_window_tokens": [
+        "is",
+        "three",
+        ":",
+        "mira",
+        "##_",
+        "##0",
+        "the",
+        "cleric",
+        ","
+      ],
+      "total_mismatches": 6
+    },
+    {
+      "record_id": "rollout_012_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 170,
+      "cs_len": 170
+    },
+    {
+      "record_id": "rollout_012_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 124,
+      "cs_len": 124
+    },
+    {
+      "record_id": "rollout_012_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 155,
+      "cs_len": 155,
+      "first_div_pos": 52,
+      "hf_window_ids": [
+        2093,
+        1024,
+        11085,
+        4181,
+        1035,
+        1014,
+        1996,
+        29307,
+        1010
+      ],
+      "cs_window_ids": [
+        2093,
+        1024,
+        11085,
+        4181,
+        29638,
+        2692,
+        1996,
+        29307,
+        1010
+      ],
+      "hf_window_tokens": [
+        "three",
+        ":",
+        "hal",
+        "##den",
+        "_",
+        "0",
+        "the",
+        "cleric",
+        ","
+      ],
+      "cs_window_tokens": [
+        "three",
+        ":",
+        "hal",
+        "##den",
+        "##_",
+        "##0",
+        "the",
+        "cleric",
+        ","
+      ],
+      "total_mismatches": 6
+    },
+    {
+      "record_id": "rollout_013_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 132,
+      "cs_len": 132
+    },
+    {
+      "record_id": "rollout_013_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 119,
+      "cs_len": 119
+    },
+    {
+      "record_id": "rollout_013_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 177,
+      "cs_len": 177,
+      "first_div_pos": 53,
+      "hf_window_ids": [
+        2028,
+        1024,
+        14916,
+        2078,
+        1035,
+        1014,
+        1996,
+        24688,
+        1012
+      ],
+      "cs_window_ids": [
+        2028,
+        1024,
+        14916,
+        2078,
+        29638,
+        2692,
+        1996,
+        24688,
+        1012
+      ],
+      "hf_window_tokens": [
+        "one",
+        ":",
+        "ren",
+        "##n",
+        "_",
+        "0",
+        "the",
+        "quartermaster",
+        "."
+      ],
+      "cs_window_tokens": [
+        "one",
+        ":",
+        "ren",
+        "##n",
+        "##_",
+        "##0",
+        "the",
+        "quartermaster",
+        "."
+      ],
+      "total_mismatches": 2
+    },
+    {
+      "record_id": "rollout_014_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 121,
+      "cs_len": 121
+    },
+    {
+      "record_id": "rollout_014_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 105,
+      "cs_len": 105
+    },
+    {
+      "record_id": "rollout_014_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 152,
+      "cs_len": 152,
+      "first_div_pos": 52,
+      "hf_window_ids": [
+        2003,
+        2028,
+        1024,
+        15163,
+        1035,
+        1014,
+        1996,
+        29307,
+        1012
+      ],
+      "cs_window_ids": [
+        2003,
+        2028,
+        1024,
+        15163,
+        29638,
+        2692,
+        1996,
+        29307,
+        1012
+      ],
+      "hf_window_tokens": [
+        "is",
+        "one",
+        ":",
+        "kira",
+        "_",
+        "0",
+        "the",
+        "cleric",
+        "."
+      ],
+      "cs_window_tokens": [
+        "is",
+        "one",
+        ":",
+        "kira",
+        "##_",
+        "##0",
+        "the",
+        "cleric",
+        "."
+      ],
+      "total_mismatches": 2
+    },
+    {
+      "record_id": "rollout_015_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 111,
+      "cs_len": 111
+    },
+    {
+      "record_id": "rollout_015_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 111,
+      "cs_len": 111
+    },
+    {
+      "record_id": "rollout_015_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 141,
+      "cs_len": 141,
+      "first_div_pos": 51,
+      "hf_window_ids": [
+        2003,
+        2028,
+        1024,
+        18062,
+        1035,
+        1014,
+        1996,
+        29307,
+        1012
+      ],
+      "cs_window_ids": [
+        2003,
+        2028,
+        1024,
+        18062,
+        29638,
+        2692,
+        1996,
+        29307,
+        1012
+      ],
+      "hf_window_tokens": [
+        "is",
+        "one",
+        ":",
+        "mira",
+        "_",
+        "0",
+        "the",
+        "cleric",
+        "."
+      ],
+      "cs_window_tokens": [
+        "is",
+        "one",
+        ":",
+        "mira",
+        "##_",
+        "##0",
+        "the",
+        "cleric",
+        "."
+      ],
+      "total_mismatches": 2
+    },
+    {
+      "record_id": "rollout_016_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 125,
+      "cs_len": 125
+    },
+    {
+      "record_id": "rollout_016_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 121,
+      "cs_len": 121
+    },
+    {
+      "record_id": "rollout_016_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 155,
+      "cs_len": 155,
+      "first_div_pos": 52,
+      "hf_window_ids": [
+        2093,
+        1024,
+        24905,
+        2078,
+        1035,
+        1014,
+        1996,
+        7464,
+        1010
+      ],
+      "cs_window_ids": [
+        2093,
+        1024,
+        24905,
+        2078,
+        29638,
+        2692,
+        1996,
+        7464,
+        1010
+      ],
+      "hf_window_tokens": [
+        "three",
+        ":",
+        "bran",
+        "##n",
+        "_",
+        "0",
+        "the",
+        "scout",
+        ","
+      ],
+      "cs_window_tokens": [
+        "three",
+        ":",
+        "bran",
+        "##n",
+        "##_",
+        "##0",
+        "the",
+        "scout",
+        ","
+      ],
+      "total_mismatches": 6
+    },
+    {
+      "record_id": "rollout_017_seed777",
+      "field": "prose_character",
+      "agree": true,
+      "hf_len": 128,
+      "cs_len": 128
+    },
+    {
+      "record_id": "rollout_017_seed777",
+      "field": "prose_action",
+      "agree": true,
+      "hf_len": 111,
+      "cs_len": 111
+    },
+    {
+      "record_id": "rollout_017_seed777",
+      "field": "prose_context",
+      "agree": false,
+      "hf_len": 173,
+      "cs_len": 173,
+      "first_div_pos": 52,
+      "hf_window_ids": [
+        2176,
+        1024,
+        14916,
+        2078,
+        1035,
+        1014,
+        1996,
+        24688,
+        1010
+      ],
+      "cs_window_ids": [
+        2176,
+        1024,
+        14916,
+        2078,
+        29638,
+        2692,
+        1996,
+        24688,
+        1010
+      ],
+      "hf_window_tokens": [
+        "four",
+        ":",
+        "ren",
+        "##n",
+        "_",
+        "0",
+        "the",
+        "quartermaster",
+        ","
+      ],
+      "cs_window_tokens": [
+        "four",
+        ":",
+        "ren",
+        "##n",
+        "##_",
+        "##0",
+        "the",
+        "quartermaster",
+        ","
+      ],
+      "total_mismatches": 8
+    }
+  ]
+}
