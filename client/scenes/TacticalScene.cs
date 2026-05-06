@@ -98,6 +98,21 @@ namespace Wayfinders.Client.Scenes;
 /// <see cref="_Process"/> call below; planned chore once the iso-mapping
 /// hypothesis is confirmed and (if needed) fixed.
 /// </para>
+///
+/// <para>
+/// <b>Camera centering.</b> A <c>Camera2D</c> child of the scene is
+/// positioned at the center of the iso diamond
+/// (<c>(0, MapHeight * TileHeight / 2)</c> with the TileMapLayers anchored
+/// at origin) and zoomed out to 0.65 so the full 24×24 grid fits in the
+/// default 1152×648 viewport. The previous arrangement — TileMapLayers
+/// offset by <c>(640, 64)</c> with no camera — pushed the right half of
+/// the diamond off-screen because the diamond is 1472px wide at zoom 1.0
+/// and the iso transform sweeps east as X grows. Anchoring the layers at
+/// origin keeps <c>LocalToMap</c> arithmetic clean (cell <c>(0,0)</c> at
+/// world <c>(0,0)</c>); the camera owns presentation. This also rules out
+/// hypothesis 2 of the click-mapping diag (a stale offset confusing the
+/// inverse transform).
+/// </para>
 /// </summary>
 public partial class TacticalScene : Node2D
 {
