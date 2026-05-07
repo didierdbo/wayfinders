@@ -32,10 +32,21 @@ namespace Wayfinders.Client.Data;
 /// </para>
 ///
 /// <para>
+/// <b>J3 additions.</b> Varn UI Labels v1 §3 (E2 essentials) ratified
+/// for the World Map: title bandeau, subtitle, panel titles + bodies
+/// (PanelLeftBody/PanelRightBody added 2026-05-07 by Varn), back
+/// button, POI hover templates, blocked indicator, layer indicator.
+/// E2.M (date in-game) and E2.N (palier compagnie) intentionally NOT
+/// shipped — pre-brief D-J3-04 (date) and D-J3-03 alternative (jauge
+/// palier punted with the date).
+/// </para>
+///
+/// <para>
 /// <b>Variants pending Didier playtest validation.</b> Varn flagged
-/// several open tonal decisions in §9 of the spec ; J2 ships the chosen
-/// defaults but the swap targets are documented inline below for fast
-/// hot-edit on the <c>.tres</c> if Didier pivots after manual checklist.
+/// several open tonal decisions in §9 of the spec ; J2/J3 ship the
+/// chosen defaults but the swap targets are documented inline below
+/// for fast hot-edit on the <c>.tres</c> if Didier pivots after manual
+/// checklist.
 /// </para>
 /// </summary>
 [GlobalClass]
@@ -132,4 +143,87 @@ public partial class OpeningStrings : Resource
 
     /// <summary>E1.T -- bouton annulation (voix S). Locked Varn §2.3.</summary>
     [Export] public string Cancel { get; set; } = "Annuler";
+
+    // -------------------- Écran 2 (Carte du monde) --------------------
+    // Source: Varn §3.1 table E2 (added 2026-05-07 J3).
+
+    /// <summary>E2.A -- titre écran (bandeau supérieur, cartouche). Locked Varn §3.1.</summary>
+    [Export] public string E2Title { get; set; } = "Feuillet I — Carte des marges connues.";
+
+    /// <summary>
+    /// E2.B -- légende de section sous le titre (1 ligne, micro-texte).
+    /// Default Varn §3.1: <c>Établi par l'Ordre des Arpenteurs. Tenu à jour selon les juridictions.</c>
+    /// Variant Varn §3.1: <c>Établi par l'Ordre. Mis à jour partiellement.</c>
+    /// </summary>
+    [Export] public string E2Subtitle { get; set; } =
+        "Établi par l'Ordre des Arpenteurs. Tenu à jour selon les juridictions.";
+
+    /// <summary>
+    /// E2.C -- onglet panneau gauche (rétractable, en J3 stub fixed-pos).
+    /// Default Varn §3.1: <c>La compagnie</c>.
+    /// Variant Varn §3.1: <c>Registre de la compagnie</c>.
+    /// </summary>
+    [Export] public string E2PanelLeftTitle { get; set; } = "La compagnie";
+
+    /// <summary>E2.D -- onglet panneau droit. Locked Varn §3.1 + §10.7 vision n°5.</summary>
+    [Export] public string E2PanelRightTitle { get; set; } = "Marges du Codex";
+
+    /// <summary>
+    /// E2.PanelLeftBody -- corps panneau gauche (état stub J3, voix A).
+    /// Default Varn §3.1 (drafted 2026-05-07): <c>Aucune compagnie déclarée à ce feuillet. Le registre attend signature.</c>
+    /// Variant Varn §3.1: <c>Aucune inscription. Le registre est ouvert mais vierge.</c>
+    /// </summary>
+    [Export] public string E2PanelLeftBody { get; set; } =
+        "Aucune compagnie déclarée à ce feuillet. Le registre attend signature.";
+
+    /// <summary>
+    /// E2.PanelRightBody -- corps panneau droit (état stub J3, voix D Marges).
+    /// Default Varn §3.1 (drafted 2026-05-07): <c>Les marges sont propres. Pour l'instant.</c>
+    /// Variant Varn §3.1 (alt warmer ton): <c>Rien n'a encore été griffonné ici. Ça viendra.</c>
+    /// — Didier may swap to the alt at tests via hot-edit. Both pass the
+    /// Pratchett-warm filter ; the default's <c>Pour l'instant.</c> is the
+    /// signed-off voice, the alt is documented here for fast swap.
+    /// </summary>
+    [Export] public string E2PanelRightBody { get; set; } =
+        "Les marges sont propres. Pour l'instant.";
+
+    /// <summary>
+    /// E2.E -- bouton retour (bas-gauche).
+    /// Default Varn §3.1: <c>Refermer le feuillet</c>.
+    /// Variant Varn §3.1: <c>Quitter la carte</c> (voix S).
+    /// </summary>
+    [Export] public string E2BackButton { get; set; } = "Refermer le feuillet";
+
+    /// <summary>
+    /// E2.F instantiated for Halfgate -- the unique clickable POI in MVP
+    /// (Varn §6.D6.10 lock 1-cité). Voix A. Composed from the §3.1
+    /// template <c>[Nom]. Cité [statut]. Cadastre [tenu à jour | ...].</c>
+    /// — Halfgate is the patented city Cadastre is up-to-date on, so:
+    /// <c>Halfgate. Cité patentée. Cadastre tenu à jour.</c>
+    /// </summary>
+    [Export] public string E2PoiHalfgateTooltip { get; set; } =
+        "Halfgate. Cité patentée. Cadastre tenu à jour.";
+
+    /// <summary>
+    /// E2.G -- tag template for grisée POI cities (Cadastre suspendu).
+    /// Contains the <c>[Nom]</c> placeholder which E2WorldMap substitutes
+    /// at runtime with <see cref="PoiDefinition.DisplayName"/>. Voix A.
+    /// </summary>
+    [Export] public string E2PoiCitySuspendedTooltipTemplate { get; set; } =
+        "[Nom]. Cadastre suspendu — accès non encore patenté.";
+
+    /// <summary>
+    /// E2.G reused for the bottom-center flash label that flashes 2s
+    /// after a click on a grisée POI. Same wording, no <c>[Nom]</c>
+    /// because the click context is generic. Voix A.
+    /// </summary>
+    [Export] public string E2PoiBlockedIndicator { get; set; } =
+        "Cadastre suspendu — accès non encore patenté.";
+
+    /// <summary>
+    /// E2.L -- indicateur layer P2 (coin bas-droite). Static label in J3
+    /// (D-J3-03). Becomes dynamic when the molette layer-pile mechanic
+    /// ships post-MVP. Voix A.
+    /// </summary>
+    [Export] public string E2LayerIndicator { get; set; } = "Pile cadastrale : monde.";
 }

@@ -24,6 +24,7 @@ AssetResolver="*res://services/AssetResolver.tscn"
 GameState="*res://services/GameState.tscn"
 KnowledgeMatrix="*res://services/KnowledgeMatrix.tscn"
 OnboardingPops="*res://services/OnboardingPops.tscn"
+HoverTooltipController="*res://services/HoverTooltipController.tscn"
 WorldSimTick="*res://services/WorldSimTick.tscn"
 OpeningBootstrap="*res://services/OpeningBootstrap.tscn"
 

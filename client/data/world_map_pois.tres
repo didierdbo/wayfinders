@@ -1,0 +1,52 @@
+[gd_resource type="Resource" script_class="WorldMapPois" load_steps=6 format=3 uid="uid://cwmpois0001"]
+
+[ext_resource type="Script" path="res://data/WorldMapPois.cs" id="1_wmpois"]
+[ext_resource type="Script" path="res://data/PoiDefinition.cs" id="2_poidef"]
+
+[sub_resource type="Resource" id="Resource_halfgate"]
+script = ExtResource("2_poidef")
+PoiId = "halfgate"
+DisplayName = "Halfgate"
+Position = Vector2(1820, 980)
+Size = Vector2(120, 120)
+IsClickable = true
+TargetScreenId = "E3_CITY_HALFGATE"
+TooltipKey = "E2PoiHalfgateTooltip"
+AssetKey = "e2.poi_marker.active"
+
+[sub_resource type="Resource" id="Resource_veylant"]
+script = ExtResource("2_poidef")
+PoiId = "veylant"
+DisplayName = "Veylant"
+Position = Vector2(960, 540)
+Size = Vector2(96, 96)
+IsClickable = false
+TargetScreenId = ""
+TooltipKey = ""
+AssetKey = "e2.poi_marker.suspended"
+
+[sub_resource type="Resource" id="Resource_caermithren"]
+script = ExtResource("2_poidef")
+PoiId = "caer-mithren"
+DisplayName = "Caer-Mithren"
+Position = Vector2(2740, 700)
+Size = Vector2(96, 96)
+IsClickable = false
+TargetScreenId = ""
+TooltipKey = ""
+AssetKey = "e2.poi_marker.suspended"
+
+[sub_resource type="Resource" id="Resource_pelt"]
+script = ExtResource("2_poidef")
+PoiId = "pelt"
+DisplayName = "Pelt"
+Position = Vector2(1280, 1500)
+Size = Vector2(96, 96)
+IsClickable = false
+TargetScreenId = ""
+TooltipKey = ""
+AssetKey = "e2.poi_marker.suspended"
+
+[resource]
+script = ExtResource("1_wmpois")
+Pois = Array[ExtResource("2_poidef")]([SubResource("Resource_halfgate"), SubResource("Resource_veylant"), SubResource("Resource_caermithren"), SubResource("Resource_pelt")])

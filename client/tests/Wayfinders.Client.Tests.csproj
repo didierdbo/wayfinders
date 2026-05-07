@@ -59,4 +59,14 @@
     <Compile Include="..\scripts\screens\ContinueGatingLogic.cs" Link="src\ContinueGatingLogic.cs" />
   </ItemGroup>
 
+  <!-- Phase 7 J3: E2 World Map POI dispatch logic (pure-C#). The DTO and
+       dispatcher are Godot-free so xUnit pins the Halfgate-only gate
+       (Varn §6.D6.10) without spinning up an engine. The Godot-side
+       PoiDefinition / WorldMapPois Resources are exercised via the J3
+       manual integration checklist. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\PoiDefinitionDto.cs" Link="src\PoiDefinitionDto.cs" />
+    <Compile Include="..\scripts\screens\PoiDispatchLogic.cs" Link="src\PoiDispatchLogic.cs" />
+  </ItemGroup>
+
 </Project>

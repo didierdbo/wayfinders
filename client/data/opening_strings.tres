@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="OpeningStrings" load_steps=2 format=3 uid="uid://copenstr0001"]
+[gd_resource type="Resource" script_class="OpeningStrings" format=3 uid="uid://copenstr0001"]
 
 [ext_resource type="Script" path="res://data/OpeningStrings.cs" id="1_strscr"]
 
@@ -24,3 +24,14 @@ QuitTitle = "Refermer le Cadastre ?"
 QuitBody = "Le registre sera scellé en l'état. Toute annotation non consignée sera perdue."
 Confirm = "Confirmer"
 Cancel = "Annuler"
+E2Title = "Feuillet I — Carte des marges connues."
+E2Subtitle = "Établi par l'Ordre des Arpenteurs. Tenu à jour selon les juridictions."
+E2PanelLeftTitle = "La compagnie"
+E2PanelRightTitle = "Marges du Codex"
+E2PanelLeftBody = "Aucune compagnie déclarée à ce feuillet. Le registre attend signature."
+E2PanelRightBody = "Les marges sont propres. Pour l'instant."
+E2BackButton = "Refermer le feuillet"
+E2PoiHalfgateTooltip = "Halfgate. Cité patentée. Cadastre tenu à jour."
+E2PoiCitySuspendedTooltipTemplate = "[Nom]. Cadastre suspendu — accès non encore patenté."
+E2PoiBlockedIndicator = "Cadastre suspendu — accès non encore patenté."
+E2LayerIndicator = "Pile cadastrale : monde."

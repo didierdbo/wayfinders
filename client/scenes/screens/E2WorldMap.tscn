@@ -1,6 +1,30 @@
-[gd_scene load_steps=2 format=3 uid="uid://ce2world0001"]
+[gd_scene load_steps=4 format=3 uid="uid://ce2world0001"]
 
 [ext_resource type="Script" path="res://scenes/screens/E2WorldMap.cs" id="1_e2wld"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panelL"]
+bg_color = Color(0.91, 0.85, 0.72, 0.92)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.18, 0.14, 0.11, 1)
+content_margin_left = 16.0
+content_margin_top = 16.0
+content_margin_right = 16.0
+content_margin_bottom = 16.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_blocked"]
+bg_color = Color(0.13, 0.10, 0.08, 0.85)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.91, 0.85, 0.72, 1)
+content_margin_left = 18.0
+content_margin_top = 10.0
+content_margin_right = 18.0
+content_margin_bottom = 10.0
 
 [node name="E2WorldMap" type="Control"]
 anchors_preset = 15
@@ -10,7 +34,10 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_e2wld")
 
-[node name="Background" type="TextureRect" parent="."]
+[node name="BackgroundLayer" type="CanvasLayer" parent="."]
+layer = 0
+
+[node name="WorldMapBackground" type="TextureRect" parent="BackgroundLayer"]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -19,20 +46,171 @@ grow_vertical = 2
 expand_mode = 1
 stretch_mode = 6
 
-[node name="VBox" type="VBoxContainer" parent="."]
-offset_left = 48.0
-offset_top = 48.0
-offset_right = 600.0
-offset_bottom = 480.0
+[node name="PoiLayer" type="CanvasLayer" parent="."]
+layer = 1
 
-[node name="Title" type="Label" parent="VBox"]
-text = "Wayfinders — E2 WORLD MAP"
+[node name="PoiContainer" type="Control" parent="PoiLayer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
 
-[node name="StatusLabel" type="Label" parent="VBox"]
-text = "Écran 2 — vide (J1 stub)"
+[node name="DecorationLayer" type="CanvasLayer" parent="."]
+layer = 2
 
-[node name="NextButton" type="Button" parent="VBox"]
-text = "[Suivant]  →  E3 Halfgate"
+[node name="BannerTop" type="TextureRect" parent="DecorationLayer"]
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 96.0
+grow_horizontal = 2
+expand_mode = 1
+stretch_mode = 6
 
-[node name="BackButton" type="Button" parent="VBox"]
-text = "[Retour]  ←  E1"
+[node name="BannerTitleLabel" type="Label" parent="DecorationLayer/BannerTop"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_font_sizes/font_size = 32
+theme_override_colors/font_color = Color(0.13, 0.10, 0.08, 1)
+text = "Feuillet I — Carte des marges connues."
+
+[node name="BannerSubtitleLabel" type="Label" parent="DecorationLayer/BannerTop"]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -480.0
+offset_top = -28.0
+offset_right = 480.0
+offset_bottom = -6.0
+grow_horizontal = 2
+grow_vertical = 0
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
+text = "Établi par l'Ordre des Arpenteurs. Tenu à jour selon les juridictions."
+
+[node name="PanelLeft" type="PanelContainer" parent="DecorationLayer"]
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 140.0
+offset_right = 320.0
+offset_bottom = -120.0
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_panelL")
+
+[node name="PanelLeftVBox" type="VBoxContainer" parent="DecorationLayer/PanelLeft"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="PanelLeftTitleLabel" type="Label" parent="DecorationLayer/PanelLeft/PanelLeftVBox"]
+layout_mode = 2
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0.13, 0.10, 0.08, 1)
+text = "La compagnie"
+
+[node name="PanelLeftBodyLabel" type="Label" parent="DecorationLayer/PanelLeft/PanelLeftVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+autowrap_mode = 3
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
+text = "Aucune compagnie déclarée à ce feuillet. Le registre attend signature."
+
+[node name="PanelRight" type="PanelContainer" parent="DecorationLayer"]
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -320.0
+offset_top = 140.0
+offset_right = -24.0
+offset_bottom = -120.0
+grow_horizontal = 0
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_panelL")
+
+[node name="PanelRightVBox" type="VBoxContainer" parent="DecorationLayer/PanelRight"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="PanelRightTitleLabel" type="Label" parent="DecorationLayer/PanelRight/PanelRightVBox"]
+layout_mode = 2
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0.13, 0.10, 0.08, 1)
+text = "Marges du Codex"
+
+[node name="PanelRightBodyLabel" type="Label" parent="DecorationLayer/PanelRight/PanelRightVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+autowrap_mode = 3
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
+text = "Les marges sont propres. Pour l'instant."
+
+[node name="LayerIndicatorLabel" type="Label" parent="DecorationLayer"]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -360.0
+offset_top = -42.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 0
+grow_vertical = 0
+horizontal_alignment = 2
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.91, 0.85, 0.72, 1)
+text = "Pile cadastrale : monde."
+
+[node name="ChromeLayer" type="CanvasLayer" parent="."]
+layer = 3
+
+[node name="BackButton" type="Button" parent="ChromeLayer"]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -72.0
+offset_right = 280.0
+offset_bottom = -24.0
+grow_vertical = 0
+text = "Refermer le feuillet"
+
+[node name="BlockedIndicator" type="PanelContainer" parent="ChromeLayer"]
+visible = false
+modulate = Color(1, 1, 1, 0)
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -360.0
+offset_top = -160.0
+offset_right = 360.0
+offset_bottom = -110.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_blocked")
+
+[node name="BlockedIndicatorLabel" type="Label" parent="ChromeLayer/BlockedIndicator"]
+layout_mode = 2
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.91, 0.85, 0.72, 1)
+text = "Cadastre suspendu — accès non encore patenté."
