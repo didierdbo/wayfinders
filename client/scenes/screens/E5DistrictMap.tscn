@@ -1,6 +1,42 @@
-[gd_scene load_steps=2 format=3 uid="uid://ce5dstrct0001"]
+[gd_scene load_steps=5 format=3 uid="uid://ce5dstrct0001"]
 
 [ext_resource type="Script" path="res://scenes/screens/E5DistrictMap.cs" id="1_e5dst"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panelE5"]
+bg_color = Color(0.91, 0.85, 0.72, 0.92)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.18, 0.14, 0.11, 1)
+content_margin_left = 16.0
+content_margin_top = 16.0
+content_margin_right = 16.0
+content_margin_bottom = 16.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panelBottomE5"]
+bg_color = Color(0.13, 0.10, 0.08, 0.85)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.91, 0.85, 0.72, 1)
+content_margin_left = 24.0
+content_margin_top = 14.0
+content_margin_right = 24.0
+content_margin_bottom = 14.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_blockedE5"]
+bg_color = Color(0.13, 0.10, 0.08, 0.85)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.91, 0.85, 0.72, 1)
+content_margin_left = 18.0
+content_margin_top = 10.0
+content_margin_right = 18.0
+content_margin_bottom = 10.0
 
 [node name="E5DistrictMap" type="Control"]
 anchors_preset = 15
@@ -10,7 +46,10 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_e5dst")
 
-[node name="Background" type="TextureRect" parent="."]
+[node name="BackgroundLayer" type="CanvasLayer" parent="."]
+layer = 0
+
+[node name="DistrictBackground" type="TextureRect" parent="BackgroundLayer"]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -19,21 +58,250 @@ grow_vertical = 2
 expand_mode = 1
 stretch_mode = 6
 
-[node name="VBox" type="VBoxContainer" parent="."]
-offset_left = 48.0
-offset_top = 48.0
-offset_right = 600.0
-offset_bottom = 480.0
+[node name="PoiLayer" type="CanvasLayer" parent="."]
+layer = 1
 
-[node name="Title" type="Label" parent="VBox"]
+[node name="PoiContainer" type="Control" parent="PoiLayer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="DecorationLayer" type="CanvasLayer" parent="."]
+layer = 2
+
+[node name="BannerTop" type="TextureRect" parent="DecorationLayer"]
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 96.0
+grow_horizontal = 2
+expand_mode = 1
+stretch_mode = 6
+
+[node name="BannerTitleLabel" type="Label" parent="DecorationLayer/BannerTop"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 theme_type_variation = &"Heading"
-text = "Wayfinders — E5 QUARTIER (zoom intra-cité)"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_font_sizes/font_size = 32
+theme_override_colors/font_color = Color(0.13, 0.10, 0.08, 1)
+text = "Halfgate — Quartier du marché. Feuillet II.b — plan détaillé."
 
-[node name="StatusLabel" type="Label" parent="VBox"]
-text = "Écran 5 — vide (J1 stub)"
+[node name="BannerSubtitleLabel" type="Label" parent="DecorationLayer/BannerTop"]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -480.0
+offset_top = -28.0
+offset_right = 480.0
+offset_bottom = -6.0
+grow_horizontal = 2
+grow_vertical = 0
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
+text = "Bureau local des Arpenteurs — relevé détaillé."
 
-[node name="OpenModalButton" type="Button" parent="VBox"]
-text = "[Fiche perso]  ↑  E4 (modal)"
+[node name="NMSubBanner" type="HBoxContainer" parent="DecorationLayer"]
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 100.0
+offset_bottom = 140.0
+grow_horizontal = 2
+alignment = 1
+theme_override_constants/separation = 48
 
-[node name="BackButton" type="Button" parent="VBox"]
-text = "[Retour]  ←  E3"
+[node name="VisibilityLabel" type="Label" parent="DecorationLayer/NMSubBanner"]
+layout_mode = 2
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
+text = "Visibilité 0/10."
+
+[node name="MenaceLabel" type="Label" parent="DecorationLayer/NMSubBanner"]
+layout_mode = 2
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
+text = "Méfiance 0/10."
+
+[node name="PanelLeft" type="PanelContainer" parent="DecorationLayer"]
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 160.0
+offset_right = 320.0
+offset_bottom = -300.0
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_panelE5")
+
+[node name="PanelLeftVBox" type="VBoxContainer" parent="DecorationLayer/PanelLeft"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="PanelLeftTitleLabel" type="Label" parent="DecorationLayer/PanelLeft/PanelLeftVBox"]
+layout_mode = 2
+theme_type_variation = &"Subheading"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0.13, 0.10, 0.08, 1)
+text = "La compagnie"
+
+[node name="PanelLeftBodyLabel" type="Label" parent="DecorationLayer/PanelLeft/PanelLeftVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+autowrap_mode = 3
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
+text = "Aucun compagnon présent à Halfgate."
+
+[node name="PanelRight" type="PanelContainer" parent="DecorationLayer"]
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -360.0
+offset_top = 160.0
+offset_right = -24.0
+offset_bottom = -300.0
+grow_horizontal = 0
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_panelE5")
+
+[node name="PanelRightVBox" type="VBoxContainer" parent="DecorationLayer/PanelRight"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="PanelRightTitleLabel" type="Label" parent="DecorationLayer/PanelRight/PanelRightVBox"]
+layout_mode = 2
+theme_type_variation = &"Subheading"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0.13, 0.10, 0.08, 1)
+text = "Tableau des contrats"
+
+[node name="ContractsTabContainer" type="TabContainer" parent="DecorationLayer/PanelRight/PanelRightVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_font_sizes/font_size = 16
+
+[node name="Routine" type="VBoxContainer" parent="DecorationLayer/PanelRight/PanelRightVBox/ContractsTabContainer"]
+layout_mode = 2
+
+[node name="RoutineStubLabel" type="Label" parent="DecorationLayer/PanelRight/PanelRightVBox/ContractsTabContainer/Routine"]
+layout_mode = 2
+horizontal_alignment = 1
+autowrap_mode = 3
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
+text = "Aucun contrat enregistré."
+
+[node name="MandatsDesArpenteurs" type="VBoxContainer" parent="DecorationLayer/PanelRight/PanelRightVBox/ContractsTabContainer"]
+visible = false
+layout_mode = 2
+
+[node name="MandateStubLabel" type="Label" parent="DecorationLayer/PanelRight/PanelRightVBox/ContractsTabContainer/MandatsDesArpenteurs"]
+layout_mode = 2
+horizontal_alignment = 1
+autowrap_mode = 3
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
+text = "Aucun mandat émis."
+
+[node name="PanelBottom" type="PanelContainer" parent="DecorationLayer"]
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -260.0
+offset_right = -24.0
+offset_bottom = -110.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_panelBottomE5")
+
+[node name="PanelBottomVBox" type="VBoxContainer" parent="DecorationLayer/PanelBottom"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="PanelBottomTitleLabel" type="Label" parent="DecorationLayer/PanelBottom/PanelBottomVBox"]
+layout_mode = 2
+theme_type_variation = &"Subheading"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 20
+theme_override_colors/font_color = Color(0.91, 0.85, 0.72, 1)
+text = "Journal de la compagnie"
+
+[node name="PanelBottomBodyLabel" type="Label" parent="DecorationLayer/PanelBottom/PanelBottomVBox"]
+layout_mode = 2
+horizontal_alignment = 1
+autowrap_mode = 3
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.91, 0.85, 0.72, 1)
+text = "Aucune entrée journal pour l'instant."
+
+[node name="LayerIndicatorLabel" type="Label" parent="DecorationLayer"]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -360.0
+offset_top = -42.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 0
+grow_vertical = 0
+horizontal_alignment = 2
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.91, 0.85, 0.72, 1)
+text = "Pile cadastrale : quartier."
+
+[node name="ChromeLayer" type="CanvasLayer" parent="."]
+layer = 3
+
+[node name="BackButton" type="Button" parent="ChromeLayer"]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -72.0
+offset_right = 280.0
+offset_bottom = -24.0
+grow_vertical = 0
+text = "Revenir à la cité"
+
+[node name="BlockedIndicator" type="PanelContainer" parent="ChromeLayer"]
+visible = false
+modulate = Color(1, 1, 1, 0)
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -360.0
+offset_top = -290.0
+offset_right = 360.0
+offset_bottom = -240.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_blockedE5")
+
+[node name="BlockedIndicatorLabel" type="Label" parent="ChromeLayer/BlockedIndicator"]
+layout_mode = 2
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.91, 0.85, 0.72, 1)
+text = "Cadastre suspendu — accès non encore patenté."

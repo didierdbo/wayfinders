@@ -69,4 +69,12 @@
     <Compile Include="..\scripts\screens\PoiDispatchLogic.cs" Link="src\PoiDispatchLogic.cs" />
   </ItemGroup>
 
+  <!-- Phase 7 J5: NPC catalog (pure-C# data + lookup helpers). The Godot
+       autoload NpcRegistry wraps this static catalog so xUnit pins the
+       contract (display name, portrait key composition, fiche number)
+       without a Godot runtime. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\NpcCatalog.cs" Link="src\NpcCatalog.cs" />
+  </ItemGroup>
+
 </Project>

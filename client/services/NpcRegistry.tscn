@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://cnpcrgst001"]
+
+[ext_resource type="Script" path="res://services/NpcRegistry.cs" id="1_npcrg"]
+
+[node name="NpcRegistry" type="Node"]
+script = ExtResource("1_npcrg")

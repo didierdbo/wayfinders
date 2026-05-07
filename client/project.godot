@@ -25,6 +25,7 @@ GameState="*res://services/GameState.tscn"
 KnowledgeMatrix="*res://services/KnowledgeMatrix.tscn"
 OnboardingPops="*res://services/OnboardingPops.tscn"
 HoverTooltipController="*res://services/HoverTooltipController.tscn"
+NpcRegistry="*res://services/NpcRegistry.tscn"
 WorldSimTick="*res://services/WorldSimTick.tscn"
 OpeningBootstrap="*res://services/OpeningBootstrap.tscn"
 

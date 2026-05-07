@@ -21,6 +21,11 @@
     "e4.portrait.kira.calm": "e4/wf_e4_portrait_kira_calm_1024x1536.png",
     "e4.portrait.kira.alert": "e4/wf_e4_portrait_kira_alert_1024x1536.png",
     "e4.portrait.kira.wounded": "e4/wf_e4_portrait_kira_wounded_1024x1536.png",
-    "e5.halfgate.district_lower": "e5/wf_e5_halfgate_lower_3840x2160.png"
+    "e4.portrait.dorn": "e4/wf_e4_portrait_dorn_1024x1536.png",
+    "e4.portrait.default": "e4/wf_e4_portrait_default_1024x1536.png",
+    "e4.redaction_overlay": "e4/wf_e4_redaction_overlay_1024x256.png",
+    "e5.halfgate.district_lower": "e5/wf_e5_halfgate_lower_3840x2160.png",
+    "e5.halfgate.marche.base": "e5/wf_e5_halfgate_marche_base_3840x2160.png",
+    "e5.poi.ambient.homme": "e5/wf_e5_poi_ambient_homme_512x512.png"
   }
 }

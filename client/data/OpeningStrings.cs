@@ -389,4 +389,173 @@ public partial class OpeningStrings : Resource
     /// Variant Varn §5.1: <c>Fermer</c> (voix S).
     /// </summary>
     [Export] public string E4ModalCloseButton { get; set; } = "Refermer la fiche";
+
+    // -------------------- J5 additions: E4 fiche réelle --------------------
+    // Source: Varn §5.1 + §5.2 table E4 (added 2026-05-07 J5).
+    // Sections (6) repartitioned into 4 onglets per Rune J5 pre-brief §3.1
+    // following Varn §3.4.2 mapping. Caviardage P9 wording locked verbatim
+    // Varn §5 lock E4.M. Portrait state subtitle template Varn §5 E4.N.
+
+    /// <summary>
+    /// E4 onglet 1 / 4 -- titre <c>Identité</c> (Varn §5 E4.B). Voix A.
+    /// </summary>
+    [Export] public string E4TabIdentity { get; set; } = "Identité";
+
+    /// <summary>
+    /// E4 onglet 2 / 4 -- titre <c>Compétences</c> (Varn §5 E4.C). Voix A.
+    /// </summary>
+    [Export] public string E4TabSkills { get; set; } = "Compétences";
+
+    /// <summary>
+    /// E4 onglet 3 / 4 -- titre <c>Dossier</c> (Varn §5 E4.D). Voix A.
+    /// </summary>
+    [Export] public string E4TabDossier { get; set; } = "Dossier";
+
+    /// <summary>
+    /// E4 onglet 4 / 4 -- titre <c>Caviardages</c> (Varn §5 E4.E). Voix A.
+    /// J5 D-J5-13: cliquable libre (no palier compagnie gate). Real
+    /// gating ships post-MVP via the company tier mechanic.
+    /// </summary>
+    [Export] public string E4TabRedaction { get; set; } = "Caviardages";
+
+    /// <summary>
+    /// E4 section 1 (sous onglet Identité) -- titre. Voix A. Locked Varn §5 E4.G.
+    /// </summary>
+    [Export] public string E4SectionIdentificationHeader { get; set; } = "Identification";
+
+    /// <summary>
+    /// E4 section 1 corps -- stub voix A neutre J5 (Rune-drafted, flagged
+    /// for Varn ratification at tests). Cohérent J3/J4 stub pattern.
+    /// </summary>
+    [Export] public string E4SectionIdentificationBody { get; set; } =
+        "Relevé d'identification en cours par les Arpenteurs.";
+
+    /// <summary>
+    /// E4 section 2 (sous onglet Identité) -- titre <c>Origine déclarée</c>.
+    /// Voix A. Locked Varn §5 E4.H. J5 caviardée P9 (D-J5-11 + Risk #1).
+    /// </summary>
+    [Export] public string E4SectionOriginHeader { get; set; } = "Origine déclarée";
+
+    /// <summary>
+    /// E4 section 3 (sous onglet Compétences) -- titre. Voix A. Locked Varn §5 E4.I.
+    /// </summary>
+    [Export] public string E4SectionSkillsHeader { get; set; } = "Compétences attestées";
+
+    /// <summary>
+    /// E4 section 3 corps -- stub voix A neutre J5 (Rune-drafted, flagged
+    /// for Varn ratification at tests).
+    /// </summary>
+    [Export] public string E4SectionSkillsBody { get; set; } =
+        "Relevé non encore consigné.";
+
+    /// <summary>
+    /// E4 section 4 (sous onglet Dossier) -- titre <c>Mentions et incidents</c>.
+    /// Voix A. Locked Varn §5 E4.J. J5 caviardée P9 (D-J5-11 + Risk #1).
+    /// </summary>
+    [Export] public string E4SectionMentionsHeader { get; set; } = "Mentions et incidents";
+
+    /// <summary>
+    /// E4 section 5 (sous onglet Dossier) -- titre <c>Annexes — Marges du Codex</c>.
+    /// Voix A J5 (Varn §5.2 dit voix D pour le contenu réel post-MVP ;
+    /// stub voix A neutre cohérent D-J5-06 stub voix A).
+    /// </summary>
+    [Export] public string E4SectionMarginsHeader { get; set; } = "Annexes — Marges du Codex";
+
+    /// <summary>
+    /// E4 section 5 corps -- stub voix A neutre J5 (Rune-drafted, flagged
+    /// for Varn ratification + voix D substitution post-MVP). Pre-brief §3.1.2.
+    /// </summary>
+    [Export] public string E4SectionMarginsBody { get; set; } =
+        "Aucune marge n'a encore été portée à ce dossier.";
+
+    /// <summary>
+    /// E4 section 6 (sous onglet Caviardages) -- titre <c>Zones masquées</c>.
+    /// Voix A. Locked Varn §5 E4.L.
+    /// </summary>
+    [Export] public string E4SectionRedactionHeader { get; set; } = "Zones masquées";
+
+    /// <summary>
+    /// E4 section 6 corps -- stub voix A neutre J5 (Rune-drafted). Recense
+    /// le nombre de blocs caviardés présents dans la fiche. J5 hardcoded
+    /// "2 caviardages" because the J5 fiche surfaces exactly 2 (D-J5-11) ;
+    /// J6+ derives from the real palier compagnie gating.
+    /// </summary>
+    [Export] public string E4SectionRedactionBody { get; set; } =
+        "2 caviardages présents (classe I).";
+
+    /// <summary>
+    /// E4 -- sous-titre fiche template, sous le titre. Locked Varn §5 E4.N.
+    /// Contains <c>{0}</c> placeholder substituted at runtime with the
+    /// portrait state French label ("calme", "tendu", "blessé"). J5 always
+    /// feeds <c>calme</c> (D-J5-02 + Risk #2).
+    /// </summary>
+    [Export] public string E4PortraitStateTemplate { get; set; } =
+        "Sujet observé : {0}.";
+
+    /// <summary>
+    /// E4 -- texte caviardage P9 verbatim Varn §5 E4.M. Voix A. Locked.
+    /// Composé par-dessus le TextureRect overlay <c>e4.redaction_overlay</c>
+    /// (D-J5-11) sur les sections <c>Origine déclarée</c> et
+    /// <c>Mentions et incidents</c> (2 caviardages J5).
+    /// </summary>
+    [Export] public string E4RedactionBlockTemplate { get; set; } =
+        "[Caviardage classe I — accès refusé. Voir vos privilèges de patente.]";
+
+    // -------------------- J5 additions: E5 plan de quartier --------------------
+    // Source: Varn §6 table E5 (added 2026-05-07 J5).
+
+    /// <summary>
+    /// E5.A -- titre écran (bandeau supérieur, cartouche). Locked Varn §6 E5.A.
+    /// J5 ships the Halfgate-marché-instantiated form rather than the
+    /// <c>[Cité] -- Quartier de [nom]</c> template — when post-MVP unlocks
+    /// more quartiers, this becomes a template and the screen interpolates.
+    /// Voix A.
+    /// </summary>
+    [Export] public string E5Title { get; set; } =
+        "Halfgate — Quartier du marché. Feuillet II.b — plan détaillé.";
+
+    /// <summary>
+    /// E5.B -- légende de section sous le titre. Locked Varn §6 E5.B. Voix A.
+    /// </summary>
+    [Export] public string E5Subtitle { get; set; } =
+        "Bureau local des Arpenteurs — relevé détaillé.";
+
+    /// <summary>
+    /// E5.C (1/2) -- jauge Visibilité, sous-bandeau NM local quartier.
+    /// Stub static J5. Real binding to a quartier-scoped
+    /// <c>RegionalThreatLevel</c> resource lands post-MVP (Phase 8+).
+    /// Voix A.
+    /// </summary>
+    [Export] public string E5VisibilityLabel { get; set; } = "Visibilité 0/10.";
+
+    /// <summary>
+    /// E5.C (2/2) -- jauge Méfiance, sous-bandeau NM local quartier. Stub
+    /// static J5. Voix A.
+    /// </summary>
+    [Export] public string E5MenaceLabel { get; set; } = "Méfiance 0/10.";
+
+    /// <summary>
+    /// E5.C bis -- bouton retour (bas-gauche).
+    /// Default Varn §6 E5.C: <c>Revenir à la cité</c>.
+    /// </summary>
+    [Export] public string E5BackButton { get; set; } = "Revenir à la cité";
+
+    /// <summary>
+    /// E5.S -- indicateur layer P2 (coin bas-droite). Locked Varn §7.5
+    /// extension 2026-05-07 J5: <c>quartier</c> ajouté au vocabulaire ferme
+    /// comme sous-layer de <c>cité</c> (D-J5-07). Voix A.
+    /// <para>
+    /// Variante alt pré-listée Varn §7.5 (swap target aux tests si grinçant) :
+    /// <c>Pile cadastrale : cité (zoom quartier).</c>
+    /// </para>
+    /// </summary>
+    [Export] public string E5LayerIndicator { get; set; } = "Pile cadastrale : quartier.";
+
+    /// <summary>
+    /// E5.I -- tooltip POI PNJ ambient "homme qui semble très occupé à ne rien faire".
+    /// Locked verbatim Varn §6 E5.I. Voix D Marges (première instance voix D
+    /// en UI persistante MVP — pré-brief §11 cohérence locks).
+    /// </summary>
+    [Export] public string E5AmbientHommeTooltip { get; set; } =
+        "Un homme qui semble très occupé à ne rien faire.";
 }
