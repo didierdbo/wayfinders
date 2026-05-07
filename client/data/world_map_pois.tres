@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="WorldMapPois" load_steps=6 format=3 uid="uid://cwmpois0001"]
+[gd_resource type="Resource" script_class="WorldMapPois" format=3 uid="uid://cwmpois0001"]
 
 [ext_resource type="Script" path="res://data/WorldMapPois.cs" id="1_wmpois"]
 [ext_resource type="Script" path="res://data/PoiDefinition.cs" id="2_poidef"]

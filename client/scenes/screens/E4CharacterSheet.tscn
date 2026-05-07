@@ -1,6 +1,18 @@
-[gd_scene load_steps=2 format=3 uid="uid://ce4fiche0001"]
+[gd_scene load_steps=3 format=3 uid="uid://ce4fiche0001"]
 
 [ext_resource type="Script" path="res://scenes/screens/E4CharacterSheet.cs" id="1_e4fch"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_e4panel"]
+bg_color = Color(0.91, 0.85, 0.72, 0.97)
+border_width_left = 3
+border_width_top = 3
+border_width_right = 3
+border_width_bottom = 3
+border_color = Color(0.18, 0.14, 0.11, 1)
+content_margin_left = 32.0
+content_margin_top = 32.0
+content_margin_right = 32.0
+content_margin_bottom = 32.0
 
 [node name="E4CharacterSheet" type="Control"]
 anchors_preset = 15
@@ -17,24 +29,45 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 color = Color(0, 0, 0, 0.5)
+mouse_filter = 2
 
-[node name="Panel" type="Panel" parent="."]
-offset_left = 320.0
-offset_top = 200.0
-offset_right = 960.0
-offset_bottom = 600.0
+[node name="Panel" type="PanelContainer" parent="."]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -480.0
+offset_top = -300.0
+offset_right = 480.0
+offset_bottom = 300.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_e4panel")
 
 [node name="VBox" type="VBoxContainer" parent="Panel"]
-offset_left = 32.0
-offset_top = 32.0
-offset_right = 608.0
-offset_bottom = 368.0
+layout_mode = 2
+theme_override_constants/separation = 24
 
-[node name="Title" type="Label" parent="Panel/VBox"]
-text = "Wayfinders — E4 FICHE PERSO (modal)"
+[node name="TitleLabel" type="Label" parent="Panel/VBox"]
+layout_mode = 2
+horizontal_alignment = 1
+autowrap_mode = 3
+theme_override_font_sizes/font_size = 24
+theme_override_colors/font_color = Color(0.13, 0.10, 0.08, 1)
+text = "Fiche cadastrale n°[xxx] — Sujet : [Nom officiel]."
 
-[node name="StatusLabel" type="Label" parent="Panel/VBox"]
-text = "Écran 4 — vide (J1 stub, modal overlay)"
+[node name="BodyLabel" type="Label" parent="Panel/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 3
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
+text = "Contenu en cours de rédaction par les Arpenteurs."
 
 [node name="CloseButton" type="Button" parent="Panel/VBox"]
-text = "[Fermer]  ✕"
+layout_mode = 2
+size_flags_horizontal = 4
+text = "Refermer la fiche"

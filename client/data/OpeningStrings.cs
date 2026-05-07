@@ -42,8 +42,19 @@ namespace Wayfinders.Client.Data;
 /// </para>
 ///
 /// <para>
+/// <b>J4 additions.</b> Varn UI Labels v1 §4 (E3 essentials) for the
+/// City Halfgate screen: title bandeau + subtitle, NM jauges stub
+/// labels (E3.C two static labels, mechanic post-MVP), 3-panel chrome
+/// (left "La compagnie", right "Tableau des contrats" with TabContainer,
+/// bottom "Journal de la compagnie" voix A neutre stub D-J4-06), back
+/// button, layer indicator, 4 POI tooltip templates (District,
+/// KeyBuilding QG, Candidat, generic blocked), and §5 E4 modal stub
+/// libellés (modal title template, body stub, close button).
+/// </para>
+///
+/// <para>
 /// <b>Variants pending Didier playtest validation.</b> Varn flagged
-/// several open tonal decisions in §9 of the spec ; J2/J3 ship the
+/// several open tonal decisions in §9 of the spec ; J2/J3/J4 ship the
 /// chosen defaults but the swap targets are documented inline below
 /// for fast hot-edit on the <c>.tres</c> if Didier pivots after manual
 /// checklist.
@@ -226,4 +237,156 @@ public partial class OpeningStrings : Resource
     /// ships post-MVP. Voix A.
     /// </summary>
     [Export] public string E2LayerIndicator { get; set; } = "Pile cadastrale : monde.";
+
+    // -------------------- Écran 3 (Plan de cité) --------------------
+    // Source: Varn §4.1 table E3 (added 2026-05-07 J4).
+
+    /// <summary>
+    /// E3.A -- titre écran (bandeau supérieur, cartouche). Locked Varn §4.1.
+    /// J4 ships the Halfgate-instantiated form rather than the
+    /// <c>[Nom de la cité]</c> template — when post-MVP unlocks more
+    /// cités, this becomes a template and the screen interpolates.
+    /// </summary>
+    [Export] public string E3Title { get; set; } = "Halfgate. Feuillet II — plan cadastral.";
+
+    /// <summary>E3.B -- légende de section sous le titre. Locked Varn §4.1.</summary>
+    [Export] public string E3Subtitle { get; set; } =
+        "Cadastre tenu par le bureau local des Arpenteurs.";
+
+    /// <summary>
+    /// E3.C (1/2) -- jauge Visibilité, sous-bandeau NM. Stub static J4
+    /// (D-J4-04). Real binding to a <c>RegionalThreatLevel</c> resource
+    /// + <c>NMChanged</c> signal lands post-MVP. Locked §11.6 vision.
+    /// Voix A.
+    /// </summary>
+    [Export] public string E3VisibilityLabel { get; set; } = "Visibilité 0/10.";
+
+    /// <summary>
+    /// E3.C (2/2) -- jauge Méfiance, sous-bandeau NM. Stub static J4
+    /// (D-J4-04). See <see cref="E3VisibilityLabel"/> for the post-MVP
+    /// hook. Voix A.
+    /// </summary>
+    [Export] public string E3MenaceLabel { get; set; } = "Méfiance 0/10.";
+
+    /// <summary>E3.D -- onglet panneau gauche. Locked Varn §4.1.</summary>
+    [Export] public string E3PanelLeftTitle { get; set; } = "La compagnie";
+
+    /// <summary>
+    /// Panneau gauche corps -- état stub J4 (party vide post-E1
+    /// nouvelle partie, conforme Varn §3.1.6). Voix A. Drafted by Rune
+    /// for cohérence with E2.PanelLeftBody pattern. Variant flagged for
+    /// Varn ratification at tests if grinçant.
+    /// </summary>
+    [Export] public string E3PanelLeftBody { get; set; } =
+        "Aucun compagnon présent à Halfgate.";
+
+    /// <summary>E3.E -- onglet panneau droit. Locked Varn §4.1.</summary>
+    [Export] public string E3PanelRightTitle { get; set; } = "Tableau des contrats";
+
+    /// <summary>E3.F -- sous-onglet contrats colonne 1. Locked Varn §4.1.</summary>
+    [Export] public string E3TabRoutine { get; set; } = "Routine";
+
+    /// <summary>E3.G -- sous-onglet contrats colonne 2. Locked Varn §4.1.</summary>
+    [Export] public string E3TabMandate { get; set; } = "Mandats des Arpenteurs";
+
+    /// <summary>
+    /// Stub corps onglet Routine (J4). Voix A neutre. Real contracts
+    /// system lands post-MVP. Drafted by Rune cohérent E2 panneau gauche
+    /// stub pattern.
+    /// </summary>
+    [Export] public string E3TabRoutineStub { get; set; } = "Aucun contrat enregistré.";
+
+    /// <summary>
+    /// Stub corps onglet Mandats (J4). Voix A neutre. Real mandates
+    /// system lands post-MVP.
+    /// </summary>
+    [Export] public string E3TabMandateStub { get; set; } = "Aucun mandat émis.";
+
+    /// <summary>
+    /// E3.H -- titre panneau bas Journal compagnie. Locked Varn §4.1
+    /// titre voix A (le contenu en voix C lui est réservé post-MVP,
+    /// D-J4-06). J4 ships a voix A neutre stub body — see
+    /// <see cref="E3PanelBottomBody"/>.
+    /// </summary>
+    [Export] public string E3PanelBottomTitle { get; set; } = "Journal de la compagnie";
+
+    /// <summary>
+    /// Panneau bas Journal corps -- stub voix A NEUTRE (D-J4-06). Voix
+    /// C polarisante réservée à la mécanique Journal post-MVP. La
+    /// formulation suit le pattern voix A neutre cohérent E2 panneau
+    /// gauche. Variant flagged si grinçant aux tests.
+    /// </summary>
+    [Export] public string E3PanelBottomBody { get; set; } =
+        "Aucune entrée journal pour l'instant.";
+
+    /// <summary>
+    /// E3.I -- bouton retour (bas-gauche).
+    /// Default Varn §4.1: <c>Quitter la cité</c>.
+    /// Variant Varn §4.1: <c>Refermer le feuillet</c>.
+    /// </summary>
+    [Export] public string E3BackButton { get; set; } = "Quitter la cité";
+
+    /// <summary>E3.S -- indicateur layer P2 (coin bas-droite). Locked Varn §4.1. Voix A.</summary>
+    [Export] public string E3LayerIndicator { get; set; } = "Pile cadastrale : cité.";
+
+    /// <summary>
+    /// E3.J -- tooltip template POI Quartier. Contains <c>[nom]</c>
+    /// placeholder substituted at runtime with the POI DisplayName.
+    /// Locked Varn §4.1 (NM jauges static 0/10 in J4 per E3.C lock).
+    /// Voix A.
+    /// </summary>
+    [Export] public string E3PoiDistrictTooltipTemplate { get; set; } =
+        "Quartier de [nom]. Visibilité 0/10. Méfiance 0/10.";
+
+    /// <summary>
+    /// E3.M -- tooltip POI bâtiment QG. Locked Varn §4.1. Voix A.
+    /// J4 stub: click flashes blocked indicator (real opening of the
+    /// contracts panel lands post-MVP).
+    /// </summary>
+    [Export] public string E3PoiKeyBuildingHqTooltip { get; set; } =
+        "Siège de la compagnie. Tableau des contrats consultable.";
+
+    /// <summary>
+    /// E3.P -- tooltip POI PNJ candidat-au-recrutement. Locked verbatim
+    /// Varn §4.1 + §3.3.3 Scénario d'ouverture. Voix A glissant vers
+    /// "presque humaine" (élément tonal critique à préserver, Varn §4.2).
+    /// </summary>
+    [Export] public string E3PoiCandidateTooltip { get; set; } =
+        "Quelqu'un qui pourrait vouloir vous suivre.";
+
+    /// <summary>
+    /// J4 stub indicator key for KeyBuilding click flash. Voix A
+    /// cohérent E2 blocked. Drafted by Rune (D-J4-09) ; Varn ratifies
+    /// at tests if le wording demande ajustement par rapport à
+    /// "Cadastre suspendu" (E2 voix A pattern).
+    /// </summary>
+    [Export] public string E3KeyBuildingBlockedIndicator { get; set; } =
+        "Bâtiment non encore patenté.";
+
+    // -------------------- Écran 4 (Fiche perso modal) --------------------
+    // Source: Varn §5.1 table E4 (J4 stub minimal -- D-J4-07 option α).
+
+    /// <summary>
+    /// E4.A -- titre fiche template, locked verbatim Varn §5.1 + §3.4.4
+    /// Scénario d'ouverture. Contains <c>[xxx]</c> (numéro fiche) and
+    /// <c>[Nom officiel]</c> (sujet) placeholders. J4 stub interpolates
+    /// fiche n°001 + the PoiId as Nom officiel placeholder.
+    /// </summary>
+    [Export] public string E4ModalTitleTemplate { get; set; } =
+        "Fiche cadastrale n°[xxx] — Sujet : [Nom officiel].";
+
+    /// <summary>
+    /// J4 stub corps fiche cadastrale (D-J4-07). Voix A cohérent J3
+    /// blocked indicator wording. Real content (4 onglets, portrait
+    /// Kira, sections, caviardages) lands J5+. Drafted by Rune.
+    /// </summary>
+    [Export] public string E4ModalStubBody { get; set; } =
+        "Contenu en cours de rédaction par les Arpenteurs.";
+
+    /// <summary>
+    /// E4.O -- bouton fermeture fiche.
+    /// Default Varn §5.1: <c>Refermer la fiche</c>.
+    /// Variant Varn §5.1: <c>Fermer</c> (voix S).
+    /// </summary>
+    [Export] public string E4ModalCloseButton { get; set; } = "Refermer la fiche";
 }
