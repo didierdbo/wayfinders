@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="Wayfinders"
-run/main_scene="uid://c01itlccoem53"
+run/main_scene="uid://cbootsc0001"
 config/features=PackedStringArray("4.6", "C#", "Forward Plus")
 config/icon="res://icon.svg"
 
@@ -19,6 +19,13 @@ config/icon="res://icon.svg"
 
 ApiClient="*res://services/ApiClient.tscn"
 Classifier="*res://ml/ClassifierService.tscn"
+SceneManager="*res://services/SceneManager.tscn"
+AssetResolver="*res://services/AssetResolver.tscn"
+GameState="*res://services/GameState.tscn"
+KnowledgeMatrix="*res://services/KnowledgeMatrix.tscn"
+OnboardingPops="*res://services/OnboardingPops.tscn"
+WorldSimTick="*res://services/WorldSimTick.tscn"
+OpeningBootstrap="*res://services/OpeningBootstrap.tscn"
 
 [dotnet]
 

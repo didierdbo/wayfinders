@@ -1,0 +1,40 @@
+[gd_scene load_steps=2 format=3 uid="uid://ce4fiche0001"]
+
+[ext_resource type="Script" path="res://scenes/screens/E4CharacterSheet.cs" id="1_e4fch"]
+
+[node name="E4CharacterSheet" type="Control"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_e4fch")
+
+[node name="Backdrop" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.5)
+
+[node name="Panel" type="Panel" parent="."]
+offset_left = 320.0
+offset_top = 200.0
+offset_right = 960.0
+offset_bottom = 600.0
+
+[node name="VBox" type="VBoxContainer" parent="Panel"]
+offset_left = 32.0
+offset_top = 32.0
+offset_right = 608.0
+offset_bottom = 368.0
+
+[node name="Title" type="Label" parent="Panel/VBox"]
+text = "Wayfinders — E4 FICHE PERSO (modal)"
+
+[node name="StatusLabel" type="Label" parent="Panel/VBox"]
+text = "Écran 4 — vide (J1 stub, modal overlay)"
+
+[node name="CloseButton" type="Button" parent="Panel/VBox"]
+text = "[Fermer]  ✕"

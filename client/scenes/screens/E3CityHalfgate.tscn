@@ -1,0 +1,41 @@
+[gd_scene load_steps=2 format=3 uid="uid://ce3hlfgt0001"]
+
+[ext_resource type="Script" path="res://scenes/screens/E3CityHalfgate.cs" id="1_e3hlf"]
+
+[node name="E3CityHalfgate" type="Control"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_e3hlf")
+
+[node name="Background" type="TextureRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+expand_mode = 1
+stretch_mode = 6
+
+[node name="VBox" type="VBoxContainer" parent="."]
+offset_left = 48.0
+offset_top = 48.0
+offset_right = 600.0
+offset_bottom = 480.0
+
+[node name="Title" type="Label" parent="VBox"]
+text = "Wayfinders — E3 HALFGATE (cité)"
+
+[node name="StatusLabel" type="Label" parent="VBox"]
+text = "Écran 3 — vide (J1 stub)"
+
+[node name="ToE5Button" type="Button" parent="VBox"]
+text = "[Suivant]  →  E5 Quartier (zoom)"
+
+[node name="OpenModalButton" type="Button" parent="VBox"]
+text = "[Fiche perso]  ↑  E4 (modal)"
+
+[node name="BackButton" type="Button" parent="VBox"]
+text = "[Retour]  ←  E2"

@@ -1,0 +1,14 @@
+{
+  "_doc": "Asset key -> relative path mapping. Single source of truth shared by Mira (generation), Varn (spec naming), Rune (code lookup). Append a line when Mira ships a new asset. Path is relative to the asset root configured on AssetResolver (default: res://assets/wayfinders_visual_assets/, with user:// override). Naming convention follows Mira v8.1 §1: wf_[ecran]_[nom]_[variant]_[res].png. The leading _doc field is intentionally not consumed by the loader.",
+  "keys": {
+    "e1.bureau": "e1/wf_e1_bureau_arpenteur_3840x2160.png",
+    "e1.logo": "e1/wf_e1_logo_tampon_2048x1024.png",
+    "e2.world_map": "e2/wf_e2_carte_monde_base_3840x2160.png",
+    "e3.halfgate.base": "e3/wf_e3_halfgate_base_3840x2160.png",
+    "e4.frame_fiche": "e4/wf_e4_frame_fiche_iso_2400x3000.png",
+    "e4.portrait.kira.calm": "e4/wf_e4_portrait_kira_calm_1024x1536.png",
+    "e4.portrait.kira.alert": "e4/wf_e4_portrait_kira_alert_1024x1536.png",
+    "e4.portrait.kira.wounded": "e4/wf_e4_portrait_kira_wounded_1024x1536.png",
+    "e5.halfgate.district_lower": "e5/wf_e5_halfgate_lower_3840x2160.png"
+  }
+}

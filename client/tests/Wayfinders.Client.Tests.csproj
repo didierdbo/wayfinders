@@ -42,4 +42,20 @@
     <Compile Include="..\ml\OnnxClassifier.cs" Link="src\OnnxClassifier.cs" />
   </ItemGroup>
 
+  <!-- Phase 7 J1: Opening Scenario scaffold pure-C# pieces.
+       NavigationStack and AssetKeyMap are deliberately Godot-free so the
+       host xUnit assembly can exercise them without the engine. The
+       Godot-bound services (SceneManager, AssetResolver, GameState) live
+       in the client csproj only and are validated via the J1 manual
+       integration checklist, not xUnit (would require a Godot runtime;
+       same rationale as ClassifierService at L4). -->
+  <ItemGroup>
+    <Compile Include="..\services\NavigationStack.cs" Link="src\NavigationStack.cs" />
+    <Compile Include="..\services\AssetKeyMap.cs" Link="src\AssetKeyMap.cs" />
+    <Compile Include="..\scripts\screens\IScreen.cs" Link="src\IScreen.cs" />
+    <Compile Include="..\scripts\screens\IModalOverlay.cs" Link="src\IModalOverlay.cs" />
+    <Compile Include="..\scripts\screens\ScreenContext.cs" Link="src\ScreenContext.cs" />
+    <Compile Include="..\scripts\screens\NavigationRequest.cs" Link="src\NavigationRequest.cs" />
+  </ItemGroup>
+
 </Project>
