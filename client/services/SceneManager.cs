@@ -775,16 +775,26 @@ public partial class SceneManager : Node
                 return;
             }
 
-            // Bug 2 belt-and-braces: if the middle mouse button is
-            // currently held down, the player is mid-drag on E2WorldMap
-            // (the only screen with a drag gesture in MVP). Suppress the
-            // wheel event here too -- E2WorldMap._Input also marks it
-            // handled, but a defensive poll on the autoload survives the
+            // Bug 2 belt-and-braces: if EITHER the middle OR the right
+            // mouse button is currently held down, the player is mid-drag
+            // on E2WorldMap. P8.2 only checked Middle ; P8.3 (D-P8.3-10)
+            // extends the OR to Right so a player who selected the RMB-pan
+            // option in the Options modal still benefits from the autoload
+            // backstop. Both buttons are checked unconditionally regardless
+            // of the active configuration -- a stale press of the inactive
+            // button is a benign suppression, never a false-negative on the
+            // active one. The 7 WheelDuringDragSuppressionTests stay green
+            // because the OR still honours the original "MMB-held implies
+            // suppress" contract ; the new clause is purely additive.
+            //
+            // E2WorldMap._Input also marks the wheel handled at the screen
+            // level, but a defensive poll on the autoload survives the
             // edge case where this _UnhandledInput somehow runs first
-            // (frame-ordering race during the press of the middle button
+            // (frame-ordering race during the press of the pan button
             // itself, before _isDragging flips). See class XML doc
             // "P8.1+P8.2 triple-fix drag suppression".
-            if (Input.IsMouseButtonPressed(MouseButton.Middle))
+            if (Input.IsMouseButtonPressed(MouseButton.Middle)
+                || Input.IsMouseButtonPressed(MouseButton.Right))
             {
                 return;
             }

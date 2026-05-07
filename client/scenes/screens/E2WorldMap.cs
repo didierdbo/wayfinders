@@ -352,10 +352,23 @@ public partial class E2WorldMap : Control, IScreen
 
     private Tween? _blockedTween;
 
-    // P8.2 drag state (clic-milieu pan). Idle when _isDragging is false.
+    // P8.2 drag state (Idle when _isDragging is false). Kept as a
+    // boolean proxy of MapPanInputLogic.State==Dragging so the P8
+    // final-lock wheel-suppress block (which guards on _isDragging)
+    // stays mot-pour-mot identical post-P8.3 -- see _Input below.
     private bool _isDragging;
     private Vector2 _dragStartMouseViewport;
     private Vector2 _dragStartCameraWorld;
+
+    // P8.3 (M3 / Arc 3 / Phase 8.3) -- map pan config + drag threshold.
+    // The state machine routes both MMB-direct and RMB-with-threshold
+    // through one Godot-free helper. _activePanButton is cached at
+    // _Ready and refreshed via the GameSettings.SettingsChanged signal
+    // so a config flip in the Options modal takes effect on the next
+    // _Input event without a screen reload.
+    private readonly MapPanInputLogic _panLogic = new();
+    private MapPanButton _activePanButton = MapPanButton.Middle;
+    private GameSettings? _gameSettings;
 
     public override void _Ready()
     {
@@ -434,6 +447,17 @@ public partial class E2WorldMap : Control, IScreen
         _blockedIndicatorLabel.Text = _strings.E2PoiBlockedIndicator;
 
         _backButton.Pressed += OnBackPressed;
+
+        // P8.3 -- read the persisted map-pan-button preference and
+        // subscribe to future flips. The autoload may be missing in a
+        // hypothetical scene-isolated test harness, in which case we
+        // stay at the default (Middle) and skip the subscription.
+        _gameSettings = GetNodeOrNull<GameSettings>("/root/GameSettings");
+        if (_gameSettings is not null)
+        {
+            _activePanButton = _gameSettings.MapPanButton;
+            _gameSettings.SettingsChanged += OnSettingsChanged;
+        }
 
         SpawnPois(assetResolver);
 
@@ -518,6 +542,16 @@ public partial class E2WorldMap : Control, IScreen
         _poiHandlers.Clear();
         _poiHotspots.Clear();
 
+        // P8.3 -- unsubscribe from GameSettings.SettingsChanged with the
+        // exact handler reference used at wire time. Required even on
+        // app-exit because GameSettings is an autoload (lives longer
+        // than this screen) and a dangling subscription would call into
+        // a freed Node on the next preference flip.
+        if (_gameSettings is not null)
+        {
+            _gameSettings.SettingsChanged -= OnSettingsChanged;
+        }
+
         // Risk #3: cancel any pending tooltip timer so the autoload
         // does not surface a tooltip on the next screen mid-fade.
         var tooltipController = GetNodeOrNull<HoverTooltipController>("/root/HoverTooltipController");
@@ -584,18 +618,18 @@ public partial class E2WorldMap : Control, IScreen
     public override void _Input(InputEvent @event)
     {
         // P8.1+P8.2 triple-fix (Bug 2, 2026-05-07) -- suppress wheel
-        // events during an active middle-button drag.
+        // events during an active drag.
         //
         // The first attempt (ad6a91f) gated only on _isDragging. That
         // missed two timing shapes:
-        //   1. The same-frame race where the middle-press event arrives
-        //      but _isDragging has not yet been set to true when a wheel
+        //   1. The same-frame race where the press event arrives but
+        //      _isDragging has not yet been set to true when a wheel
         //      event arrives in the same _Input dispatch loop.
         //   2. Microbrushes during a sustained drag on free-spin /
         //      MagSpeed-style wheel hardware where the wheel detents are
         //      so light that a stationary thumb can fire a tick.
         //
-        // The triple-fix gates on (_isDragging || mouse_button_middle_held).
+        // The triple-fix gates on (_isDragging || mouse_button_held).
         // Either signal is sufficient to suppress the wheel. The OR is
         // the primary fix for shape (1) ; the SceneManager-side poll
         // (autoload-level same check) plus the 400ms debounce there are
@@ -608,7 +642,20 @@ public partial class E2WorldMap : Control, IScreen
         // suppression. The added Input.IsMouseButtonPressed poll is a
         // local defensive check, not a delegation to the autoload ;
         // IScreen interface is untouched.
-        if ((_isDragging || Input.IsMouseButtonPressed(MouseButton.Middle))
+        //
+        // P8.3 (D-P8.3-10) -- the held-button OR now covers BOTH MMB and
+        // RMB. The active pan button is configurable at runtime (Options
+        // modal), so checking only Middle would leak wheel events through
+        // when the player has switched to RMB-pan and is mid-drag. Both
+        // buttons are checked unconditionally regardless of _activePanButton
+        // (defense-in-depth: a stale press of the inactive button is a
+        // benign suppression, never a false-negative on the active one).
+        // The existing 7 WheelDuringDragSuppressionTests stay green --
+        // they pin "MMB-held implies suppress", which this OR still
+        // honours ; the new clause is purely additive.
+        if ((_isDragging
+             || Input.IsMouseButtonPressed(MouseButton.Middle)
+             || Input.IsMouseButtonPressed(MouseButton.Right))
             && @event is InputEventMouseButton wheel
             && wheel.Pressed
             && (wheel.ButtonIndex == MouseButton.WheelUp
@@ -618,48 +665,94 @@ public partial class E2WorldMap : Control, IScreen
             return;
         }
 
-        if (@event is InputEventMouseButton mb && mb.ButtonIndex == MouseButton.Middle)
+        // P8.3 -- map-pan dispatch via MapPanInputLogic. The active
+        // button (MMB or RMB) is read from _activePanButton, refreshed
+        // via the GameSettings.SettingsChanged signal. The state machine
+        // (Idle / Tracking / Dragging) lives in the pure-C# helper ; this
+        // method only translates Godot events into helper calls and
+        // applies the resulting outcomes. POI dispatch is unaffected --
+        // SpawnPois filters on MouseButton.Left only, so RMB on a POI
+        // is reserved for pan + the post-MVP context menu (Risk #2).
+        var activeButtonGodot = _activePanButton == MapPanButton.Middle
+            ? MouseButton.Middle
+            : MouseButton.Right;
+
+        if (@event is InputEventMouseButton mb && mb.ButtonIndex == activeButtonGodot)
         {
             // Modal-owns-input mirror of P8.1 (D-P8.2-12). When a modal
-            // is open we ignore the press entirely. If a drag was already
-            // in progress when the modal opened (race window), we end it
-            // here too -- robustness over correctness on this edge.
+            // is open we ignore the press entirely. Reset the state
+            // machine so a drag that was live when the modal opened
+            // does not carry across the modal session.
             if (IsModalOpen())
             {
+                _panLogic.Reset();
                 _isDragging = false;
                 return;
             }
 
             if (mb.Pressed)
             {
-                _isDragging = true;
+                var press = _panLogic.OnPress(
+                    _activePanButton,
+                    ToPanVec2(mb.Position),
+                    ToPanVec2(_worldCamera.Position));
+                _isDragging = press.EnteredDrag;
                 _dragStartMouseViewport = mb.Position;
                 _dragStartCameraWorld = _worldCamera.Position;
-                GD.Print($"[E2WorldMap] middle-drag begin at viewport {mb.Position}, camera {_worldCamera.Position}");
+                if (press.EnteredDrag)
+                {
+                    GD.Print(
+                        $"[E2WorldMap] {_activePanButton}-drag begin (no-threshold) " +
+                        $"at viewport {mb.Position}, camera {_worldCamera.Position}");
+                }
+                // RMB path: state is Tracking, no log until the threshold
+                // is crossed in OnMotion below (silent press is the slot
+                // for the post-MVP context menu, kept silent in MVP).
             }
             else
             {
+                var release = _panLogic.OnRelease();
                 _isDragging = false;
-                // P8 final-lock post-drag grace period (2026-05-07). Notify
-                // the autoload so it can silently drop wheel events that
-                // arrive within PostDragGraceMs ms of this release. Catches
-                // the thumb lift-off brush -- see SceneManager class doc
-                // "P8 final-lock post-drag grace period" paragraph.
-                var sceneManager = GetNodeOrNull<SceneManager>("/root/SceneManager");
-                sceneManager?.NotifyDragReleased();
-                GD.Print($"[E2WorldMap] middle-drag end, camera now {_worldCamera.Position}");
+                if (release.WasDragging)
+                {
+                    // P8 final-lock post-drag grace period (2026-05-07).
+                    // Notify the autoload so it can silently drop wheel
+                    // events that arrive within PostDragGraceMs ms of
+                    // this release. Catches the thumb lift-off brush --
+                    // see SceneManager class doc "P8 final-lock post-drag
+                    // grace period" paragraph.
+                    var sceneManager = GetNodeOrNull<SceneManager>("/root/SceneManager");
+                    sceneManager?.NotifyDragReleased();
+                    GD.Print(
+                        $"[E2WorldMap] {_activePanButton}-drag end, " +
+                        $"camera now {_worldCamera.Position}");
+                }
+                // Tracking-only release (RMB no-cross-threshold) is a
+                // silent no-op MVP -- slot for the post-MVP context menu.
             }
             GetViewport().SetInputAsHandled();
             return;
         }
 
-        if (@event is InputEventMouseMotion mm && _isDragging)
+        if (@event is InputEventMouseMotion mm)
         {
-            // 1:1 inverse: if the mouse has moved +X since drag start,
-            // the camera moves -X to make the image visually slide right
-            // under the cursor (RTS / SimCity convention, D-P8.2-04).
-            var delta = mm.Position - _dragStartMouseViewport;
-            var desired = _dragStartCameraWorld - delta;
+            var motion = _panLogic.OnMotion(ToPanVec2(mm.Position));
+            if (!motion.ShouldPan) return;
+
+            if (motion.JustPromoted)
+            {
+                _isDragging = true;
+                GD.Print(
+                    $"[E2WorldMap] {_activePanButton}-drag begin " +
+                    $"(cross threshold {MapPanInputLogic.DragThresholdPx}px) " +
+                    $"at viewport {mm.Position}, camera {_worldCamera.Position}");
+            }
+
+            // 1:1 inverse: full delta from press position (NOT from cross
+            // point) so a Tracking->Dragging promotion does not introduce
+            // a 6 px visual jump. Pattern Google Maps / Unity Editor / Figma.
+            var delta = mm.Position - ToVector2(motion.PressPosition);
+            var desired = ToVector2(motion.CameraStart) - delta;
 
             var imageSize = ToPanVec2(_worldMapSprite.Texture.GetSize());
             var viewportSize = ToPanVec2(GetViewport().GetVisibleRect().Size);
@@ -848,6 +941,34 @@ public partial class E2WorldMap : Control, IScreen
             if (poi is not null && poi.PoiId == poiId) return poi;
         }
         return null;
+    }
+
+    /// <summary>
+    /// P8.3 -- subscribed to <c>GameSettings.SettingsChanged</c> at
+    /// <see cref="_Ready"/>. Refreshes the cached pan-button preference
+    /// and resets the state machine so a mid-drag flip cuts the gesture
+    /// cleanly instead of carrying ambiguous state across the
+    /// preference change (D-P8.3-11).
+    ///
+    /// <para>
+    /// <b>Why we read through <c>_gameSettings</c> here</b> rather than
+    /// re-resolving the autoload: a one-line <c>GetNodeOrNull</c> would
+    /// also work, but caching the reference at <see cref="_Ready"/> is
+    /// what makes <see cref="_ExitTree"/> able to disconnect with the
+    /// exact same target (otherwise the disconnect would walk through a
+    /// fresh GetNode call, which is fine in steady state but a footgun
+    /// the day this method gets a debug assertion against null).
+    /// </para>
+    /// </summary>
+    private void OnSettingsChanged()
+    {
+        if (_gameSettings is null) return;
+        var newButton = _gameSettings.MapPanButton;
+        if (newButton == _activePanButton) return;
+        _activePanButton = newButton;
+        _panLogic.Reset();
+        _isDragging = false;
+        GD.Print($"[E2WorldMap] active pan button now {_activePanButton}, state machine reset");
     }
 
     /// <summary>

@@ -98,4 +98,20 @@
     <Compile Include="..\scripts\screens\CameraPanLogic.cs" Link="src\CameraPanLogic.cs" />
   </ItemGroup>
 
+  <!-- Phase 8 P8.3 (M3): map pan config + drag threshold pure-C#
+       seam. MapPanInputLogic is the state machine (Idle / Tracking /
+       Dragging) wired by E2WorldMap ; MapPanButton is the typed enum
+       persisted via GameSettingsStore. The store + IConfigBackend
+       interface live in services/ but are Godot-free by design so
+       xUnit pins the persistence policy (load defaults, malformed
+       fallback, idempotent writes) without an engine. The Godot-bound
+       GameSettings autoload + GodotConfigFileBackend stay in the
+       client csproj only and are validated via the P8.3 manual
+       checklist (12 steps). -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\MapPanButton.cs" Link="src\MapPanButton.cs" />
+    <Compile Include="..\scripts\screens\MapPanInputLogic.cs" Link="src\MapPanInputLogic.cs" />
+    <Compile Include="..\services\GameSettingsStore.cs" Link="src\GameSettingsStore.cs" />
+  </ItemGroup>
+
 </Project>
