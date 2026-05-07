@@ -1,0 +1,25 @@
+[gd_scene load_steps=3 format=3 uid="uid://coptmodal0001"]
+
+[ext_resource type="Script" path="res://scenes/modals/OptionsModal.cs" id="1_optmod"]
+[ext_resource type="PackedScene" uid="uid://cmodalshell0001" path="res://scenes/modals/ModalShellScene.tscn" id="2_modshl"]
+
+[node name="OptionsModal" type="Control"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_optmod")
+
+[node name="ModalShell" parent="." instance=ExtResource("2_modshl")]
+
+[node name="Staging" type="Node" parent="."]
+
+[node name="VolumeSlider" type="HSlider" parent="Staging"]
+
+[node name="FullscreenToggle" type="CheckButton" parent="Staging"]
+
+[node name="LanguageDropdown" type="OptionButton" parent="Staging"]
+
+[node name="CloseButton" type="Button" parent="Staging"]
+text = "Fermer"

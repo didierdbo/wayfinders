@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="OpeningStrings" load_steps=2 format=3 uid="uid://copenstr0001"]
+
+[ext_resource type="Script" path="res://data/OpeningStrings.cs" id="1_strscr"]
+
+[resource]
+script = ExtResource("1_strscr")
+E1Title = "WAYFINDERS"
+E1Subtitle = "Cadastre franc des marges habitées."
+E1Edition = "Édition de l'Ordre des Arpenteurs."
+E1NewGame = "[01] Ouvrir un nouveau registre."
+E1Continue = "[02] Reprendre un registre archivé."
+E1ContinueDisabled = "[02] Aucun registre archivé."
+E1Options = "[03] Réglages techniques."
+E1Quit = "[04] Refermer le Cadastre."
+E1Footer = "Édition de l'Ordre des Arpenteurs — usage interne — ne pas reproduire."
+E1Build = "Cadastre v0.2 — Section M, Étage Pré-Aurore."
+OptionsTitle = "Réglages techniques"
+OptionsVolume = "Volume audio"
+OptionsFullscreen = "Plein écran"
+OptionsLanguage = "Langue"
+OptionsLanguageFrench = "Français"
+OptionsClose = "Fermer"
+QuitTitle = "Refermer le Cadastre ?"
+QuitBody = "Le registre sera scellé en l'état. Toute annotation non consignée sera perdue."
+Confirm = "Confirmer"
+Cancel = "Annuler"

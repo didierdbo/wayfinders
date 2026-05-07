@@ -21,6 +21,13 @@ namespace Wayfinders.Client.Services;
 /// at that point would just race a disposing dictionary. Registration is
 /// startup-only.
 /// </para>
+///
+/// <para>
+/// <b>J2 additions.</b> OPTIONS_MODAL and QUIT_CONFIRM_MODAL now ship as
+/// real modal scenes registered alongside E4_CHARACTER_SHEET. The asset
+/// resolver user-root path is also logged at boot so dev knows where to
+/// drop hot-swap PNGs without a recompile.
+/// </para>
 /// </summary>
 public partial class OpeningBootstrap : Node
 {
@@ -29,6 +36,10 @@ public partial class OpeningBootstrap : Node
     private const string E3ScenePath = "res://scenes/screens/E3CityHalfgate.tscn";
     private const string E4ScenePath = "res://scenes/screens/E4CharacterSheet.tscn";
     private const string E5ScenePath = "res://scenes/screens/E5DistrictMap.tscn";
+
+    // J2 -- the two stub modals reachable from E1.
+    private const string OptionsModalScenePath = "res://scenes/modals/OptionsModal.tscn";
+    private const string QuitModalScenePath = "res://scenes/modals/QuitConfirmModal.tscn";
 
     public override void _Ready()
     {
@@ -45,7 +56,7 @@ public partial class OpeningBootstrap : Node
         var sceneManager = GetNodeOrNull<SceneManager>("/root/SceneManager");
         if (sceneManager is null)
         {
-            GD.PushError("[OpeningBootstrap] SceneManager autoload missing — cannot boot");
+            GD.PushError("[OpeningBootstrap] SceneManager autoload missing -- cannot boot");
             return;
         }
 
@@ -53,9 +64,17 @@ public partial class OpeningBootstrap : Node
         sceneManager.RegisterScreen("E2_WORLD", GD.Load<PackedScene>(E2ScenePath));
         sceneManager.RegisterScreen("E3_CITY_HALFGATE", GD.Load<PackedScene>(E3ScenePath));
         sceneManager.RegisterScreen("E5_DISTRICT", GD.Load<PackedScene>(E5ScenePath));
+
         sceneManager.RegisterModal("E4_CHARACTER_SHEET", GD.Load<PackedScene>(E4ScenePath));
+        sceneManager.RegisterModal("OPTIONS_MODAL", GD.Load<PackedScene>(OptionsModalScenePath));
+        sceneManager.RegisterModal("QUIT_CONFIRM_MODAL", GD.Load<PackedScene>(QuitModalScenePath));
 
         GD.Print("[OpeningBootstrap] screens registered, booting E1");
+
+        // Surface the user:// hot-swap root so dev knows exactly where to
+        // drop overrides on Windows (%APPDATA%/Godot/app_userdata/Wayfinders/...).
+        var userRootGlobal = ProjectSettings.GlobalizePath("user://wayfinders_visual_assets/");
+        GD.Print($"[OpeningBootstrap] hot-swap user-root path: {userRootGlobal}");
 
         // Fire-and-forget: NavigateTo is async (lifecycle calls), but the
         // bootstrap is in _Ready and there is nothing meaningful to await.

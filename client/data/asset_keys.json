@@ -3,6 +3,7 @@
   "keys": {
     "e1.bureau": "e1/wf_e1_bureau_arpenteur_3840x2160.png",
     "e1.logo": "e1/wf_e1_logo_tampon_2048x1024.png",
+    "e1.buttons_frame": "e1/wf_e1_frame_iso_boutons_2048x2048.png",
     "e2.world_map": "e2/wf_e2_carte_monde_base_3840x2160.png",
     "e3.halfgate.base": "e3/wf_e3_halfgate_base_3840x2160.png",
     "e4.frame_fiche": "e4/wf_e4_frame_fiche_iso_2400x3000.png",
