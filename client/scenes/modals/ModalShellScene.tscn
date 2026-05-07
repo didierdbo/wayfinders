@@ -1,0 +1,55 @@
+[gd_scene load_steps=2 format=3 uid="uid://cmodalshell0001"]
+
+[ext_resource type="Script" path="res://scenes/modals/ModalShellScene.cs" id="1_modshl"]
+
+[node name="ModalShell" type="Control"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+script = ExtResource("1_modshl")
+
+[node name="DimBackground" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+color = Color(0, 0, 0, 0.55)
+
+[node name="FrameContainer" type="CenterContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="ModalFrame" type="PanelContainer" parent="FrameContainer"]
+custom_minimum_size = Vector2(560, 320)
+mouse_filter = 0
+
+[node name="VBox" type="VBoxContainer" parent="FrameContainer/ModalFrame"]
+theme_override_constants/separation = 16
+
+[node name="HeaderRow" type="HBoxContainer" parent="FrameContainer/ModalFrame/VBox"]
+theme_override_constants/separation = 12
+
+[node name="TitleLabel" type="Label" parent="FrameContainer/ModalFrame/VBox/HeaderRow"]
+size_flags_horizontal = 3
+text = "Titre modale"
+
+[node name="CloseButton" type="Button" parent="FrameContainer/ModalFrame/VBox/HeaderRow"]
+text = "✕"
+
+[node name="ContentSlot" type="VBoxContainer" parent="FrameContainer/ModalFrame/VBox"]
+theme_override_constants/separation = 8
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="FooterRow" type="HBoxContainer" parent="FrameContainer/ModalFrame/VBox"]
+alignment = 2
+theme_override_constants/separation = 12

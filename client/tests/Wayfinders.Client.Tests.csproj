@@ -42,4 +42,39 @@
     <Compile Include="..\ml\OnnxClassifier.cs" Link="src\OnnxClassifier.cs" />
   </ItemGroup>
 
+  <!-- Phase 7 J1: Opening Scenario scaffold pure-C# pieces.
+       NavigationStack and AssetKeyMap are deliberately Godot-free so the
+       host xUnit assembly can exercise them without the engine. The
+       Godot-bound services (SceneManager, AssetResolver, GameState) live
+       in the client csproj only and are validated via the J1 manual
+       integration checklist, not xUnit (would require a Godot runtime;
+       same rationale as ClassifierService at L4). -->
+  <ItemGroup>
+    <Compile Include="..\services\NavigationStack.cs" Link="src\NavigationStack.cs" />
+    <Compile Include="..\services\AssetKeyMap.cs" Link="src\AssetKeyMap.cs" />
+    <Compile Include="..\scripts\screens\IScreen.cs" Link="src\IScreen.cs" />
+    <Compile Include="..\scripts\screens\IModalOverlay.cs" Link="src\IModalOverlay.cs" />
+    <Compile Include="..\scripts\screens\ScreenContext.cs" Link="src\ScreenContext.cs" />
+    <Compile Include="..\scripts\screens\NavigationRequest.cs" Link="src\NavigationRequest.cs" />
+    <Compile Include="..\scripts\screens\ContinueGatingLogic.cs" Link="src\ContinueGatingLogic.cs" />
+  </ItemGroup>
+
+  <!-- Phase 7 J3: E2 World Map POI dispatch logic (pure-C#). The DTO and
+       dispatcher are Godot-free so xUnit pins the Halfgate-only gate
+       (Varn §6.D6.10) without spinning up an engine. The Godot-side
+       PoiDefinition / WorldMapPois Resources are exercised via the J3
+       manual integration checklist. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\PoiDefinitionDto.cs" Link="src\PoiDefinitionDto.cs" />
+    <Compile Include="..\scripts\screens\PoiDispatchLogic.cs" Link="src\PoiDispatchLogic.cs" />
+  </ItemGroup>
+
+  <!-- Phase 7 J5: NPC catalog (pure-C# data + lookup helpers). The Godot
+       autoload NpcRegistry wraps this static catalog so xUnit pins the
+       contract (display name, portrait key composition, fiche number)
+       without a Godot runtime. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\NpcCatalog.cs" Link="src\NpcCatalog.cs" />
+  </ItemGroup>
+
 </Project>

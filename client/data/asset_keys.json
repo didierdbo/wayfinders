@@ -1,0 +1,31 @@
+{
+  "_doc": "Asset key -> relative path mapping. Single source of truth shared by Mira (generation), Varn (spec naming), Rune (code lookup). Append a line when Mira ships a new asset. Path is relative to the asset root configured on AssetResolver (default: res://assets/wayfinders_visual_assets/, with user:// override). Naming convention follows Mira v8.1 §1: wf_[ecran]_[nom]_[variant]_[res].png. The leading _doc field is intentionally not consumed by the loader.",
+  "keys": {
+    "e1.bureau": "e1/wf_e1_bureau_arpenteur_3840x2160.png",
+    "e1.logo": "e1/wf_e1_logo_tampon_2048x1024.png",
+    "e1.buttons_frame": "e1/wf_e1_frame_iso_boutons_2048x2048.png",
+    "e2.world_map": "e2/wf_e2_carte_monde_base_3840x2160.png",
+    "e2.banner_top": "e2/wf_e2_bandeau_iso_top_3840x384.png",
+    "e2.panel_left": "e2/wf_e2_panneau_iso_left_1024x2048.png",
+    "e2.panel_right": "e2/wf_e2_panneau_iso_right_1024x2048.png",
+    "e2.poi_marker.active": "e2/wf_e2_poi_cite_marker_active_512x512.png",
+    "e2.poi_marker.suspended": "e2/wf_e2_poi_cite_marker_suspended_512x512.png",
+    "e3.halfgate.base": "e3/wf_e3_halfgate_base_3840x2160.png",
+    "e3.poi.district": "e3/wf_e3_poi_district_marker_256x256.png",
+    "e3.poi.key_building.hq": "e3/wf_e3_poi_key_building_hq_256x256.png",
+    "e3.poi.npc_candidate": "e3/wf_e3_poi_npc_candidate_512x512.png",
+    "e3.panel_bottom": "e3/wf_e3_panel_bottom_3840x768.png",
+    "e4.frame_card": "e4/wf_e4_frame_card_2400x3000.png",
+    "e4.tabs_lateral": "e4/wf_e4_tabs_lateral_512x2048.png",
+    "e4.frame_fiche": "e4/wf_e4_frame_fiche_iso_2400x3000.png",
+    "e4.portrait.kira.calm": "e4/wf_e4_portrait_kira_calm_1024x1536.png",
+    "e4.portrait.kira.alert": "e4/wf_e4_portrait_kira_alert_1024x1536.png",
+    "e4.portrait.kira.wounded": "e4/wf_e4_portrait_kira_wounded_1024x1536.png",
+    "e4.portrait.dorn": "e4/wf_e4_portrait_dorn_1024x1536.png",
+    "e4.portrait.default": "e4/wf_e4_portrait_default_1024x1536.png",
+    "e4.redaction_overlay": "e4/wf_e4_redaction_overlay_1024x256.png",
+    "e5.halfgate.district_lower": "e5/wf_e5_halfgate_lower_3840x2160.png",
+    "e5.halfgate.marche.base": "e5/wf_e5_halfgate_marche_base_3840x2160.png",
+    "e5.poi.ambient.homme": "e5/wf_e5_poi_ambient_homme_512x512.png"
+  }
+}
