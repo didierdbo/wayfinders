@@ -36,6 +36,8 @@ namespace Wayfinders.Client.Services;
 /// <b>Modal invariant (Pre-brief Risk #3, locked).</b>
 /// At most one active modal at a time in J1. <see cref="OpenModal{T}"/>
 /// rejects modal-on-modal with a logged warning rather than throwing.
+/// Modals do NOT hide the underlying screen visually — they overlay it
+/// (see <see cref="OpenModal"/> body, which never touches host visibility).
 /// </para>
 ///
 /// <para>
@@ -153,11 +155,11 @@ public partial class SceneManager : Node
 
         // Hide the previous top if any. We do not call OnExit because it
         // is still in the stack — it just loses focus. Visibility off
-        // keeps the input layer clean.
+        // keeps the input layer clean and prevents the previous screen
+        // from rendering behind the new one.
         if (_stack.Current is { } prev && _liveScreens.TryGetValue(prev.ScreenId, out var prevNode))
         {
-            if (prevNode is CanvasItem ci)
-                ci.Visible = false;
+            SetScreenVisibility(prevNode, visible: false);
         }
 
         // Instantiate, configure, attach. Add as child of *this* autoload
@@ -214,14 +216,107 @@ public partial class SceneManager : Node
             _liveScreens.Remove(leavingEntry.ScreenId);
         }
 
-        // Show the previous top.
+        // Show the previous top — reciprocal of the Hide on Push.
         var newTop = _stack.Current!;
-        if (_liveScreens.TryGetValue(newTop.ScreenId, out var newTopNode) && newTopNode is CanvasItem ci)
+        if (_liveScreens.TryGetValue(newTop.ScreenId, out var newTopNode))
         {
-            ci.Visible = true;
+            SetScreenVisibility(newTopNode, visible: true);
         }
 
         EmitSignal(SignalName.NavigationCompleted, newTop.ScreenId);
+    }
+
+    /// <summary>
+    /// Toggle the visibility of a screen subtree. Handles the Godot trap
+    /// where <c>CanvasLayer</c> children render <i>independently of their
+    /// parent's <c>Visible</c></c> — so setting <c>Visible = false</c> on
+    /// a <c>Control</c> root does NOT hide content authored under
+    /// <c>CanvasLayer</c> children. We must walk down and toggle every
+    /// <see cref="CanvasLayer"/> descendant explicitly.
+    ///
+    /// <para>
+    /// <b>Why this matters.</b> Every Opening Scenario screen (E1-E5)
+    /// authors its visible content under named <c>CanvasLayer</c> nodes
+    /// (BackgroundLayer, DecorationLayer, ButtonsLayer, …). A naive
+    /// <c>root.Visible = false</c> leaves all of those rendering, which
+    /// surfaced as the J3 bug "menu de départ reste ouvert après clic
+    /// pour aller en e2" (E1 still drawn behind E2).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why not toggle a single ancestor CanvasLayer.</b> The screen
+    /// node itself is added directly under the SceneManager autoload — we
+    /// could wrap each push in a fresh <c>CanvasLayer</c>, but that
+    /// changes the addressing of <c>/root/SceneManager/&lt;ScreenName&gt;</c>
+    /// every screen's <c>GetNode</c> calls implicitly rely on. The
+    /// recursive walk is the smaller blast radius and it is correct for
+    /// any future scene shape (including ones that mix CanvasLayer and
+    /// plain Control subtrees).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Out of scope.</b> Modals do not call this — they rely on the
+    /// SceneManager's <c>_modalLayer</c> being on top, with the host
+    /// screen left visible underneath (pre-brief modal invariant).
+    /// </para>
+    /// </summary>
+    private static void SetScreenVisibility(Node root, bool visible)
+    {
+        if (root is CanvasItem rootCanvasItem)
+        {
+            rootCanvasItem.Visible = visible;
+        }
+
+        foreach (var canvasLayer in FindCanvasLayerDescendants(root))
+        {
+            canvasLayer.Visible = visible;
+        }
+    }
+
+    /// <summary>
+    /// Yield every <see cref="CanvasLayer"/> descendant of <paramref name="root"/>,
+    /// including nested ones. Stops the recursion at each CanvasLayer (its
+    /// own <c>Visible</c> propagates to its CanvasItem children, so we
+    /// don't need to descend further).
+    /// </summary>
+    private static IEnumerable<CanvasLayer> FindCanvasLayerDescendants(Node root)
+    {
+        foreach (var child in root.GetChildren())
+        {
+            if (child is CanvasLayer layer)
+            {
+                yield return layer;
+                // No need to descend into a CanvasLayer's CanvasItem
+                // children: toggling layer.Visible already hides them.
+                // But a nested CanvasLayer would render independently —
+                // walk those.
+                foreach (var nested in FindNestedCanvasLayers(layer))
+                    yield return nested;
+            }
+            else
+            {
+                foreach (var nested in FindCanvasLayerDescendants(child))
+                    yield return nested;
+            }
+        }
+    }
+
+    private static IEnumerable<CanvasLayer> FindNestedCanvasLayers(CanvasLayer parent)
+    {
+        foreach (var child in parent.GetChildren())
+        {
+            if (child is CanvasLayer nested)
+            {
+                yield return nested;
+                foreach (var deeper in FindNestedCanvasLayers(nested))
+                    yield return deeper;
+            }
+            else
+            {
+                foreach (var deeper in FindCanvasLayerDescendants(child))
+                    yield return deeper;
+            }
+        }
     }
 
     /// <summary>
@@ -231,6 +326,16 @@ public partial class SceneManager : Node
     ///
     /// <para>
     /// Rejects modal-on-modal with a warning (J1 invariant, Risk #3).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Modal invariant (locked).</b> This method does NOT toggle the
+    /// host screen's visibility. The modal CanvasLayer (<c>_modalLayer</c>,
+    /// layer 10) renders above the screen layer naturally, and the host
+    /// stays visible underneath. <see cref="IScreen.OnSuspend"/> only
+    /// disables host input/processing, not its render. If a future jalon
+    /// needs a fully-blocking modal, that is a new affordance, not a
+    /// change here.
     /// </para>
     /// </summary>
     public async Task OpenModal(string modalId, ScreenContext? context = null)
@@ -256,6 +361,9 @@ public partial class SceneManager : Node
         var ct = _navCts.Token;
 
         // Suspend the current screen first so it stops listening to input.
+        // Note: we deliberately do NOT call SetScreenVisibility here — the
+        // modal sits on top via _modalLayer, and the host must stay
+        // rendered underneath (pre-brief modal invariant).
         if (CurrentScreenId is { } currentId
             && _liveScreens.TryGetValue(currentId, out var hostNode)
             && hostNode is IScreen hostImpl)
