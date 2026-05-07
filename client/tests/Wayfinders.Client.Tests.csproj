@@ -87,4 +87,15 @@
     <Compile Include="..\scripts\screens\LadderResolutionLogic.cs" Link="src\LadderResolutionLogic.cs" />
   </ItemGroup>
 
+  <!-- Phase 8 P8.2 (M3): scroll/pan camera helper for E2 World Map.
+       Pure-C#, Godot-free so xUnit pins the clamp / diagonal-normalise /
+       advance-by-delta contract independent of Godot's runtime
+       Camera2D.LimitLeft/Top/Right/Bottom (which actually applies the
+       clamp at runtime). The Godot-bound drag-pan + ZQSD wiring lives
+       in E2WorldMap.cs and is validated via the P8.2 manual checklist
+       (10 steps). -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\CameraPanLogic.cs" Link="src\CameraPanLogic.cs" />
+  </ItemGroup>
+
 </Project>

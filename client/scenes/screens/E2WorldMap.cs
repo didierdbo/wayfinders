@@ -10,22 +10,134 @@ using Wayfinders.Client.Services;
 namespace Wayfinders.Client.Scenes.Screens;
 
 /// <summary>
-/// E2 World Map -- the Cadastre's first feuillet. J3 promotes this from
-/// the J1 two-button stub to a proper screen: bureau-cadastral
-/// background, top banner with title + subtitle, two iso fixed-pos
-/// panels (left voix A "La compagnie", right voix D "Marges du Codex"),
-/// bottom-right layer indicator, bottom-left "Refermer le feuillet"
-/// back button, and a hotspot system spawning POI markers from
-/// <see cref="WorldMapPois"/>.
+/// E2 World Map -- the Cadastre's first feuillet. J3 promoted this from
+/// the J1 two-button stub to a proper screen ; P8.2 promotes it again
+/// from a screen-space TextureRect background to a Camera2D-driven
+/// world-space scrollable map.
 ///
 /// <para>
-/// <b>POI hotspot pattern (J3 D-J3-01).</b> POI are <c>TextureButton</c>
-/// instances spawned from <c>res://data/world_map_pois.tres</c> at
-/// <c>_Ready</c>, parented to <c>PoiLayer/PoiContainer</c>. Position +
-/// hit-box come from each <see cref="PoiDefinition"/>. <c>Area2D</c> was
-/// rejected (pre-brief §2.1): E2 lives in the Control tree, switching
-/// part of it to Node2D world coordinates would be a mismatch ;
-/// <c>TextureButton</c> ships with hover/click/disable signals built-in.
+/// <b>P8.2 architecture (M3 / Arc 3 / Phase 8.2).</b>
+/// The screen now hosts a true 2D world under <c>BackgroundLayer</c>:
+/// <list type="bullet">
+///   <item><c>BackgroundLayer/WorldRoot</c> (Node2D) -- the world container.</item>
+///   <item><c>BackgroundLayer/WorldRoot/WorldMapSprite</c> (Sprite2D, centered=false)
+///         -- the 3840x2160 native E2.1 master asset, top-left at (0,0)
+///         in world coords.</item>
+///   <item><c>BackgroundLayer/WorldRoot/WorldCamera</c> (Camera2D, current=true)
+///         -- viewport on the world. Limit{Left,Top,Right,Bottom} are set
+///         at <c>_Ready</c> from the texture size so the visible rect can
+///         never escape the image (no bord noir, ever).</item>
+///   <item><c>BackgroundLayer/WorldRoot/PoiContainer</c> (Node2D) -- POI
+///         hotspots are now world-space Node2D + Area2D + CollisionShape2D
+///         instead of screen-space Control + TextureButton (P7-J3 pattern).
+///         The migration is what lets pan + click coexist correctly:
+///         a hotspot rooted in the world tree follows the camera for
+///         free, no per-frame position rewriting.</item>
+/// </list>
+/// The previous P7-J3 <c>BackgroundLayer/WorldMapBackground</c> TextureRect
+/// (stretch_mode KeepAspectCovered) and <c>PoiLayer</c> CanvasLayer were
+/// removed -- they are obsoleted by the world-space pattern (D-P8.2-11
+/// YAGNI: empty CanvasLayer 1 deleted). DecorationLayer (panneaux iso UI
+/// bord, banner, layer indicator) and ChromeLayer (back button, blocked
+/// indicator) are unchanged -- they sit above the world layer at
+/// CanvasLayer 2/3 and naturally do not pan with the camera, which is
+/// the right behaviour for HUD chrome.
+/// </para>
+///
+/// <para>
+/// <b>POI hotspot pattern (P8.2 D-P8.2-02 + D-P8.2-03 method b).</b>
+/// POI are <see cref="Node2D"/> instances spawned from
+/// <c>res://data/world_map_pois.tres</c> at <c>_Ready</c>, parented to
+/// <c>BackgroundLayer/WorldRoot/PoiContainer</c>. Each hotspot owns a
+/// <see cref="Sprite2D"/> for the marker visual (centered=true so the
+/// authored <c>Position</c> is the marker center, intuitive for hand
+/// authoring) and an <see cref="Area2D"/> with a
+/// <see cref="CollisionShape2D"/> + <see cref="RectangleShape2D"/> for
+/// click + hover detection. Position + hit-box come from each
+/// <see cref="PoiDefinition"/> -- the data file <c>world_map_pois.tres</c>
+/// already authors world-space coordinates against the 3840x2160 image
+/// (D-P8.2-03 method b confirmed: existing positions like Halfgate
+/// (1820, 980), Veylant (960, 540), Caer-Mithren (2740, 700), Pelt
+/// (1280, 1500) all sit inside the world image, no <c>.tres</c> rewrite
+/// needed by P8.2). When Mira ships a final marker variant Didier
+/// adjusts the <c>Position</c> values in the inspector ; no recompile.
+/// </para>
+///
+/// <para>
+/// <b>Why Area2D not TextureButton (P7-J3 -> P8.2 reversal).</b>
+/// At J3 the rationale for <c>TextureButton</c> was "E2 lives in the
+/// Control tree, switching part of it to Node2D would be a mismatch."
+/// P8.2 changes the underlying screen architecture: the background is
+/// no longer a stretched TextureRect, it is a world-space Sprite2D
+/// under a Camera2D. POIs that need to follow that camera must live in
+/// the same world. <see cref="Area2D"/>'s <c>InputEvent</c> /
+/// <c>MouseEntered</c> / <c>MouseExited</c> signals are functional
+/// equivalents of TextureButton's <c>Pressed</c> / <c>MouseEntered</c>
+/// / <c>MouseExited</c> -- the dispatch logic upstream
+/// (<see cref="PoiDispatchLogic"/>) is unchanged, so the J3/J4 contract
+/// tests still pin the same outcomes.
+/// </para>
+///
+/// <para>
+/// <b>Lambda-capture trap pattern (Risk #1, backend-brain trap).</b>
+/// Same problem as P7-J3: connecting <c>area.InputEvent +=
+/// (_, evt, _) =&gt; OnPoiPressed(poi.PoiId)</c> captures a fresh closure
+/// per POI which cannot be disconnected by method-group at <c>_ExitTree</c>.
+/// Pattern preserved from J3: a dictionary mapping the spawned
+/// <see cref="Area2D"/> to the three handlers wired on it (InputEvent,
+/// MouseEntered, MouseExited), iterated at teardown for an exact
+/// reference-match disconnect. The <c>InputEvent</c> handler signature
+/// is <c>(Node viewport, InputEvent evt, long shapeIdx)</c> via a Godot
+/// signal delegate -- we keep the matching delegate type in the
+/// dictionary entry so the disconnect compiles. Without this discipline,
+/// freeing E2 leaves dangling subscriptions on orphan Area2Ds and the
+/// next hover or click on the autoloader's stale queue throws an
+/// "object disposed" exception. xUnit cannot catch this (no scene tree
+/// in tests).
+/// </para>
+///
+/// <para>
+/// <b>Pan input wiring (D-P8.2-04 + D-P8.2-05 + D-P8.2-06).</b>
+/// Two input surfaces, both on this screen (not on SceneManager):
+/// <list type="bullet">
+///   <item>Drag clic-milieu on <c>_UnhandledInput</c> -- pressing
+///         <see cref="MouseButton.Middle"/> starts a drag, motion
+///         translates the camera 1:1 inverse (drag right => camera
+///         pans left, image visually slides right under the cursor,
+///         RTS convention). Released middle ends the drag.</item>
+///   <item>ZQSD / WASD / arrows polled in <c>_Process(delta)</c> via
+///         <see cref="Input.IsActionPressed"/> against the four
+///         <c>ui_pan_left/right/up/down</c> InputMap actions defined
+///         in <c>project.godot</c> (D-P8.2-06). Constant
+///         <see cref="PanSpeedPxPerSec"/> = 800 px/s
+///         (D-P8.2-05). Diagonal motion is normalised by
+///         <see cref="CameraPanLogic.ResolvePanDirection"/> so two-key
+///         simultaneous press does not scroll sqrt(2) faster.</item>
+/// </list>
+/// Camera2D's native <c>LimitLeft/Top/Right/Bottom</c> apply the actual
+/// runtime clamp ; the pure-C# <see cref="CameraPanLogic"/> mirrors the
+/// invariant for xUnit pinning.
+/// </para>
+///
+/// <para>
+/// <b>Modal-owns-input convention (D-P8.2-12, mirrors P8.1).</b>
+/// When a modal is open (<see cref="SceneManager.ActiveModalId"/> not
+/// null), middle-click drag and ZQSD pan are silently ignored. Same
+/// rationale as P8.1 wheel-while-modal: the modal owns the input
+/// surface, the underlying screen is suspended. Esc closes the modal,
+/// pan resumes.
+/// </para>
+///
+/// <para>
+/// <b>No conflict with P8.1 ladder wheel (D-P8.2-16 + Risk #2).</b>
+/// SceneManager handles <see cref="MouseButton.WheelUp"/> /
+/// <see cref="MouseButton.WheelDown"/>. E2WorldMap handles
+/// <see cref="MouseButton.Middle"/> + ZQSD. Disjoint constants on the
+/// Godot side, disjoint handlers on the C# side. A drag clic-milieu in
+/// progress does not absorb the wheel (we never call
+/// <c>SetInputAsHandled</c> on a wheel event), so spinning the wheel
+/// during a drag still triggers ladder navigation -- manual checklist
+/// step 9 validates this.
 /// </para>
 ///
 /// <para>
@@ -35,25 +147,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// flash the bottom-center BlockedIndicator label for 2.3s
 /// (100ms fade-in, 2000ms hold, 200ms fade-out). The flash matters --
 /// a silent <c>GD.Print</c> would leave the player wondering whether
-/// they hit a bug or a mechanic. Spec: "pas de modale, pas un GD.Print
-/// silencieux" (pre-brief §3.6).
-/// </para>
-///
-/// <para>
-/// <b>Lambda-capture trap pattern (Risk #1, backend-brain trap).</b>
-/// The naive wire <c>button.Pressed += () => OnPoiPressed(poi.PoiId)</c>
-/// captures a fresh lambda per POI, which cannot be disconnected by
-/// method-group at <c>_ExitTree</c> -- you must keep the same Action
-/// reference. Pattern adopted: a <see cref="Dictionary{TKey,TValue}"/>
-/// from <c>TextureButton</c> to the three lambdas wired on it
-/// (Pressed, MouseEntered, MouseExited). At teardown we iterate the
-/// dictionary and disconnect each pair, then <c>QueueFree</c> the button.
-/// Without the dictionary, freeing E2 leaves dangling subscriptions on
-/// orphan buttons -- the next hover or click on the auto-loader's stale
-/// queue throws an "object disposed" exception. xUnit cannot catch
-/// this -- it relies on disconnection discipline. Documented in code
-/// here so the pattern is teachable and reusable for E3 quartiers and
-/// E5 ambient PNJ POIs at the next jalon.
+/// they hit a bug or a mechanic. Spec preserved verbatim from J3.
 /// </para>
 ///
 /// <para>
@@ -83,12 +177,21 @@ public partial class E2WorldMap : Control, IScreen
     private const string BannerTopAssetKey = "e2.banner_top";
     private const string PanelLeftAssetKey = "e2.panel_left";
     private const string PanelRightAssetKey = "e2.panel_right";
+    private const string HalfgatePoiId = "halfgate";
 
     private const float BlockedFadeInSeconds = 0.1f;
     private const float BlockedHoldSeconds = 2.0f;
     private const float BlockedFadeOutSeconds = 0.2f;
 
-    private TextureRect _background = null!;
+    /// <summary>
+    /// ZQSD / WASD / arrow pan speed in world pixels per second
+    /// (D-P8.2-05). Sized so a sustained pan crosses the full 3840 px
+    /// width of the E2.1 image in ~4.8s -- snappy enough to feel
+    /// responsive, slow enough that a tap does not overshoot the
+    /// intended POI.
+    /// </summary>
+    private const float PanSpeedPxPerSec = 800f;
+
     private TextureRect _bannerTop = null!;
     private Label _bannerTitleLabel = null!;
     private Label _bannerSubtitleLabel = null!;
@@ -107,35 +210,52 @@ public partial class E2WorldMap : Control, IScreen
     private PanelContainer _blockedIndicator = null!;
     private Label _blockedIndicatorLabel = null!;
 
-    private Control _poiContainer = null!;
+    // P8.2 world-space hierarchy.
+    private Node2D _worldRoot = null!;
+    private Sprite2D _worldMapSprite = null!;
+    private Camera2D _worldCamera = null!;
+    private Node2D _poiContainer = null!;
 
     private OpeningStrings _strings = null!;
     private WorldMapPois _poisResource = null!;
 
     /// <summary>
-    /// One entry per spawned POI button. The three Action references
+    /// One entry per spawned POI Area2D. The three handler references
     /// are stored so <c>_ExitTree</c> can disconnect with the exact
-    /// lambdas used at wire time -- method-group disconnect would not
-    /// match a closure capturing the per-POI id.
+    /// references used at wire time -- method-group disconnect would
+    /// not match a closure capturing the per-POI id (Risk #1 carried
+    /// over from P7-J3, restated for P8.2 because the migration to
+    /// Area2D changed the signal types).
     /// </summary>
-    private readonly Dictionary<TextureButton, PoiHandlerSet> _poiHandlers = new();
+    private readonly Dictionary<Area2D, PoiAreaHandlers> _poiHandlers = new();
 
     /// <summary>
-    /// Reverse lookup poi-id -&gt; button. Populated alongside
-    /// <see cref="_poiHandlers"/> at spawn. Used so the hover handler
-    /// can fetch the button's <c>GlobalPosition</c> for the tooltip
-    /// anchor without scanning the scene tree.
+    /// Reverse lookup poi-id -&gt; hotspot Node2D root. Populated alongside
+    /// <see cref="_poiHandlers"/> at spawn. Used by the hover handler so
+    /// the tooltip can anchor at the POI's <c>GlobalPosition</c> without
+    /// scanning the scene tree. The hotspot's <c>GlobalPosition</c>
+    /// already accounts for camera pan because the hotspot is a child
+    /// of the world tree.
     /// </summary>
-    private readonly Dictionary<string, TextureButton> _poiButtons = new();
+    private readonly Dictionary<string, Node2D> _poiHotspots = new();
 
     private Tween? _blockedTween;
+
+    // P8.2 drag state (clic-milieu pan). Idle when _isDragging is false.
+    private bool _isDragging;
+    private Vector2 _dragStartMouseViewport;
+    private Vector2 _dragStartCameraWorld;
 
     public override void _Ready()
     {
         _strings = ResourceLoader.Load<OpeningStrings>(OpeningStringsResPath) ?? new OpeningStrings();
         _poisResource = ResourceLoader.Load<WorldMapPois>(WorldMapPoisResPath) ?? new WorldMapPois();
 
-        _background = GetNode<TextureRect>("BackgroundLayer/WorldMapBackground");
+        _worldRoot = GetNode<Node2D>("BackgroundLayer/WorldRoot");
+        _worldMapSprite = GetNode<Sprite2D>("BackgroundLayer/WorldRoot/WorldMapSprite");
+        _worldCamera = GetNode<Camera2D>("BackgroundLayer/WorldRoot/WorldCamera");
+        _poiContainer = GetNode<Node2D>("BackgroundLayer/WorldRoot/PoiContainer");
+
         _bannerTop = GetNode<TextureRect>("DecorationLayer/BannerTop");
         _bannerTitleLabel = GetNode<Label>("DecorationLayer/BannerTop/BannerTitleLabel");
         _bannerSubtitleLabel = GetNode<Label>("DecorationLayer/BannerTop/BannerSubtitleLabel");
@@ -154,13 +274,11 @@ public partial class E2WorldMap : Control, IScreen
         _blockedIndicator = GetNode<PanelContainer>("ChromeLayer/BlockedIndicator");
         _blockedIndicatorLabel = GetNode<Label>("ChromeLayer/BlockedIndicator/BlockedIndicatorLabel");
 
-        _poiContainer = GetNode<Control>("PoiLayer/PoiContainer");
-
         // Background + decoration textures (AssetResolver returns a
         // deterministic placeholder if the file is missing, so this never
         // null-refs even on a fresh checkout).
         var assetResolver = GetNode<AssetResolver>("/root/AssetResolver");
-        _background.Texture = assetResolver.Resolve(WorldMapBackgroundAssetKey);
+        _worldMapSprite.Texture = assetResolver.Resolve(WorldMapBackgroundAssetKey);
         _bannerTop.Texture = assetResolver.Resolve(BannerTopAssetKey);
 
         // Panel iso frames are decorative -- the StyleBoxFlat in the .tscn
@@ -169,6 +287,25 @@ public partial class E2WorldMap : Control, IScreen
         // a TextureRect underneath each PanelContainer. J3 stub fixed-pos.
         _ = assetResolver.Resolve(PanelLeftAssetKey);   // pre-warm cache slot
         _ = assetResolver.Resolve(PanelRightAssetKey);  // pre-warm cache slot
+
+        // Configure the camera against the loaded image dimensions. Done
+        // after the texture set so GetSize() reads the real native size.
+        // Camera2D.Limit* clamps the visible rect inside the image, the
+        // canonical Godot pattern for "fenêtre sur un monde fini" (D-P8.2-07).
+        var imageSize = _worldMapSprite.Texture.GetSize();
+        _worldCamera.LimitLeft = 0;
+        _worldCamera.LimitTop = 0;
+        _worldCamera.LimitRight = (int)imageSize.X;
+        _worldCamera.LimitBottom = (int)imageSize.Y;
+        _worldCamera.MakeCurrent();
+
+        // Initial camera position: centered on Halfgate POI if found
+        // (D-P8.2-08, "tu commences là où l'action est"), else on image
+        // center. The clamp is a no-op for valid Halfgate -- defense-doc'd
+        // by CameraPanLogicTests.HalfgatePoiCenter_is_within_valid_camera_range.
+        var halfgate = FindPoi(HalfgatePoiId);
+        var initialCenter = halfgate?.Position ?? imageSize / 2f;
+        _worldCamera.Position = initialCenter;
 
         // Strings -- single point of swap when Varn revises the .tres.
         _bannerTitleLabel.Text = _strings.E2Title;
@@ -185,7 +322,7 @@ public partial class E2WorldMap : Control, IScreen
 
         SpawnPois(assetResolver);
 
-        GD.Print($"[E2WorldMap] ready, {_poiHandlers.Count} POI spawned");
+        GD.Print($"[E2WorldMap] ready, {_poiHandlers.Count} POI spawned, camera at {_worldCamera.Position}");
     }
 
     public override void _ExitTree()
@@ -193,19 +330,22 @@ public partial class E2WorldMap : Control, IScreen
         // Disconnect chrome handlers first.
         if (_backButton is not null) _backButton.Pressed -= OnBackPressed;
 
-        // Disconnect every POI handler with the EXACT lambda reference
-        // captured at wire time. Method-group disconnect would not match
-        // because each lambda closed over a distinct PoiId (Risk #1).
-        foreach (var (button, handlers) in _poiHandlers)
+        // Disconnect every POI handler with the EXACT reference captured
+        // at wire time. Method-group disconnect would not match because
+        // each closure closed over a distinct PoiId (Risk #1).
+        foreach (var (area, handlers) in _poiHandlers)
         {
-            if (button is null) continue;
-            button.Pressed -= handlers.Pressed;
-            button.MouseEntered -= handlers.MouseEntered;
-            button.MouseExited -= handlers.MouseExited;
-            button.QueueFree();
+            if (area is null) continue;
+            area.InputEvent -= handlers.InputEvent;
+            area.MouseEntered -= handlers.MouseEntered;
+            area.MouseExited -= handlers.MouseExited;
+            // QueueFree the hotspot Node2D parent so the Sprite2D + Area2D
+            // + CollisionShape2D children are reaped together. The hotspot
+            // is the area's parent (see SpawnPois below).
+            area.GetParent()?.QueueFree();
         }
         _poiHandlers.Clear();
-        _poiButtons.Clear();
+        _poiHotspots.Clear();
 
         // Risk #3: cancel any pending tooltip timer so the autoload
         // does not surface a tooltip on the next screen mid-fade.
@@ -216,46 +356,154 @@ public partial class E2WorldMap : Control, IScreen
         _blockedTween = null;
     }
 
+    public override void _Process(double delta)
+    {
+        // ZQSD pan polling (D-P8.2-05 + D-P8.2-06). Done in _Process so
+        // sustained key-hold produces continuous motion at a frame-rate-
+        // independent speed. Skipped while a modal is open (D-P8.2-12).
+        if (IsModalOpen()) return;
+
+        var dir = CameraPanLogic.ResolvePanDirection(
+            left:  Input.IsActionPressed("ui_pan_left"),
+            right: Input.IsActionPressed("ui_pan_right"),
+            up:    Input.IsActionPressed("ui_pan_up"),
+            down:  Input.IsActionPressed("ui_pan_down"));
+
+        if (dir.X == 0f && dir.Y == 0f) return;
+
+        var current = ToPanVec2(_worldCamera.Position);
+        var imageSize = ToPanVec2(_worldMapSprite.Texture.GetSize());
+        var viewportSize = ToPanVec2(GetViewport().GetVisibleRect().Size);
+
+        var advanced = CameraPanLogic.AdvanceCameraCenter(
+            current, dir, PanSpeedPxPerSec, (float)delta, imageSize, viewportSize);
+
+        _worldCamera.Position = ToVector2(advanced);
+    }
+
+    public override void _UnhandledInput(InputEvent @event)
+    {
+        // Drag clic-milieu pan (D-P8.2-04). We never call
+        // SetInputAsHandled on the wheel events SceneManager listens for
+        // (WheelUp / WheelDown), so the ladder still works during a drag
+        // -- defense-doc'd by manual checklist step 9.
+        if (@event is InputEventMouseButton mb && mb.ButtonIndex == MouseButton.Middle)
+        {
+            // Modal-owns-input mirror of P8.1 (D-P8.2-12). When a modal
+            // is open we ignore the press entirely. If a drag was already
+            // in progress when the modal opened (race window), we end it
+            // here too -- robustness over correctness on this edge.
+            if (IsModalOpen())
+            {
+                _isDragging = false;
+                return;
+            }
+
+            if (mb.Pressed)
+            {
+                _isDragging = true;
+                _dragStartMouseViewport = mb.Position;
+                _dragStartCameraWorld = _worldCamera.Position;
+            }
+            else
+            {
+                _isDragging = false;
+            }
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+
+        if (@event is InputEventMouseMotion mm && _isDragging)
+        {
+            // 1:1 inverse: if the mouse has moved +X since drag start,
+            // the camera moves -X to make the image visually slide right
+            // under the cursor (RTS / SimCity convention, D-P8.2-04).
+            var delta = mm.Position - _dragStartMouseViewport;
+            var desired = _dragStartCameraWorld - delta;
+
+            var imageSize = ToPanVec2(_worldMapSprite.Texture.GetSize());
+            var viewportSize = ToPanVec2(GetViewport().GetVisibleRect().Size);
+            var clamped = CameraPanLogic.ClampCameraCenter(
+                ToPanVec2(desired), imageSize, viewportSize);
+
+            _worldCamera.Position = ToVector2(clamped);
+            GetViewport().SetInputAsHandled();
+        }
+    }
+
     private void SpawnPois(AssetResolver assetResolver)
     {
         foreach (var poi in _poisResource.Pois)
         {
             if (poi is null) continue;
 
-            var button = new TextureButton
+            // Hotspot root -- the Area2D's parent. QueueFree on this
+            // node at _ExitTree reaps the sprite + area + shape together.
+            var hotspot = new Node2D
             {
-                TextureNormal = assetResolver.Resolve(poi.AssetKey),
+                Name = $"Poi_{poi.PoiId}",
                 Position = poi.Position,
-                Size = poi.Size,
-                IgnoreTextureSize = true,
-                StretchMode = TextureButton.StretchModeEnum.KeepAspectCentered,
-                MouseFilter = MouseFilterEnum.Stop,
-                MouseDefaultCursorShape = poi.IsClickable
-                    ? CursorShape.PointingHand
-                    : CursorShape.Forbidden,
+            };
+
+            var sprite = new Sprite2D
+            {
+                Texture = assetResolver.Resolve(poi.AssetKey),
+                Centered = true,
                 // Tone down the suspended sprite without disabling the
-                // node -- Disabled would suppress the hover signal we
-                // need for the suspended-cadastre tooltip.
+                // node -- we still need the hover signal for the
+                // suspended-cadastre tooltip.
                 Modulate = poi.IsClickable
                     ? new Color(1, 1, 1, 1)
                     : new Color(0.85f, 0.78f, 0.68f, 0.85f),
             };
 
+            // Area2D for click + hover detection. InputPickable=true is
+            // the default but stated explicitly here so a future
+            // refactor that disables input picking globally surfaces
+            // this site as a known consumer.
+            var area = new Area2D
+            {
+                Name = "Hitbox",
+                InputPickable = true,
+            };
+            var shape = new CollisionShape2D
+            {
+                Shape = new RectangleShape2D { Size = poi.Size },
+            };
+            area.AddChild(shape);
+
+            hotspot.AddChild(sprite);
+            hotspot.AddChild(area);
+            _poiContainer.AddChild(hotspot);
+
             // Capture the PoiId once per closure so the dispatch reads the
-            // right entry. The lambdas are *kept* in _poiHandlers so the
-            // _ExitTree disconnect uses the same references.
+            // right entry. The handlers are *kept* in _poiHandlers so the
+            // _ExitTree disconnect uses the same references (Risk #1).
             var poiId = poi.PoiId;
-            Action pressed = () => OnPoiPressed(poiId);
+
+            // Area2D.InputEvent signature: (Node viewport, InputEvent evt, long shapeIdx).
+            // Matches the InputEventEventHandler delegate Godot exposes
+            // on Area2D in C#. We only fire on the press edge of the
+            // left mouse button so a drag clic-milieu starting on a POI
+            // does not also click it.
+            Area2D.InputEventEventHandler inputHandler = (_, evt, _) =>
+            {
+                if (evt is InputEventMouseButton hit
+                    && hit.Pressed
+                    && hit.ButtonIndex == MouseButton.Left)
+                {
+                    OnPoiPressed(poiId);
+                }
+            };
             Action mouseEntered = () => OnPoiHoverIn(poiId);
             Action mouseExited = () => OnPoiHoverOut(poiId);
 
-            button.Pressed += pressed;
-            button.MouseEntered += mouseEntered;
-            button.MouseExited += mouseExited;
+            area.InputEvent += inputHandler;
+            area.MouseEntered += mouseEntered;
+            area.MouseExited += mouseExited;
 
-            _poiContainer.AddChild(button);
-            _poiHandlers[button] = new PoiHandlerSet(pressed, mouseEntered, mouseExited);
-            _poiButtons[poiId] = button;
+            _poiHandlers[area] = new PoiAreaHandlers(inputHandler, mouseEntered, mouseExited);
+            _poiHotspots[poiId] = hotspot;
         }
     }
 
@@ -301,10 +549,12 @@ public partial class E2WorldMap : Control, IScreen
         var text = ResolveTooltipText(poi);
         if (string.IsNullOrEmpty(text)) return;
 
-        // Anchor at the POI's global top-left ; the tooltip controller adds
-        // its own offset so the panel floats above the marker.
-        var anchor = _poiButtons.TryGetValue(poiId, out var button)
-            ? button.GlobalPosition
+        // Anchor at the POI's world-space global position (which already
+        // accounts for camera pan because the hotspot is a child of the
+        // world tree). The tooltip controller adds its own offset so the
+        // panel floats above the marker.
+        var anchor = _poiHotspots.TryGetValue(poiId, out var hotspot)
+            ? hotspot.GlobalPosition
             : Vector2.Zero;
         tooltipController.RequestTooltip(text, anchor);
     }
@@ -360,6 +610,21 @@ public partial class E2WorldMap : Control, IScreen
         return null;
     }
 
+    /// <summary>
+    /// True when a modal (E4 character sheet) is currently open. Used
+    /// to gate pan input -- D-P8.2-12 mirrors P8.1's wheel-while-modal
+    /// rule. Reads the autoload directly because this state is only
+    /// authoritative on the SceneManager singleton.
+    /// </summary>
+    private bool IsModalOpen()
+    {
+        var sceneManager = GetNodeOrNull<SceneManager>("/root/SceneManager");
+        return sceneManager?.ActiveModalId is not null;
+    }
+
+    private static PanVec2 ToPanVec2(Vector2 v) => new(v.X, v.Y);
+    private static Vector2 ToVector2(PanVec2 v) => new(v.X, v.Y);
+
     public Task OnEnter(ScreenContext context, CancellationToken ct) => Task.CompletedTask;
 
     public Task OnExit(CancellationToken ct) => Task.CompletedTask;
@@ -377,12 +642,15 @@ public partial class E2WorldMap : Control, IScreen
     }
 
     /// <summary>
-    /// Keeps the three lambda references wired on a POI button so
-    /// <c>_ExitTree</c> disconnects them with the exact same Action
-    /// references used at wire time. See class doc Risk #1.
+    /// Keeps the three handler references wired on a POI Area2D so
+    /// <c>_ExitTree</c> disconnects them with the exact same references
+    /// used at wire time. See class doc Risk #1. The InputEvent handler
+    /// uses Godot's typed delegate <see cref="Area2D.InputEventEventHandler"/>
+    /// because the InputEvent signal carries a node + event + shape-idx
+    /// triple, not just a unit Action like Pressed/MouseEntered/MouseExited.
     /// </summary>
-    private readonly record struct PoiHandlerSet(
-        Action Pressed,
+    private readonly record struct PoiAreaHandlers(
+        Area2D.InputEventEventHandler InputEvent,
         Action MouseEntered,
         Action MouseExited);
 }

@@ -37,25 +37,14 @@ script = ExtResource("1_e2wld")
 [node name="BackgroundLayer" type="CanvasLayer" parent="."]
 layer = 0
 
-[node name="WorldMapBackground" type="TextureRect" parent="BackgroundLayer"]
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-expand_mode = 1
-stretch_mode = 6
+[node name="WorldRoot" type="Node2D" parent="BackgroundLayer"]
 
-[node name="PoiLayer" type="CanvasLayer" parent="."]
-layer = 1
+[node name="WorldMapSprite" type="Sprite2D" parent="BackgroundLayer/WorldRoot"]
+centered = false
 
-[node name="PoiContainer" type="Control" parent="PoiLayer"]
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-mouse_filter = 2
+[node name="WorldCamera" type="Camera2D" parent="BackgroundLayer/WorldRoot"]
+
+[node name="PoiContainer" type="Node2D" parent="BackgroundLayer/WorldRoot"]
 
 [node name="DecorationLayer" type="CanvasLayer" parent="."]
 layer = 2
