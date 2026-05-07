@@ -77,4 +77,14 @@
     <Compile Include="..\scripts\screens\NpcCatalog.cs" Link="src\NpcCatalog.cs" />
   </ItemGroup>
 
+  <!-- Phase 8 P8.1 (M3): layer ladder resolution helper. Pure-C#, Godot-free
+       so xUnit pins the monde / cité / quartier ladder semantics. The
+       Godot-bound wheel input handler + NavigateLadderUp/Down verbs live
+       in SceneManager and are validated through the P8.1 manual checklist
+       and the LadderInputContractTests fake harness (same pattern as
+       E1NavigationContractTests). -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\LadderResolutionLogic.cs" Link="src\LadderResolutionLogic.cs" />
+  </ItemGroup>
+
 </Project>

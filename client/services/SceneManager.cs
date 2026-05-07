@@ -50,6 +50,20 @@ namespace Wayfinders.Client.Services;
 /// startup. Lookup-by-id keeps the manager loosely coupled to concrete
 /// screen types — adding E6 in a future jalon does not edit this file.
 /// </para>
+///
+/// <para>
+/// <b>P8.1 layer ladder (M3 / Arc 3 / Phase 8.1).</b>
+/// The mouse wheel triggers <see cref="NavigateLadderUp"/> /
+/// <see cref="NavigateLadderDown"/> which resolve a target screen id
+/// against the cadastral ladder <c>monde / cité / quartier</c>
+/// (<see cref="LadderResolutionLogic.DefaultLadder"/>) and delegate to
+/// <see cref="NavigateBack"/> (up) or <see cref="NavigateTo"/> (down).
+/// The ladder is data on this autoload, not a member of <see cref="IScreen"/> —
+/// individual screens stay agnostic of who is above or below them.
+/// Wheel events while a modal is open are ignored (modal owns input).
+/// A 200ms debounce on the wheel input mitigates trackpad continuous
+/// scroll firing five navigations in a single gesture (Risk #2).
+/// </para>
 /// </summary>
 public partial class SceneManager : Node
 {
@@ -72,6 +86,22 @@ public partial class SceneManager : Node
     // navigation so a previous in-flight OnEnter cannot race a new one.
     private CancellationTokenSource? _navCts;
 
+    // P8.1 layer ladder. Defaults to monde / cité / quartier (Varn §7.5)
+    // matching the MVP screen registration in OpeningBootstrap. Held as
+    // a settable list rather than a constant so a future jalon (or a test
+    // harness) can swap it without subclassing the autoload.
+    private IReadOnlyList<LayerRung> _ladder = LadderResolutionLogic.DefaultLadder;
+
+    // P8.1 wheel debounce. Trackpad continuous scroll fires events at
+    // ~60Hz on a single gesture. Without a debounce, one swipe = five
+    // ladder navigations in 80ms = E2 -> E3 -> E5 -> E5 -> E5 (the last
+    // three being silent no-ops but still spamming _navCts cancellations
+    // and animation frames). 200ms is the smallest gap that feels
+    // responsive on a real mouse wheel click ; comes from manual testing
+    // on the laptop trackpad + a Logitech wheel.
+    private const ulong WheelDebounceMs = 200;
+    private ulong _lastWheelTickMs;
+
     [Signal] public delegate void NavigationStartedEventHandler(string fromScreen, string toScreen);
     [Signal] public delegate void NavigationCompletedEventHandler(string toScreen);
     [Signal] public delegate void ModalOpenedEventHandler(string modalId);
@@ -85,6 +115,13 @@ public partial class SceneManager : Node
 
     /// <summary>Currently open modal id, or null if none.</summary>
     public string? ActiveModalId => _activeModal?.ModalId;
+
+    /// <summary>
+    /// Active layer ladder used by <see cref="NavigateLadderUp"/> /
+    /// <see cref="NavigateLadderDown"/>. P8.1 default is
+    /// <see cref="LadderResolutionLogic.DefaultLadder"/>.
+    /// </summary>
+    public IReadOnlyList<LayerRung> Ladder => _ladder;
 
     public override void _Ready()
     {
@@ -224,6 +261,64 @@ public partial class SceneManager : Node
         }
 
         EmitSignal(SignalName.NavigationCompleted, newTop.ScreenId);
+    }
+
+    /// <summary>
+    /// P8.1 -- molette UP / climb the ladder (more granular layer to less
+    /// granular). Resolves the target via
+    /// <see cref="LadderResolutionLogic.ResolveUpTarget"/> and delegates
+    /// to <see cref="NavigateBack"/> when there is a target.
+    ///
+    /// <para>
+    /// <b>Why NavigateBack and not NavigateTo on the resolved id.</b>
+    /// In MVP, every navigation between E2 / E3 / E5 either goes through
+    /// the ladder helpers or through the existing POI-click path, both
+    /// of which preserve the invariant `stack spine == ladder spine`.
+    /// So popping is correct and also has the right side-effect: the
+    /// leaving screen is freed, the previous top is shown again. If a
+    /// future jalon introduces a raccourci that violates the spine
+    /// alignment (e.g. "drill from E2 directly to E5 skipping E3"), this
+    /// method needs revisiting -- captured as Risk #1 in the P8.1 pre-brief.
+    /// </para>
+    ///
+    /// <para>
+    /// No-op (silent, debug-logged) when the current screen is the top
+    /// rung (E2 monde) or is not part of the ladder at all (E1 title).
+    /// </para>
+    /// </summary>
+    public async Task NavigateLadderUp()
+    {
+        var target = LadderResolutionLogic.ResolveUpTarget(CurrentScreenId, _ladder);
+        if (target is null)
+        {
+            GD.Print($"[SceneManager] Ladder up no-op (current={CurrentScreenId ?? "(none)"})");
+            return;
+        }
+
+        await NavigateBack();
+    }
+
+    /// <summary>
+    /// P8.1 -- molette DOWN / drill into the ladder (less granular layer
+    /// to more granular). Resolves the target via
+    /// <see cref="LadderResolutionLogic.ResolveDownTarget"/> and delegates
+    /// to <see cref="NavigateTo"/> when there is a target.
+    ///
+    /// <para>
+    /// No-op (silent, debug-logged) when the current screen is the bottom
+    /// rung (E5 quartier) or is not part of the ladder at all (E1 title).
+    /// </para>
+    /// </summary>
+    public async Task NavigateLadderDown()
+    {
+        var target = LadderResolutionLogic.ResolveDownTarget(CurrentScreenId, _ladder);
+        if (target is null)
+        {
+            GD.Print($"[SceneManager] Ladder down no-op (current={CurrentScreenId ?? "(none)"})");
+            return;
+        }
+
+        await NavigateTo(target);
     }
 
     /// <summary>
@@ -420,28 +515,68 @@ public partial class SceneManager : Node
     }
 
     /// <summary>
-    /// Esc key handler. Routes to CloseModal if a modal is open, else
-    /// NavigateBack if the stack has more than 1 entry. Esc on root is
-    /// a silent no-op (Title screen owns the Quit confirmation in J2).
+    /// Esc key handler + P8.1 mouse wheel ladder navigation. Routes Esc
+    /// to CloseModal if a modal is open, else NavigateBack if the stack
+    /// has more than 1 entry. Esc on root is a silent no-op (Title screen
+    /// owns the Quit confirmation in J2). Mouse wheel up/down trigger
+    /// <see cref="NavigateLadderUp"/> / <see cref="NavigateLadderDown"/>
+    /// with a 200ms debounce ; ignored entirely while a modal is open.
     /// </summary>
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (!@event.IsActionPressed("ui_cancel"))
-            return;
-
-        if (_activeModal is not null && _activeModal.CanCloseOnEsc)
+        if (@event.IsActionPressed("ui_cancel"))
         {
-            // Fire-and-forget intentional: input handlers are not async.
-            // Cancellation in CloseModal handles robustness if Esc is
-            // spammed (each call recycles _navCts).
-            _ = CloseModal();
-            GetViewport().SetInputAsHandled();
+            if (_activeModal is not null && _activeModal.CanCloseOnEsc)
+            {
+                // Fire-and-forget intentional: input handlers are not async.
+                // Cancellation in CloseModal handles robustness if Esc is
+                // spammed (each call recycles _navCts).
+                _ = CloseModal();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+
+            if (_stack.Count > 1)
+            {
+                _ = NavigateBack();
+                GetViewport().SetInputAsHandled();
+            }
             return;
         }
 
-        if (_stack.Count > 1)
+        // P8.1 -- molette ladder navigation. We only react on the press
+        // edge ; Godot fires WheelUp/WheelDown as InputEventMouseButton
+        // with Pressed = true, then a matching Released the same frame.
+        if (@event is InputEventMouseButton mb && mb.Pressed
+            && (mb.ButtonIndex == MouseButton.WheelUp || mb.ButtonIndex == MouseButton.WheelDown))
         {
-            _ = NavigateBack();
+            // Modal owns input -- wheel is silently ignored while a modal
+            // is open. Defense-doc'd by LadderInputContractTests.
+            if (_activeModal is not null)
+            {
+                return;
+            }
+
+            // Trackpad continuous scroll mitigation (Risk #2). On a real
+            // mouse wheel, ticks are ~50ms apart on aggressive spinning,
+            // so 200ms only blocks the 2nd+3rd ticks of a single flick --
+            // intentional, the player gets exactly one navigation per
+            // discrete gesture.
+            var nowMs = Time.GetTicksMsec();
+            if (nowMs - _lastWheelTickMs < WheelDebounceMs)
+            {
+                return;
+            }
+            _lastWheelTickMs = nowMs;
+
+            if (mb.ButtonIndex == MouseButton.WheelUp)
+            {
+                _ = NavigateLadderUp();
+            }
+            else
+            {
+                _ = NavigateLadderDown();
+            }
             GetViewport().SetInputAsHandled();
         }
     }
