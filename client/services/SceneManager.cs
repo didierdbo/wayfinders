@@ -68,16 +68,42 @@ namespace Wayfinders.Client.Services;
 /// </para>
 ///
 /// <para>
-/// <b>P8.1+P8.2 triple-fix (2026-05-07).</b> This commit re-swaps the
-/// physical-wheel direction (Bug 1, re-swapped to the pre-<c>ad6a91f</c>
-/// state: physical wheel UP = climb out, physical wheel DOWN = drill in),
-/// hardens the drag-vs-wheel suppression with a defense-in-depth poll on
-/// <see cref="Input.IsMouseButtonPressed"/> here at the autoload (Bug 2,
-/// in addition to the screen-level <c>SetInputAsHandled</c> in
-/// <see cref="Wayfinders.Client.Scenes.Screens.E2WorldMap._Input"/>), and
-/// adds a "drill-down only into visited screens" gate so a wheel-down on
-/// E2 does not silently teleport into Halfgate without an explicit click
-/// path (Bug 3).
+/// <b>P8 wheel-direction final lock (2026-05-07, post-1e89ad3).</b>
+/// After four iterations (<c>c0b6157</c> initial → <c>ad6a91f</c> swap →
+/// <c>1e89ad3</c> re-swap → this commit final-swap), the convention is
+/// locked by Didier physical-gesture re-test. Convention uses pull/push
+/// language exclusively — "wheel up/down" / "forward/backward" labels are
+/// banned in this file and the related tests because their ambiguity
+/// caused the swap loop:
+/// <list type="bullet">
+///   <item><b>PULL</b> the wheel toward the user (rolls finger toward you)
+///         → fires <c>MouseButton.WheelDown</c> event → dispatches
+///         <see cref="NavigateLadderUp"/> = <b>climb OUT</b> toward the
+///         less granular layer (e.g. E2 → E1, E3 → E2, E5 → E3).</item>
+///   <item><b>PUSH</b> the wheel away from the user (rolls finger away)
+///         → fires <c>MouseButton.WheelUp</c> event → dispatches
+///         <see cref="NavigateLadderDown"/> = <b>drill IN</b> toward the
+///         more granular layer (e.g. E1 → E2, E2 → E3, E3 → E5), gated by
+///         the "visited explicitly this session" set.</item>
+/// </list>
+/// <b>Do not swap again without explicit Didier physical-gesture
+/// re-validation.</b> If a future tester on different hardware reports
+/// the inverse, ship a per-user config option (preference setting) rather
+/// than re-flipping this site -- the swap loop showed that global flips
+/// without intermediate visual validation are fragile.
+/// </para>
+///
+/// <para>
+/// <b>P8 post-drag wheel grace period (2026-05-07, this commit).</b>
+/// After the player releases the middle-button drag, wheel events arriving
+/// within the next <see cref="PostDragGraceMs"/> ms are silently dropped.
+/// Rationale: when the hand lifts off after a sustained drag, the thumb
+/// often brushes the wheel as part of the lift gesture itself, producing
+/// an unintended ladder navigation a few frames after release. The grace
+/// period is short enough not to feel laggy on an intentional flick after
+/// drag (250ms = ~15 frames at 60fps), long enough to swallow the typical
+/// release-brush. Lives at the autoload alongside the in-drag suppression
+/// (defense-in-depth pattern, mirrors Bug 2 architecture).
 /// </para>
 /// </summary>
 public partial class SceneManager : Node
@@ -123,6 +149,25 @@ public partial class SceneManager : Node
     // suppression's braces (E2WorldMap._Input).
     private const ulong WheelDebounceMs = 400;
     private ulong _lastWheelTickMs;
+
+    // P8 final-lock post-drag grace period (2026-05-07). Once the
+    // middle-button drag ends, wheel events arriving within this window
+    // are ignored at the autoload backstop. The window is short enough to
+    // not feel laggy on an intentional flick after a drag (250ms = ~15
+    // frames at 60fps) and long enough to swallow the release-brush --
+    // the symptom Didier reported as Bug 2-affined: "when I exit the
+    // scroll, sometimes I do a wheel action by accident just after, it
+    // should be cancelled because it is likely an error".
+    //
+    // Triggered by E2WorldMap calling NotifyDragReleased() at the moment
+    // _isDragging flips false. Owned at the autoload (not on the screen)
+    // because the wheel handler that consumes the input lives here, and
+    // the grace timer is logically scoped to wheel input not to drag
+    // state. If a future screen also gains a drag gesture (E3, E5 with
+    // their own pannable surfaces), the same hook applies without
+    // touching this file.
+    private const ulong PostDragGraceMs = 250;
+    private ulong _lastDragEndTimeMs;
 
     // P8.1+P8.2 triple-fix Bug 3 (2026-05-07). Tracks the set of screen
     // ids the player has *explicitly* navigated to via NavigateTo (POI
@@ -181,6 +226,26 @@ public partial class SceneManager : Node
     /// the full Godot scene-tree round-trip.
     /// </summary>
     public IReadOnlyCollection<string> DrillDownVisited => _drillDownVisited;
+
+    /// <summary>
+    /// P8 final-lock post-drag grace period hook. A screen that owns a
+    /// drag gesture calls this at the moment the drag ends (middle-button
+    /// release). The autoload records the timestamp and silently drops
+    /// wheel events arriving within <see cref="PostDragGraceMs"/> ms of
+    /// that release. Idempotent and cheap (one ulong write).
+    ///
+    /// <para>
+    /// Why a method instead of a public property the screen writes to:
+    /// the autoload owns the timestamp ; the screen owns the gesture
+    /// event. Encapsulation lets a future jalon swap the underlying timer
+    /// (e.g. variable grace based on drag duration) without touching the
+    /// screen's drag-end branch.
+    /// </para>
+    /// </summary>
+    public void NotifyDragReleased()
+    {
+        _lastDragEndTimeMs = Time.GetTicksMsec();
+    }
 
     public override void _Ready()
     {
@@ -339,10 +404,11 @@ public partial class SceneManager : Node
     }
 
     /// <summary>
-    /// P8.1 -- molette UP / climb the ladder (more granular layer to less
-    /// granular). Resolves the target via
-    /// <see cref="LadderResolutionLogic.ResolveUpTarget"/> and delegates
-    /// to <see cref="NavigateBack"/> when there is a target.
+    /// P8.1 -- ladder climb-out (more granular layer to less granular).
+    /// Resolves the target via <see cref="LadderResolutionLogic.ResolveUpTarget"/>
+    /// and delegates to <see cref="NavigateBack"/> when there is a target.
+    /// Triggered at the dispatch site by a PULL gesture
+    /// (<c>MouseButton.WheelDown</c> event, post-final-lock).
     ///
     /// <para>
     /// <b>Why NavigateBack and not NavigateTo on the resolved id.</b>
@@ -374,15 +440,16 @@ public partial class SceneManager : Node
     }
 
     /// <summary>
-    /// P8.1 -- molette DOWN / drill into the ladder (less granular layer
-    /// to more granular). Resolves the target via
-    /// <see cref="LadderResolutionLogic.ResolveDownTarget"/> and delegates
-    /// to <see cref="NavigateTo"/> when there is a target AND that target
-    /// has been visited explicitly during this session.
+    /// P8.1 -- ladder drill-in (less granular layer to more granular).
+    /// Resolves the target via <see cref="LadderResolutionLogic.ResolveDownTarget"/>
+    /// and delegates to <see cref="NavigateTo"/> when there is a target
+    /// AND that target has been visited explicitly during this session.
+    /// Triggered at the dispatch site by a PUSH gesture
+    /// (<c>MouseButton.WheelUp</c> event, post-final-lock).
     ///
     /// <para>
     /// <b>P8.1+P8.2 triple-fix Bug 3 (2026-05-07) -- visited gate.</b>
-    /// Wheel-down silently no-ops when the resolved ladder target has
+    /// Wheel drill-in silently no-ops when the resolved ladder target has
     /// never been navigated-to via an explicit NavigateTo (POI click,
     /// button) during this session. Rationale: drilling from E2 monde
     /// into E3 via a wheel without ever having clicked Halfgate would
@@ -624,27 +691,25 @@ public partial class SceneManager : Node
     /// owns the Quit confirmation in J2).
     ///
     /// <para>
-    /// <b>P8.1+P8.2 triple-fix wheel direction (Bug 1, 2026-05-07).</b>
-    /// Re-swapped to the pre-<c>ad6a91f</c> binding after Didier's visual
-    /// retest. Convention locked:
+    /// <b>Wheel direction lock (validated Didier physical-gesture test, P8 final 2026-05-07):</b>
     /// <list type="bullet">
-    ///   <item>Physical wheel UP (<c>MouseButton.WheelUp</c>) =
-    ///         <see cref="NavigateLadderUp"/> = climb out toward the less
-    ///         granular layer (E5 → E3, E3 → E2).</item>
-    ///   <item>Physical wheel DOWN (<c>MouseButton.WheelDown</c>) =
-    ///         <see cref="NavigateLadderDown"/> = drill into the more
-    ///         granular layer (E2 → E3, E3 → E5), gated by the
-    ///         "visited explicitly this session" set (Bug 3).</item>
+    ///   <item>PULL (toward user) -> WheelDown event -> NavigateLadderUp
+    ///         (climb out, e.g. E2 -> E1, E3 -> E2, E5 -> E3).</item>
+    ///   <item>PUSH (away from user) -> WheelUp event -> NavigateLadderDown
+    ///         (drill in, e.g. E1 -> E2, E2 -> E3, E3 -> E5), gated by the
+    ///         visited set (Bug 3).</item>
     /// </list>
-    /// On Didier's hardware, Godot's <c>MouseButton.WheelUp</c> matches
-    /// the physical-forward gesture as expected. The earlier
-    /// <c>ad6a91f</c> swap was based on a misread of the visual-test
-    /// transcript ; restoring the canonical mapping.
+    /// <b>DO NOT swap again without explicit Didier physical-gesture
+    /// re-validation.</b> See class XML doc "P8 wheel-direction final
+    /// lock" paragraph for the four-iteration swap-loop history and the
+    /// reason this convention is now expressed in pull/push terms only --
+    /// "wheel up/down" / "forward/backward" labels are banned because
+    /// their ambiguity was the root cause of the loop.
     /// </para>
     ///
     /// <para>
     /// <b>P8.1+P8.2 triple-fix drag suppression (Bug 2, 2026-05-07).</b>
-    /// Defense-in-depth: this autoload now also checks
+    /// Defense-in-depth: this autoload checks
     /// <see cref="Input.IsMouseButtonPressed"/> for
     /// <see cref="MouseButton.Middle"/> at the wheel-event entry point,
     /// in addition to the screen-level <c>SetInputAsHandled</c> in
@@ -656,6 +721,16 @@ public partial class SceneManager : Node
     /// the screen-level <c>_isDragging</c> flag is in transit relative
     /// to the wheel event arriving in the same frame as the middle-button
     /// press.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>P8 final-lock post-drag grace period (this commit, 2026-05-07).</b>
+    /// In addition to the in-drag suppression, wheel events arriving within
+    /// <see cref="PostDragGraceMs"/> ms of the most recent drag release
+    /// (signalled by <see cref="NotifyDragReleased"/>) are silently
+    /// dropped. Catches the lift-off brush -- the thumb leaving the wheel
+    /// after a sustained drag often produces an unintended wheel tick a
+    /// few frames after middle-button release.
     /// </para>
     ///
     /// <para>
@@ -714,33 +789,50 @@ public partial class SceneManager : Node
                 return;
             }
 
+            // P8 final-lock post-drag grace period. Catches the lift-off
+            // brush after the player releases the middle-button drag --
+            // see class XML doc "P8 final-lock post-drag grace period"
+            // paragraph for the symptom and rationale. NotifyDragReleased
+            // is the only writer of _lastDragEndTimeMs ; a fresh session
+            // initialises it to 0 so the first wheel event after boot
+            // passes the gate (nowMs - 0 >= 250ms is always true once
+            // the app is past its first quarter-second).
+            var nowMs = Time.GetTicksMsec();
+            if (nowMs - _lastDragEndTimeMs < PostDragGraceMs)
+            {
+                return;
+            }
+
             // Trackpad continuous scroll mitigation (Risk #2). On a real
             // mouse wheel, ticks are ~50ms apart on aggressive spinning,
             // so 400ms only blocks the 2nd+3rd+4th+ ticks of a single
             // flick -- intentional, the player gets exactly one navigation
             // per discrete gesture.
-            var nowMs = Time.GetTicksMsec();
             if (nowMs - _lastWheelTickMs < WheelDebounceMs)
             {
                 return;
             }
             _lastWheelTickMs = nowMs;
 
-            // P8.1+P8.2 triple-fix Bug 1 -- canonical wheel direction
-            // (re-swapped from ad6a91f after Didier visual retest).
-            // Physical wheel UP = NavigateLadderUp (climb out E5 -> E3 -> E2).
-            // Physical wheel DOWN = NavigateLadderDown (drill in E2 -> E3 -> E5).
+            // Wheel direction lock (validated Didier physical-gesture test, P8 final 2026-05-07):
+            //   PULL (toward user) -> WheelDown event -> NavigateLadderUp (climb out, e.g. E2 -> E1)
+            //   PUSH (away from user) -> WheelUp event -> NavigateLadderDown (drill in, e.g. E1 -> E2)
+            // DO NOT swap again without explicit Didier physical-gesture re-validation.
+            //
             // The semantic helper LadderResolutionLogic.Resolve{Up,Down}Target
-            // stays identity-named with these methods (Up = walk toward
-            // ladder index 0 = top of ladder = monde = climb out) ; the
-            // mapping at this dispatch site is now the obvious one.
+            // stays identity-named with the verbs (Up = walk toward ladder
+            // index 0 = top of ladder = monde = climb out). The mapping
+            // reversal (PULL = WheelDown event = climb-out verb) lives only
+            // at this dispatch site -- the resolver and the verbs themselves
+            // are intentionally unchanged by the four-iteration swap loop.
             //
             // If a future user reports the inverse mapping on different
-            // hardware, the right fix is a config option (per-user wheel
-            // direction inversion) rather than re-flipping this site --
-            // see feedback_godot_rendering_input_traps.md "Convention
+            // hardware, ship a per-user config option (preference setting)
+            // rather than re-flipping this site. The swap loop showed that
+            // global flips without intermediate visual validation are fragile.
+            // See feedback_godot_rendering_input_traps.md "Convention
             // molette" section.
-            if (mb.ButtonIndex == MouseButton.WheelUp)
+            if (mb.ButtonIndex == MouseButton.WheelDown)
             {
                 _ = NavigateLadderUp();
             }

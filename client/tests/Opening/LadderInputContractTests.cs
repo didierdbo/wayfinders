@@ -5,7 +5,7 @@ namespace Wayfinders.Client.Tests.Opening;
 
 /// <summary>
 /// Contract tests for the P8.1 wheel-input ladder navigation, post the
-/// P8.1+P8.2 triple-fix (2026-05-07).
+/// P8 final wheel-direction lock (2026-05-07).
 ///
 /// <para>
 /// The Godot-side <c>SceneManager._UnhandledInput</c> cannot be loaded from
@@ -13,36 +13,45 @@ namespace Wayfinders.Client.Tests.Opening;
 /// assert on a fake harness that mimics the SceneManager wheel-handling
 /// shape and locks the expected contracts:
 /// <list type="bullet">
-///   <item>Wheel up / down on a ladder rung resolves to the right target
-///         and triggers exactly one navigation per gesture, under the
-///         re-swapped canonical convention (wheel UP = climb out, wheel
-///         DOWN = drill in).</item>
+///   <item>Wheel events on a ladder rung resolve to the right target and
+///         trigger exactly one navigation per gesture, under the final
+///         pull/push convention (PULL = climb out, PUSH = drill in).</item>
 ///   <item>Wheel ignored entirely while a modal is open (Pre-brief
 ///         Risk #3 — modal owns input).</item>
 ///   <item>Wheel ignored entirely while the middle mouse button is held
 ///         (P8.1+P8.2 triple-fix Bug 2 belt-and-braces, modeling the
 ///         autoload-side <c>Input.IsMouseButtonPressed</c> poll).</item>
-///   <item>Wheel-down silently no-ops when the resolved target has not
+///   <item>Wheel ignored entirely within the post-drag grace period
+///         after a middle-button release (P8 final-lock, this commit --
+///         catches the thumb lift-off brush).</item>
+///   <item>Drill-in silently no-ops when the resolved target has not
 ///         been visited explicitly via NavigateTo this session
 ///         (P8.1+P8.2 triple-fix Bug 3, "drill into visited only" gate).</item>
 ///   <item>Debounce: a second wheel event within the window after the
-///         first one is dropped (Risk #2). The window is now 400ms
-///         (bumped from 200ms in the triple-fix) -- defense doc'd here.</item>
+///         first one is dropped (Risk #2). The window is 400ms.</item>
 ///   <item>After the debounce window expires, the next wheel event
 ///         goes through normally.</item>
 /// </list>
 /// </para>
 ///
 /// <para>
-/// <b>P8.1+P8.2 triple-fix (Bug 1, 2026-05-07).</b> The wheel-direction-to-
-/// ladder-method mapping was re-swapped at the SceneManager dispatch site
-/// after Didier's visual retest. Convention re-locked:
+/// <b>P8 wheel-direction final lock (2026-05-07, post-1e89ad3).</b>
+/// After four iterations (<c>c0b6157</c> → <c>ad6a91f</c> → <c>1e89ad3</c>
+/// → this commit) the convention is locked by Didier physical-gesture
+/// re-test. We use pull/push terminology exclusively below -- the
+/// "wheel up/down" / "scroll forward/backward" labels caused the swap
+/// loop because they meant different things to different reviewers:
 /// <list type="bullet">
-///   <item>Physical wheel UP -> NavigateLadderUp (climb out: E5 -> E3 -> E2).</item>
-///   <item>Physical wheel DOWN -> NavigateLadderDown (drill in: E2 -> E3 -> E5).</item>
+///   <item><b>PULL</b> the wheel toward the user → fires
+///         <c>MouseButton.WheelDown</c> event → dispatches
+///         <c>NavigateLadderUp</c> = climb OUT (e.g. E2 → E1, E5 → E3).</item>
+///   <item><b>PUSH</b> the wheel away from the user → fires
+///         <c>MouseButton.WheelUp</c> event → dispatches
+///         <c>NavigateLadderDown</c> = drill IN (e.g. E1 → E2, E3 → E5).</item>
 /// </list>
-/// The <c>FakeWheelHandler</c> below mirrors that re-swap so these contract
-/// tests pin the empirical convention.
+/// The <c>FakeWheelHandler</c> below mirrors that mapping at its dispatch
+/// step (event → verb), so these contract tests pin the empirical
+/// pull/push convention end to end.
 /// </para>
 ///
 /// <para>
@@ -51,10 +60,10 @@ namespace Wayfinders.Client.Tests.Opening;
 /// assembly is plain xUnit, and even ignoring that, the wheel handler reads
 /// <c>Time.GetTicksMsec()</c> and <c>Input.IsMouseButtonPressed</c> directly
 /// off the Godot statics -- not injectable in a non-Godot host. The fake
-/// mirrors the exact sequence (modal-check, drag-check, debounce-check,
-/// resolve, visited-gate, dispatch) and uses injected <c>nowMs</c> and
-/// <c>isMiddleHeld</c> so each defense layer can be exercised
-/// deterministically without any sleep call.
+/// mirrors the exact sequence (modal-check, drag-check, post-drag-grace,
+/// debounce-check, resolve, visited-gate, dispatch) and uses injected
+/// <c>nowMs</c>, <c>isMiddleHeld</c>, and <c>lastDragEndMs</c> so each
+/// defense layer can be exercised deterministically without any sleep call.
 /// </para>
 /// </summary>
 public sealed class LadderInputContractTests
@@ -62,9 +71,9 @@ public sealed class LadderInputContractTests
     /// <summary>
     /// Minimal fake of <c>SceneManager</c>'s wheel-handling surface.
     /// Owns the same fields that matter (ladder, last-wheel-tick,
-    /// active modal id, drill-down-visited set) and exposes a single
-    /// <c>OnWheel</c> entry point that the tests drive directly. The
-    /// dispatch records what would have been called on the real
+    /// last-drag-end, active modal id, drill-down-visited set) and exposes
+    /// a single <c>OnWheel</c> entry point that the tests drive directly.
+    /// The dispatch records what would have been called on the real
     /// SceneManager so we can assert on the navigation outcome without
     /// needing scene tree side effects.
     /// </summary>
@@ -72,11 +81,13 @@ public sealed class LadderInputContractTests
     {
         private readonly IReadOnlyList<LayerRung> _ladder;
         private readonly ulong _debounceMs;
+        private readonly ulong _postDragGraceMs;
         private ulong _lastWheelTickMs;
 
         public string? CurrentScreenId { get; set; }
         public string? ActiveModalId { get; set; }
         public bool IsMiddleHeld { get; set; }
+        public ulong LastDragEndMs { get; set; }
         public HashSet<string> DrillDownVisited { get; } = new();
 
         public List<string> NavigateLadderUpCalls { get; } = new();
@@ -84,25 +95,32 @@ public sealed class LadderInputContractTests
 
         public FakeWheelHandler(
             IReadOnlyList<LayerRung> ladder,
-            ulong debounceMs = 400)
+            ulong debounceMs = 400,
+            ulong postDragGraceMs = 250)
         {
             _ladder = ladder;
             _debounceMs = debounceMs;
+            _postDragGraceMs = postDragGraceMs;
         }
 
         /// <summary>
         /// Mirrors the wheel branch of <c>SceneManager._UnhandledInput</c>
-        /// post triple-fix: modal early-return, drag early-return, debounce
-        /// gate, then dispatch to LadderUp or LadderDown -- the latter
-        /// gated by the visited set.
+        /// post P8 final-lock: modal early-return, drag early-return,
+        /// post-drag-grace early-return, debounce gate, then dispatch to
+        /// LadderUp or LadderDown -- the latter gated by the visited set.
         ///
         /// <para>
-        /// <b>P8.1+P8.2 triple-fix Bug 1 (re-swap).</b> Physical wheel UP
-        /// fires <c>NavigateLadderUp</c> (climb out) ; physical wheel DOWN
-        /// fires <c>NavigateLadderDown</c> (drill in).
+        /// <b>P8 wheel-direction final lock.</b> The dispatch step inverts
+        /// the natural "WheelEvent.Up calls NavigateLadderUp" identity:
+        /// <list type="bullet">
+        ///   <item>WheelDown event (= PULL toward user) → ResolveUpTarget
+        ///         + NavigateLadderUpCalls (climb out).</item>
+        ///   <item>WheelUp event (= PUSH away from user) → ResolveDownTarget
+        ///         + NavigateLadderDownCalls (drill in, visited-gated).</item>
+        /// </list>
         /// </para>
         /// </summary>
-        public void OnWheel(WheelDirection dir, ulong nowMs)
+        public void OnWheel(WheelEvent evt, ulong nowMs)
         {
             if (ActiveModalId is not null)
             {
@@ -115,59 +133,74 @@ public sealed class LadderInputContractTests
                 return;
             }
 
+            // P8 final-lock post-drag grace: wheel events within
+            // PostDragGraceMs of the most recent middle-button release are
+            // silently dropped. Catches the thumb lift-off brush.
+            if (nowMs - LastDragEndMs < _postDragGraceMs)
+            {
+                return;
+            }
+
             if (nowMs - _lastWheelTickMs < _debounceMs)
             {
                 return;
             }
             _lastWheelTickMs = nowMs;
 
-            // Triple-fix Bug 1: WheelUp -> climb out (ResolveUpTarget) ;
-            // WheelDown -> drill in (ResolveDownTarget).
-            string? target = dir == WheelDirection.Up
-                ? LadderResolutionLogic.ResolveUpTarget(CurrentScreenId, _ladder)
-                : LadderResolutionLogic.ResolveDownTarget(CurrentScreenId, _ladder);
-
-            if (target is null)
+            // P8 final-lock dispatch: PULL (WheelDown event) -> climb out ;
+            // PUSH (WheelUp event) -> drill in. Visited gate applies only
+            // to drill-in (climb-out is by-construction always to a
+            // previously-visited screen).
+            string? target;
+            if (evt == WheelEvent.WheelDown)
             {
-                // No-op, but the debounce *did* fire -- a "spam wheel up
-                // on E2 monde" still consumes the debounce window so we
-                // don't get a flurry of debug logs.
-                return;
+                // PULL gesture -- climb out.
+                target = LadderResolutionLogic.ResolveUpTarget(CurrentScreenId, _ladder);
+                if (target is null) return;
+                NavigateLadderUpCalls.Add(target);
             }
-
-            // Triple-fix Bug 3: wheel-down (drill) only into visited
-            // screens. Wheel-up (climb out) is unrestricted (you cannot
-            // climb out into a non-visited screen because the ladder
-            // is monotonic upward and you must have come from there).
-            if (dir == WheelDirection.Down && !DrillDownVisited.Contains(target))
+            else
             {
-                return;
+                // PUSH gesture -- drill in (visited-gated).
+                target = LadderResolutionLogic.ResolveDownTarget(CurrentScreenId, _ladder);
+                if (target is null) return;
+                if (!DrillDownVisited.Contains(target)) return;
+                NavigateLadderDownCalls.Add(target);
             }
-
-            if (dir == WheelDirection.Up) NavigateLadderUpCalls.Add(target);
-            else NavigateLadderDownCalls.Add(target);
         }
     }
 
-    private enum WheelDirection { Up, Down }
+    /// <summary>
+    /// Wheel event flavors as Godot reports them via
+    /// <c>InputEventMouseButton.ButtonIndex</c>. The PULL/PUSH semantic
+    /// mapping is applied at dispatch time inside
+    /// <see cref="FakeWheelHandler.OnWheel"/>, not in this enum -- the
+    /// enum stays close to the Godot signal so the test is unambiguous
+    /// about which low-level event it is firing.
+    /// </summary>
+    private enum WheelEvent
+    {
+        /// <summary>WheelUp event = PUSH gesture (away from user) = drill in.</summary>
+        WheelUp,
+        /// <summary>WheelDown event = PULL gesture (toward user) = climb out.</summary>
+        WheelDown,
+    }
 
     [Fact]
-    public void Wheel_down_on_monde_drills_into_cite_when_visited()
+    public void Push_on_monde_drills_into_cite_when_visited()
     {
-        // Triple-fix Bug 1 (re-swap) + Bug 3 (visited gate) combined.
-        // Physical wheel DOWN drills into the more granular layer. On E2
-        // monde, wheel DOWN therefore navigates to E3 cité via
-        // NavigateLadderDown -- but only if E3 has been visited
-        // explicitly during this session. Here we pre-mark E3 as visited
-        // (simulating "Didier clicked Halfgate at least once") so the
-        // gate opens.
+        // P8 final-lock + Bug 3 (visited gate) combined. PUSH (away from
+        // user, WheelUp event) drills into the more granular layer. On
+        // E2 monde, PUSH therefore navigates to E3 cité via
+        // NavigateLadderDown -- but only if E3 has been visited explicitly
+        // during this session. Pre-mark E3 as visited.
         var h = new FakeWheelHandler(LadderResolutionLogic.DefaultLadder)
         {
             CurrentScreenId = "E2_WORLD",
         };
         h.DrillDownVisited.Add("E3_CITY_HALFGATE");
 
-        h.OnWheel(WheelDirection.Down, nowMs: 1000);
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1000); // PUSH
 
         Assert.Single(h.NavigateLadderDownCalls);
         Assert.Equal("E3_CITY_HALFGATE", h.NavigateLadderDownCalls[0]);
@@ -175,36 +208,35 @@ public sealed class LadderInputContractTests
     }
 
     [Fact]
-    public void Wheel_up_on_monde_is_silent_noop_because_already_at_top()
+    public void Pull_on_monde_is_silent_noop_because_already_at_top()
     {
-        // Triple-fix Bug 1 symmetry: physical wheel UP climbs out of the
-        // ladder. On E2 monde (top of ladder) there is nothing further
-        // to climb, so this resolves to null = silent no-op.
+        // P8 final-lock symmetry: PULL climbs out of the ladder. On E2
+        // monde (top of ladder) there is nothing further to climb, so
+        // this resolves to null = silent no-op.
         var h = new FakeWheelHandler(LadderResolutionLogic.DefaultLadder)
         {
             CurrentScreenId = "E2_WORLD",
         };
 
-        h.OnWheel(WheelDirection.Up, nowMs: 1000);
+        h.OnWheel(WheelEvent.WheelDown, nowMs: 1000); // PULL
 
         Assert.Empty(h.NavigateLadderUpCalls);
         Assert.Empty(h.NavigateLadderDownCalls);
     }
 
     [Fact]
-    public void Wheel_up_on_quartier_climbs_to_cite()
+    public void Pull_on_quartier_climbs_to_cite()
     {
-        // Triple-fix Bug 1: physical wheel UP climbs out. On E5 quartier,
-        // wheel UP navigates to E3 cité via NavigateLadderUp. Climb-out
-        // does NOT need the visited gate (you can only be on E5 if you
-        // got there via an explicit click path, which by definition
-        // marks E5 visited).
+        // P8 final-lock: PULL climbs out. On E5 quartier, PULL navigates
+        // to E3 cité via NavigateLadderUp. Climb-out does NOT need the
+        // visited gate (you can only be on E5 if you got there via an
+        // explicit click path, which by definition marks E5 visited).
         var h = new FakeWheelHandler(LadderResolutionLogic.DefaultLadder)
         {
             CurrentScreenId = "E5_DISTRICT",
         };
 
-        h.OnWheel(WheelDirection.Up, nowMs: 1000);
+        h.OnWheel(WheelEvent.WheelDown, nowMs: 1000); // PULL
 
         Assert.Single(h.NavigateLadderUpCalls);
         Assert.Equal("E3_CITY_HALFGATE", h.NavigateLadderUpCalls[0]);
@@ -212,17 +244,17 @@ public sealed class LadderInputContractTests
     }
 
     [Fact]
-    public void Wheel_down_on_quartier_is_silent_noop_because_already_at_bottom()
+    public void Push_on_quartier_is_silent_noop_because_already_at_bottom()
     {
-        // Triple-fix Bug 1 symmetry: wheel DOWN on E5 quartier (bottom
-        // of ladder) drills further in -- but there is no rung beyond
-        // E5 in MVP, so this resolves to null = silent no-op.
+        // P8 final-lock symmetry: PUSH on E5 quartier (bottom of ladder)
+        // drills further in -- but there is no rung beyond E5 in MVP,
+        // so this resolves to null = silent no-op.
         var h = new FakeWheelHandler(LadderResolutionLogic.DefaultLadder)
         {
             CurrentScreenId = "E5_DISTRICT",
         };
 
-        h.OnWheel(WheelDirection.Down, nowMs: 1000);
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1000); // PUSH
 
         Assert.Empty(h.NavigateLadderUpCalls);
         Assert.Empty(h.NavigateLadderDownCalls);
@@ -241,8 +273,8 @@ public sealed class LadderInputContractTests
         };
         h.DrillDownVisited.Add("E5_DISTRICT");
 
-        h.OnWheel(WheelDirection.Up, nowMs: 1000);
-        h.OnWheel(WheelDirection.Down, nowMs: 2000);
+        h.OnWheel(WheelEvent.WheelDown, nowMs: 1000); // PULL
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 2000);   // PUSH
 
         Assert.Empty(h.NavigateLadderUpCalls);
         Assert.Empty(h.NavigateLadderDownCalls);
@@ -251,22 +283,20 @@ public sealed class LadderInputContractTests
     [Fact]
     public void Wheel_modal_close_then_open_again_resumes_navigation()
     {
-        // Closing the modal restores wheel handling. Triple-fix Bug 1:
-        // drilling from E3 cité to E5 quartier requires physical wheel
-        // DOWN (which dispatches to NavigateLadderDown after re-swap),
-        // and Bug 3 requires E5 to be in the visited set -- we pre-mark
-        // it (simulating "Didier opened the marché district at least
-        // once before the modal").
+        // Closing the modal restores wheel handling. P8 final-lock:
+        // drilling from E3 cité to E5 quartier requires a PUSH gesture
+        // (which dispatches to NavigateLadderDown), and Bug 3 requires
+        // E5 to be in the visited set -- pre-mark it.
         var h = new FakeWheelHandler(LadderResolutionLogic.DefaultLadder)
         {
             CurrentScreenId = "E3_CITY_HALFGATE",
             ActiveModalId = "E4_CHARACTER_SHEET",
         };
         h.DrillDownVisited.Add("E5_DISTRICT");
-        h.OnWheel(WheelDirection.Down, nowMs: 1000);    // dropped (modal)
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1000);  // PUSH dropped (modal)
 
-        h.ActiveModalId = null;                          // user closed E4 with Esc
-        h.OnWheel(WheelDirection.Down, nowMs: 1500);    // accepted -> drill to E5
+        h.ActiveModalId = null;                        // user closed E4 with Esc
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1500);  // PUSH accepted -> drill to E5
 
         Assert.Single(h.NavigateLadderDownCalls);
         Assert.Equal("E5_DISTRICT", h.NavigateLadderDownCalls[0]);
@@ -288,8 +318,8 @@ public sealed class LadderInputContractTests
         };
         h.DrillDownVisited.Add("E3_CITY_HALFGATE");
 
-        h.OnWheel(WheelDirection.Down, nowMs: 1000);
-        h.OnWheel(WheelDirection.Up, nowMs: 2000);
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1000);   // PUSH suppressed
+        h.OnWheel(WheelEvent.WheelDown, nowMs: 2000); // PULL suppressed
 
         Assert.Empty(h.NavigateLadderDownCalls);
         Assert.Empty(h.NavigateLadderUpCalls);
@@ -299,40 +329,120 @@ public sealed class LadderInputContractTests
     public void Wheel_resumes_after_middle_button_released()
     {
         // Defense doc symmetry: once the middle button is released (drag
-        // ends), the wheel propagates again. No sticky suppression at
-        // the autoload site (mirrors the screen-side _isDragging flip
-        // back to false on release).
+        // ends), the wheel propagates again -- subject to the post-drag
+        // grace period, which is exercised separately below. Here we
+        // simulate a release with a long-enough delay (>= 250ms) so the
+        // grace window has expired by the time the next wheel arrives.
         var h = new FakeWheelHandler(LadderResolutionLogic.DefaultLadder)
         {
             CurrentScreenId = "E2_WORLD",
             IsMiddleHeld = true,
         };
         h.DrillDownVisited.Add("E3_CITY_HALFGATE");
-        h.OnWheel(WheelDirection.Down, nowMs: 1000);    // suppressed
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1000);  // PUSH suppressed (middle held)
 
-        h.IsMiddleHeld = false;                          // drag ends
-        h.OnWheel(WheelDirection.Down, nowMs: 2000);    // accepted -> E3
+        h.IsMiddleHeld = false;                        // drag ends
+        h.LastDragEndMs = 1000;                        // record release timestamp
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 2000);  // PUSH accepted (1000ms after release, way past grace)
 
         Assert.Single(h.NavigateLadderDownCalls);
         Assert.Equal("E3_CITY_HALFGATE", h.NavigateLadderDownCalls[0]);
     }
 
     [Fact]
+    public void Wheel_ignored_within_grace_period_after_drag_release()
+    {
+        // P8 final-lock: post-drag grace period. A wheel event arriving
+        // less than PostDragGraceMs (250ms) after the most recent drag
+        // release is silently dropped at the autoload backstop. This is
+        // the regression for the "lift-off thumb brush" symptom Didier
+        // reported post-1e89ad3.
+        var h = new FakeWheelHandler(LadderResolutionLogic.DefaultLadder)
+        {
+            CurrentScreenId = "E2_WORLD",
+        };
+        h.DrillDownVisited.Add("E3_CITY_HALFGATE");
+
+        // Drag just ended at t=1000. Wheel event at t=1100 (100ms after
+        // release) must be silently suppressed -- this is well inside
+        // the 250ms grace window.
+        h.LastDragEndMs = 1000;
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1100); // PUSH
+
+        Assert.Empty(h.NavigateLadderDownCalls);
+        Assert.Empty(h.NavigateLadderUpCalls);
+    }
+
+    [Fact]
+    public void Wheel_resumes_after_grace_period_expires()
+    {
+        // Defense-doc symmetry of the grace period: once the 250ms window
+        // has elapsed, wheel events propagate normally again. Tests the
+        // ">= 250ms" boundary at exactly the grace duration.
+        var h = new FakeWheelHandler(LadderResolutionLogic.DefaultLadder, postDragGraceMs: 250)
+        {
+            CurrentScreenId = "E2_WORLD",
+        };
+        h.DrillDownVisited.Add("E3_CITY_HALFGATE");
+
+        h.LastDragEndMs = 1000;
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1250); // PUSH at exactly t+250ms = boundary, accepted
+
+        Assert.Single(h.NavigateLadderDownCalls);
+        Assert.Equal("E3_CITY_HALFGATE", h.NavigateLadderDownCalls[0]);
+    }
+
+    [Fact]
+    public void Drag_release_then_immediate_wheel_is_silent()
+    {
+        // The exact symptom Didier described: "when I exit the scroll,
+        // sometimes I do a wheel action by accident just after, it should
+        // be cancelled because it is likely an error". We model the
+        // sequence: middle-held=true at t=1000 (drag ongoing), then
+        // released at t=1500 with LastDragEndMs updated, then a wheel
+        // event arrives a few frames later at t=1520 (20ms after release,
+        // typical lift-off brush window). Expected: the wheel is silently
+        // dropped, no navigation logged.
+        var h = new FakeWheelHandler(LadderResolutionLogic.DefaultLadder)
+        {
+            CurrentScreenId = "E2_WORLD",
+            IsMiddleHeld = true,
+        };
+        h.DrillDownVisited.Add("E3_CITY_HALFGATE");
+
+        // Drag in progress -- a wheel during the drag is suppressed by
+        // the IsMiddleHeld branch (Bug 2). Documented again here for
+        // sequence completeness.
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1000);  // PUSH suppressed (middle held)
+        Assert.Empty(h.NavigateLadderDownCalls);
+
+        // Drag ends. Both flags flip ; the autoload's NotifyDragReleased
+        // would set LastDragEndMs in real Godot.
+        h.IsMiddleHeld = false;
+        h.LastDragEndMs = 1500;
+
+        // 20ms later -- the lift-off brush. Must be silent.
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1520); // PUSH suppressed (in grace)
+        Assert.Empty(h.NavigateLadderDownCalls);
+        Assert.Empty(h.NavigateLadderUpCalls);
+    }
+
+    [Fact]
     public void Wheel_debounce_drops_second_event_inside_window()
     {
         // Risk #2 defense doc: trackpad continuous scroll fires events
-        // every ~16ms. With a 400ms debounce (triple-fix bump from 200ms),
-        // only the first event of a tight burst makes it through.
+        // every ~16ms. With a 400ms debounce, only the first event of a
+        // tight burst makes it through.
         var h = new FakeWheelHandler(LadderResolutionLogic.DefaultLadder, debounceMs: 400)
         {
             CurrentScreenId = "E2_WORLD",
         };
         h.DrillDownVisited.Add("E3_CITY_HALFGATE");
 
-        h.OnWheel(WheelDirection.Down, nowMs: 1000);    // accepted
-        h.OnWheel(WheelDirection.Down, nowMs: 1050);    // 50ms later -- dropped
-        h.OnWheel(WheelDirection.Down, nowMs: 1200);    // 200ms later -- dropped (was accepted pre-bump)
-        h.OnWheel(WheelDirection.Down, nowMs: 1399);    // 399ms later -- dropped
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1000); // PUSH accepted
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1050); // PUSH 50ms later -- dropped
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1200); // PUSH 200ms later -- dropped
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1399); // PUSH 399ms later -- dropped
 
         Assert.Single(h.NavigateLadderDownCalls);
     }
@@ -349,12 +459,12 @@ public sealed class LadderInputContractTests
         h.DrillDownVisited.Add("E3_CITY_HALFGATE");
         h.DrillDownVisited.Add("E5_DISTRICT");
 
-        // Triple-fix Bug 1: drill from E2 -> E3 -> E5 requires physical
-        // wheel DOWN at each step.
-        h.OnWheel(WheelDirection.Down, nowMs: 1000);    // accepted -> E3
+        // P8 final-lock: drill from E2 -> E3 -> E5 requires PUSH at each
+        // step.
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1000); // PUSH accepted -> E3
         h.CurrentScreenId = "E3_CITY_HALFGATE";
 
-        h.OnWheel(WheelDirection.Down, nowMs: 1400);    // 400ms later -- accepted
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1400); // PUSH 400ms later -- accepted
 
         Assert.Equal(2, h.NavigateLadderDownCalls.Count);
         Assert.Equal("E3_CITY_HALFGATE", h.NavigateLadderDownCalls[0]);
@@ -364,32 +474,33 @@ public sealed class LadderInputContractTests
     [Fact]
     public void Wheel_offladder_screen_is_silent_noop_but_consumes_debounce()
     {
-        // Wheel on E1 title (off-ladder) does nothing. We document
-        // explicitly that the debounce window IS consumed by the
-        // attempted-but-resolved-to-null event -- mirrors SceneManager
-        // setting _lastWheelTickMs before the resolve call. Prevents
-        // a "spam wheel on E1 to log-flood the console" minor concern.
+        // Wheel on E1 title (off-ladder) does nothing. We pin explicitly
+        // that the debounce window IS consumed by the attempted-but-
+        // resolved-to-null event -- mirrors SceneManager updating
+        // _lastWheelTickMs after the post-drag-grace gate but before the
+        // dispatch reaches the resolver. Prevents a "spam wheel on E1
+        // to log-flood the console" minor concern.
         var h = new FakeWheelHandler(LadderResolutionLogic.DefaultLadder, debounceMs: 400)
         {
             CurrentScreenId = "E1_TITLE",
         };
 
-        h.OnWheel(WheelDirection.Down, nowMs: 1000);    // resolved to null
-        h.OnWheel(WheelDirection.Down, nowMs: 1100);    // dropped by debounce
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1000);   // PUSH resolved to null
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1100);   // PUSH dropped by debounce
 
         Assert.Empty(h.NavigateLadderDownCalls);
         Assert.Empty(h.NavigateLadderUpCalls);
     }
 
     [Fact]
-    public void Wheel_down_on_monde_is_silent_noop_when_target_unvisited()
+    public void Push_on_monde_is_silent_noop_when_target_unvisited()
     {
         // P8.1+P8.2 triple-fix Bug 3 (visited gate). On E2 monde, the
-        // resolved wheel-down target is E3_CITY_HALFGATE. If the player
+        // resolved drill-in target is E3_CITY_HALFGATE. If the player
         // has not yet clicked Halfgate this session (E3 not in the
-        // visited set), the wheel-down silently no-ops -- it does not
-        // teleport the player into a layer they have not chosen
-        // explicitly. This is the core regression for Bug 3.
+        // visited set), the PUSH silently no-ops -- it does not teleport
+        // the player into a layer they have not chosen explicitly. This
+        // is the core regression for Bug 3.
         var h = new FakeWheelHandler(LadderResolutionLogic.DefaultLadder)
         {
             CurrentScreenId = "E2_WORLD",
@@ -397,48 +508,48 @@ public sealed class LadderInputContractTests
         // Note: DrillDownVisited is intentionally EMPTY -- player has
         // not clicked Halfgate yet.
 
-        h.OnWheel(WheelDirection.Down, nowMs: 1000);
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1000); // PUSH
 
         Assert.Empty(h.NavigateLadderDownCalls);
         Assert.Empty(h.NavigateLadderUpCalls);
     }
 
     [Fact]
-    public void Wheel_down_unblocks_after_explicit_visit()
+    public void Push_unblocks_after_explicit_visit()
     {
         // P8.1+P8.2 triple-fix Bug 3 -- the gate opens once the player
         // has visited the target via an explicit NavigateTo path (POI
         // click). Mirroring real flow: player clicks Halfgate -> E3
         // pushed -> visited set updated -> player NavigateBack to E2 ->
-        // now wheel-down works to drill back into E3.
+        // now PUSH works to drill back into E3.
         var h = new FakeWheelHandler(LadderResolutionLogic.DefaultLadder)
         {
             CurrentScreenId = "E2_WORLD",
         };
 
-        h.OnWheel(WheelDirection.Down, nowMs: 1000);     // suppressed by Bug 3 gate
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 1000); // PUSH suppressed by Bug 3 gate
         Assert.Empty(h.NavigateLadderDownCalls);
 
         // Simulate the explicit click path: real SceneManager.NavigateTo
         // adds the target to the visited set as a side-effect.
         h.DrillDownVisited.Add("E3_CITY_HALFGATE");
 
-        h.OnWheel(WheelDirection.Down, nowMs: 2000);     // gate now open
+        h.OnWheel(WheelEvent.WheelUp, nowMs: 2000); // PUSH gate now open
 
         Assert.Single(h.NavigateLadderDownCalls);
         Assert.Equal("E3_CITY_HALFGATE", h.NavigateLadderDownCalls[0]);
     }
 
     [Fact]
-    public void Wheel_up_does_not_require_visited_gate()
+    public void Pull_does_not_require_visited_gate()
     {
         // P8.1+P8.2 triple-fix Bug 3 asymmetry: the visited gate applies
-        // ONLY to wheel-down (drill in). Wheel-up (climb out) does not
-        // need the gate -- if the player is currently on E5, they
-        // necessarily got there via an explicit click path, so E3 (the
-        // climb-out target) is by construction already visited. We pin
-        // the asymmetry here so a future refactor doesn't accidentally
-        // gate the climb-out direction too.
+        // ONLY to drill-in (PUSH). Climb-out (PULL) does not need the
+        // gate -- if the player is currently on E5, they necessarily
+        // got there via an explicit click path, so E3 (the climb-out
+        // target) is by construction already visited. We pin the
+        // asymmetry here so a future refactor doesn't accidentally gate
+        // the climb-out direction too.
         var h = new FakeWheelHandler(LadderResolutionLogic.DefaultLadder)
         {
             CurrentScreenId = "E5_DISTRICT",
@@ -446,9 +557,9 @@ public sealed class LadderInputContractTests
         // Note: DrillDownVisited is intentionally EMPTY for this test.
         // In real flow this is impossible (the player got to E5 via an
         // explicit path so E5 is in the set) but we test the contract
-        // explicitly: wheel-up does NOT consult the visited set.
+        // explicitly: PULL does NOT consult the visited set.
 
-        h.OnWheel(WheelDirection.Up, nowMs: 1000);
+        h.OnWheel(WheelEvent.WheelDown, nowMs: 1000); // PULL
 
         Assert.Single(h.NavigateLadderUpCalls);
         Assert.Equal("E3_CITY_HALFGATE", h.NavigateLadderUpCalls[0]);

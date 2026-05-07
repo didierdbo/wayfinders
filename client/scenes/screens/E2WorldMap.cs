@@ -224,6 +224,19 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// </para>
 ///
 /// <para>
+/// <b>P8 final-lock post-drag grace period (2026-05-07).</b>
+/// On middle-button release this screen calls
+/// <see cref="SceneManager.NotifyDragReleased"/> which arms a 250ms
+/// grace window in the autoload wheel handler. Wheel events arriving
+/// within that window are silently dropped. Symptom Didier reported
+/// post-1e89ad3: "when I exit the scroll, sometimes I do a wheel
+/// action by accident just after, it should be cancelled because it is
+/// likely an error" -- the lift-off thumb brush. The grace timer lives
+/// at the autoload (where the wheel dispatch lives), not on this screen,
+/// so a future drag-capable screen reuses the same hook.
+/// </para>
+///
+/// <para>
 /// <b>Halfgate-only navigation gate (Varn §6.D6.10 lock 1-cité MVP).</b>
 /// Click dispatch goes through pure-C# <see cref="PoiDispatchLogic"/>:
 /// clickable POI -&gt; SceneManager.NavigateTo ; non-clickable POI -&gt;
@@ -627,6 +640,13 @@ public partial class E2WorldMap : Control, IScreen
             else
             {
                 _isDragging = false;
+                // P8 final-lock post-drag grace period (2026-05-07). Notify
+                // the autoload so it can silently drop wheel events that
+                // arrive within PostDragGraceMs ms of this release. Catches
+                // the thumb lift-off brush -- see SceneManager class doc
+                // "P8 final-lock post-drag grace period" paragraph.
+                var sceneManager = GetNodeOrNull<SceneManager>("/root/SceneManager");
+                sceneManager?.NotifyDragReleased();
                 GD.Print($"[E2WorldMap] middle-drag end, camera now {_worldCamera.Position}");
             }
             GetViewport().SetInputAsHandled();
