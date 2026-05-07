@@ -45,7 +45,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// </para>
 ///
 /// <para>
-/// <b>P8.2-fix -- WorldRoot must NOT live under a CanvasLayer (Godot trap).</b>
+/// <b>P8.2-fix (commit 5a0b470) -- WorldRoot must NOT live under a CanvasLayer.</b>
 /// The original P8.2 commit parented <c>WorldRoot</c> under a
 /// <c>BackgroundLayer (CanvasLayer, layer=0)</c>. Symptom: drag and ZQSD
 /// updated <c>_worldCamera.Position</c> correctly (logic verified by 22
@@ -53,15 +53,48 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// cause: a <see cref="Camera2D"/> only affects the
 /// <c>canvas_transform</c> of the <see cref="Viewport"/> it belongs to
 /// via <c>World2D</c>. A <see cref="CanvasLayer"/> has its own independent
-/// <c>canvas_transform</c> that ignores any Camera2D nested inside it,
-/// AND a Camera2D parented under a CanvasLayer never reaches the default
-/// canvas where the rest of the world lives. Net effect: the camera
-/// silently affected nothing. Fix: <c>WorldRoot</c> is now a direct child
-/// of the <c>Control</c> root (no <c>CanvasLayer</c> ancestor), so the
-/// Camera2D drives the default Viewport canvas where <c>WorldMapSprite</c>
-/// and the POI hotspots live. Backend-brain trap lesson logged: in Godot,
-/// "putting a thing on a layer to organise the scene" is not free --
-/// CanvasLayer changes the rendering pipeline path of its descendants.
+/// <c>canvas_transform</c> that ignores any Camera2D nested inside it.
+/// </para>
+///
+/// <para>
+/// <b>P8.2-deep-fix (this commit) -- input + AZERTY + camera defense in depth.</b>
+/// The CanvasLayer fix unblocked the rendering pipeline but the bug was
+/// triple-headed and the other two heads were masked. The deep-fix lands
+/// three corrections in one pass:
+/// <list type="bullet">
+///   <item><b>Mouse events were swallowed by the Control root.</b>
+///         <c>Control</c> defaults to <c>MouseFilter.Stop</c> which means
+///         a <see cref="InputEventMouseButton"/> hitting the window
+///         consumes inside the Control tree before reaching
+///         <c>_UnhandledInput</c>. The middle-click drag never saw the
+///         press. Fix: <c>mouse_filter = 2</c> (Ignore) on the E2WorldMap
+///         Control root, plus on every decorative TextureRect and
+///         PanelContainer that overlaps the viewport area, so the events
+///         flow down to the underlying world. Defensive: input is now
+///         polled in <see cref="_Input"/> (priority before
+///         <c>_UnhandledInput</c>) so a future Control descendant cannot
+///         silently re-introduce the bug.</item>
+///   <item><b>InputMap was layout-mapped, not position-mapped.</b>
+///         The original P8.2 InputMap entries for <c>ui_pan_left/right/up/down</c>
+///         used <c>keycode</c> only, which Godot interprets through the
+///         OS keyboard layout. On AZERTY-FR (Didier's hardware) the W/A/S/D
+///         keycodes mapped to the wrong physical keys -- pressing 'Z'
+///         (top-left on AZERTY, where one expects forward-pan) did
+///         nothing because the binding wanted W (which is on the right
+///         row on AZERTY). Fix: bindings are now on <c>physical_keycode</c>
+///         (position-on-the-board, layout-agnostic). ZQSD on AZERTY = WASD
+///         on QWERTY = same physical keys = same actions.</item>
+///   <item><b>Camera2D current-flag race.</b> The original tscn did not
+///         set <c>current = true</c> in the scene file ; the runtime
+///         called <c>MakeCurrent()</c> in <c>_Ready</c> which is correct
+///         in isolation but races with any other Camera2D in the live
+///         tree (in particular, anything an autoload might own). Fix:
+///         <c>current = true</c> is now declarative on the WorldCamera
+///         node in the tscn, with the runtime <c>MakeCurrent()</c> call
+///         kept as belt-and-braces. A pre-flight self-check at <c>_Ready</c>
+///         logs the resolved input/camera state so a future regression
+///         is observable in the Godot console without a debugger.</item>
+/// </list>
 /// </para>
 ///
 /// <para>
@@ -117,10 +150,12 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// </para>
 ///
 /// <para>
-/// <b>Pan input wiring (D-P8.2-04 + D-P8.2-05 + D-P8.2-06).</b>
+/// <b>Pan input wiring (D-P8.2-04 + D-P8.2-05 + D-P8.2-06, deep-fix).</b>
 /// Two input surfaces, both on this screen (not on SceneManager):
 /// <list type="bullet">
-///   <item>Drag clic-milieu on <c>_UnhandledInput</c> -- pressing
+///   <item>Drag clic-milieu on <see cref="_Input"/> (was <c>_UnhandledInput</c>
+///         pre-deep-fix -- moved up the priority chain so a Control
+///         descendant cannot swallow the event). Pressing
 ///         <see cref="MouseButton.Middle"/> starts a drag, motion
 ///         translates the camera 1:1 inverse (drag right => camera
 ///         pans left, image visually slides right under the cursor,
@@ -128,8 +163,9 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///   <item>ZQSD / WASD / arrows polled in <c>_Process(delta)</c> via
 ///         <see cref="Input.IsActionPressed"/> against the four
 ///         <c>ui_pan_left/right/up/down</c> InputMap actions defined
-///         in <c>project.godot</c> (D-P8.2-06). Constant
-///         <see cref="PanSpeedPxPerSec"/> = 800 px/s
+///         in <c>project.godot</c> (D-P8.2-06) on
+///         <c>physical_keycode</c> bindings (deep-fix: AZERTY support).
+///         Constant <see cref="PanSpeedPxPerSec"/> = 800 px/s
 ///         (D-P8.2-05). Diagonal motion is normalised by
 ///         <see cref="CameraPanLogic.ResolvePanDirection"/> so two-key
 ///         simultaneous press does not scroll sqrt(2) faster.</item>
@@ -157,7 +193,9 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// progress does not absorb the wheel (we never call
 /// <c>SetInputAsHandled</c> on a wheel event), so spinning the wheel
 /// during a drag still triggers ladder navigation -- manual checklist
-/// step 9 validates this.
+/// step 9 validates this. Note: SceneManager's wheel handler stays on
+/// <c>_UnhandledInput</c> ; our <c>_Input</c> only marks middle-button
+/// + middle-button-motion as handled, so wheel events still propagate.
 /// </para>
 ///
 /// <para>
@@ -211,6 +249,19 @@ public partial class E2WorldMap : Control, IScreen
     /// intended POI.
     /// </summary>
     private const float PanSpeedPxPerSec = 800f;
+
+    /// <summary>
+    /// Names of the four InputMap actions <see cref="_Process"/> polls.
+    /// Held in one place so the pre-flight self-check (<see cref="_Ready"/>)
+    /// can verify each one is registered against <see cref="InputMap"/>
+    /// and emit a console warning if not -- this is the exact regression
+    /// surface that motivated the deep-fix (a typo in project.godot or a
+    /// rogue editor save would silently break ZQSD pan).
+    /// </summary>
+    private static readonly string[] PanActionNames =
+    {
+        "ui_pan_left", "ui_pan_right", "ui_pan_up", "ui_pan_down",
+    };
 
     private TextureRect _bannerTop = null!;
     private Label _bannerTitleLabel = null!;
@@ -348,7 +399,63 @@ public partial class E2WorldMap : Control, IScreen
 
         SpawnPois(assetResolver);
 
-        GD.Print($"[E2WorldMap] ready, {_poiHandlers.Count} POI spawned, camera at {_worldCamera.Position}");
+        // P8.2-deep-fix pre-flight self-check. The triple-headed bug that
+        // motivated this commit was invisible without instrumentation --
+        // the camera silently failed to move, and we had no console
+        // signal that distinguished "wrong canvas" / "wrong InputMap" /
+        // "wrong mouse_filter". This dump fires once per E2 entry so a
+        // future regression surfaces in the editor console without a
+        // debugger session.
+        DumpInputAndCameraState();
+    }
+
+    /// <summary>
+    /// One-shot diagnostic at <c>_Ready</c> that prints every state
+    /// dimension known to interact with the P8.2 pan stack. Cheap (six
+    /// lines, four <c>InputMap.HasAction</c> queries, no allocation in
+    /// the hot path -- this only runs when E2 enters the tree).
+    ///
+    /// <para>
+    /// Output shape:
+    /// <code>
+    /// [E2WorldMap] preflight: WorldCamera Current=true Position=(1820, 980) Limits=[(0,0)-(3840,2160)]
+    /// [E2WorldMap] preflight: MouseFilter=Ignore (root) -- _Input wired (priority over _UnhandledInput)
+    /// [E2WorldMap] preflight: InputMap ui_pan_left=True ui_pan_right=True ui_pan_up=True ui_pan_down=True
+    /// [E2WorldMap] preflight: 4 POI spawned (handlers wired, hotspots indexed)
+    /// </code>
+    /// If any of those reads <c>False</c> for an InputMap action, the ZQSD
+    /// pan will silently no-op -- the line is the canary.
+    /// </para>
+    /// </summary>
+    private void DumpInputAndCameraState()
+    {
+        GD.Print(
+            $"[E2WorldMap] preflight: WorldCamera Current={_worldCamera.IsCurrent()} " +
+            $"Position={_worldCamera.Position} " +
+            $"Limits=[({_worldCamera.LimitLeft},{_worldCamera.LimitTop})-" +
+            $"({_worldCamera.LimitRight},{_worldCamera.LimitBottom})]");
+        GD.Print(
+            $"[E2WorldMap] preflight: MouseFilter={MouseFilter} (root) -- " +
+            "_Input wired (priority over _UnhandledInput)");
+        var hasLeft  = InputMap.HasAction(PanActionNames[0]);
+        var hasRight = InputMap.HasAction(PanActionNames[1]);
+        var hasUp    = InputMap.HasAction(PanActionNames[2]);
+        var hasDown  = InputMap.HasAction(PanActionNames[3]);
+        GD.Print(
+            $"[E2WorldMap] preflight: InputMap " +
+            $"{PanActionNames[0]}={hasLeft} " +
+            $"{PanActionNames[1]}={hasRight} " +
+            $"{PanActionNames[2]}={hasUp} " +
+            $"{PanActionNames[3]}={hasDown}");
+        if (!(hasLeft && hasRight && hasUp && hasDown))
+        {
+            GD.PushWarning(
+                "[E2WorldMap] preflight: at least one ui_pan_* action is missing from InputMap. " +
+                "ZQSD pan will silently no-op until project.godot is fixed.");
+        }
+        GD.Print(
+            $"[E2WorldMap] preflight: {_poiHandlers.Count} POI spawned " +
+            "(handlers wired, hotspots indexed)");
     }
 
     public override void _ExitTree()
@@ -407,12 +514,37 @@ public partial class E2WorldMap : Control, IScreen
         _worldCamera.Position = ToVector2(advanced);
     }
 
-    public override void _UnhandledInput(InputEvent @event)
+    /// <summary>
+    /// Drag clic-milieu pan handler (D-P8.2-04, deep-fix moved from
+    /// <c>_UnhandledInput</c> to <c>_Input</c>).
+    ///
+    /// <para>
+    /// <b>Why <c>_Input</c> not <c>_UnhandledInput</c>.</b> The original
+    /// P8.2 commit used <c>_UnhandledInput</c> on the assumption that no
+    /// Control descendant would consume mouse events first. That
+    /// assumption was wrong: this scene's root is itself a
+    /// <see cref="Control"/>, which defaults to <c>MouseFilter.Stop</c>
+    /// and absorbs <see cref="InputEventMouseButton"/> before
+    /// <c>_UnhandledInput</c> ever sees it. The .tscn now sets
+    /// <c>mouse_filter = Ignore</c> on the root and on the decorative
+    /// Control descendants, but moving the handler up to <c>_Input</c>
+    /// is the belt to that braces -- a future Control descendant added
+    /// without an explicit Ignore filter will not silently break the
+    /// drag. <c>_Input</c> sees every event before the GUI/Control tree
+    /// gets a chance to consume it.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why this does not break the P8.1 wheel ladder.</b>
+    /// SceneManager's wheel handler stays on <c>_UnhandledInput</c>. Our
+    /// <c>_Input</c> only marks middle-button + middle-drag motion as
+    /// handled (via <c>SetInputAsHandled</c>). Wheel events pass through
+    /// untouched and reach SceneManager normally. Manual checklist
+    /// step 9 still validates this end-to-end.
+    /// </para>
+    /// </summary>
+    public override void _Input(InputEvent @event)
     {
-        // Drag clic-milieu pan (D-P8.2-04). We never call
-        // SetInputAsHandled on the wheel events SceneManager listens for
-        // (WheelUp / WheelDown), so the ladder still works during a drag
-        // -- defense-doc'd by manual checklist step 9.
         if (@event is InputEventMouseButton mb && mb.ButtonIndex == MouseButton.Middle)
         {
             // Modal-owns-input mirror of P8.1 (D-P8.2-12). When a modal
@@ -430,10 +562,12 @@ public partial class E2WorldMap : Control, IScreen
                 _isDragging = true;
                 _dragStartMouseViewport = mb.Position;
                 _dragStartCameraWorld = _worldCamera.Position;
+                GD.Print($"[E2WorldMap] middle-drag begin at viewport {mb.Position}, camera {_worldCamera.Position}");
             }
             else
             {
                 _isDragging = false;
+                GD.Print($"[E2WorldMap] middle-drag end, camera now {_worldCamera.Position}");
             }
             GetViewport().SetInputAsHandled();
             return;

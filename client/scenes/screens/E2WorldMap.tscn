@@ -32,6 +32,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+mouse_filter = 2
 script = ExtResource("1_e2wld")
 
 [node name="WorldRoot" type="Node2D" parent="."]
@@ -40,6 +41,7 @@ script = ExtResource("1_e2wld")
 centered = false
 
 [node name="WorldCamera" type="Camera2D" parent="WorldRoot"]
+current = true
 
 [node name="PoiContainer" type="Node2D" parent="WorldRoot"]
 
@@ -53,6 +55,7 @@ offset_bottom = 96.0
 grow_horizontal = 2
 expand_mode = 1
 stretch_mode = 6
+mouse_filter = 2
 
 [node name="BannerTitleLabel" type="Label" parent="DecorationLayer/BannerTop"]
 layout_mode = 1
@@ -94,6 +97,7 @@ offset_top = 140.0
 offset_right = 320.0
 offset_bottom = -120.0
 grow_vertical = 2
+mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_panelL")
 
 [node name="PanelLeftVBox" type="VBoxContainer" parent="DecorationLayer/PanelLeft"]
@@ -127,6 +131,7 @@ offset_right = -24.0
 offset_bottom = -120.0
 grow_horizontal = 0
 grow_vertical = 2
+mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_panelL")
 
 [node name="PanelRightVBox" type="VBoxContainer" parent="DecorationLayer/PanelRight"]
