@@ -34,17 +34,14 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_e2wld")
 
-[node name="BackgroundLayer" type="CanvasLayer" parent="."]
-layer = 0
+[node name="WorldRoot" type="Node2D" parent="."]
 
-[node name="WorldRoot" type="Node2D" parent="BackgroundLayer"]
-
-[node name="WorldMapSprite" type="Sprite2D" parent="BackgroundLayer/WorldRoot"]
+[node name="WorldMapSprite" type="Sprite2D" parent="WorldRoot"]
 centered = false
 
-[node name="WorldCamera" type="Camera2D" parent="BackgroundLayer/WorldRoot"]
+[node name="WorldCamera" type="Camera2D" parent="WorldRoot"]
 
-[node name="PoiContainer" type="Node2D" parent="BackgroundLayer/WorldRoot"]
+[node name="PoiContainer" type="Node2D" parent="WorldRoot"]
 
 [node name="DecorationLayer" type="CanvasLayer" parent="."]
 layer = 2

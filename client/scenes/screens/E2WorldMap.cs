@@ -17,22 +17,22 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///
 /// <para>
 /// <b>P8.2 architecture (M3 / Arc 3 / Phase 8.2).</b>
-/// The screen now hosts a true 2D world under <c>BackgroundLayer</c>:
+/// The screen hosts a true 2D world directly under the <c>Control</c> root:
 /// <list type="bullet">
-///   <item><c>BackgroundLayer/WorldRoot</c> (Node2D) -- the world container.</item>
-///   <item><c>BackgroundLayer/WorldRoot/WorldMapSprite</c> (Sprite2D, centered=false)
+///   <item><c>WorldRoot</c> (Node2D) -- the world container.</item>
+///   <item><c>WorldRoot/WorldMapSprite</c> (Sprite2D, centered=false)
 ///         -- the 3840x2160 native E2.1 master asset, top-left at (0,0)
 ///         in world coords.</item>
-///   <item><c>BackgroundLayer/WorldRoot/WorldCamera</c> (Camera2D, current=true)
+///   <item><c>WorldRoot/WorldCamera</c> (Camera2D, current=true)
 ///         -- viewport on the world. Limit{Left,Top,Right,Bottom} are set
 ///         at <c>_Ready</c> from the texture size so the visible rect can
 ///         never escape the image (no bord noir, ever).</item>
-///   <item><c>BackgroundLayer/WorldRoot/PoiContainer</c> (Node2D) -- POI
-///         hotspots are now world-space Node2D + Area2D + CollisionShape2D
-///         instead of screen-space Control + TextureButton (P7-J3 pattern).
-///         The migration is what lets pan + click coexist correctly:
-///         a hotspot rooted in the world tree follows the camera for
-///         free, no per-frame position rewriting.</item>
+///   <item><c>WorldRoot/PoiContainer</c> (Node2D) -- POI hotspots are
+///         world-space Node2D + Area2D + CollisionShape2D instead of
+///         screen-space Control + TextureButton (P7-J3 pattern). The
+///         migration is what lets pan + click coexist correctly: a hotspot
+///         rooted in the world tree follows the camera for free, no
+///         per-frame position rewriting.</item>
 /// </list>
 /// The previous P7-J3 <c>BackgroundLayer/WorldMapBackground</c> TextureRect
 /// (stretch_mode KeepAspectCovered) and <c>PoiLayer</c> CanvasLayer were
@@ -45,10 +45,30 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// </para>
 ///
 /// <para>
+/// <b>P8.2-fix -- WorldRoot must NOT live under a CanvasLayer (Godot trap).</b>
+/// The original P8.2 commit parented <c>WorldRoot</c> under a
+/// <c>BackgroundLayer (CanvasLayer, layer=0)</c>. Symptom: drag and ZQSD
+/// updated <c>_worldCamera.Position</c> correctly (logic verified by 22
+/// xUnit pure-logic tests), but the rendered image did not move. Root
+/// cause: a <see cref="Camera2D"/> only affects the
+/// <c>canvas_transform</c> of the <see cref="Viewport"/> it belongs to
+/// via <c>World2D</c>. A <see cref="CanvasLayer"/> has its own independent
+/// <c>canvas_transform</c> that ignores any Camera2D nested inside it,
+/// AND a Camera2D parented under a CanvasLayer never reaches the default
+/// canvas where the rest of the world lives. Net effect: the camera
+/// silently affected nothing. Fix: <c>WorldRoot</c> is now a direct child
+/// of the <c>Control</c> root (no <c>CanvasLayer</c> ancestor), so the
+/// Camera2D drives the default Viewport canvas where <c>WorldMapSprite</c>
+/// and the POI hotspots live. Backend-brain trap lesson logged: in Godot,
+/// "putting a thing on a layer to organise the scene" is not free --
+/// CanvasLayer changes the rendering pipeline path of its descendants.
+/// </para>
+///
+/// <para>
 /// <b>POI hotspot pattern (P8.2 D-P8.2-02 + D-P8.2-03 method b).</b>
 /// POI are <see cref="Node2D"/> instances spawned from
 /// <c>res://data/world_map_pois.tres</c> at <c>_Ready</c>, parented to
-/// <c>BackgroundLayer/WorldRoot/PoiContainer</c>. Each hotspot owns a
+/// <c>WorldRoot/PoiContainer</c>. Each hotspot owns a
 /// <see cref="Sprite2D"/> for the marker visual (centered=true so the
 /// authored <c>Position</c> is the marker center, intuitive for hand
 /// authoring) and an <see cref="Area2D"/> with a
@@ -210,7 +230,9 @@ public partial class E2WorldMap : Control, IScreen
     private PanelContainer _blockedIndicator = null!;
     private Label _blockedIndicatorLabel = null!;
 
-    // P8.2 world-space hierarchy.
+    // P8.2 world-space hierarchy. WorldRoot is a direct child of the
+    // Control root (NOT under a CanvasLayer -- see class docstring P8.2-fix
+    // section: a Camera2D under a CanvasLayer affects nothing).
     private Node2D _worldRoot = null!;
     private Sprite2D _worldMapSprite = null!;
     private Camera2D _worldCamera = null!;
@@ -251,10 +273,14 @@ public partial class E2WorldMap : Control, IScreen
         _strings = ResourceLoader.Load<OpeningStrings>(OpeningStringsResPath) ?? new OpeningStrings();
         _poisResource = ResourceLoader.Load<WorldMapPois>(WorldMapPoisResPath) ?? new WorldMapPois();
 
-        _worldRoot = GetNode<Node2D>("BackgroundLayer/WorldRoot");
-        _worldMapSprite = GetNode<Sprite2D>("BackgroundLayer/WorldRoot/WorldMapSprite");
-        _worldCamera = GetNode<Camera2D>("BackgroundLayer/WorldRoot/WorldCamera");
-        _poiContainer = GetNode<Node2D>("BackgroundLayer/WorldRoot/PoiContainer");
+        // P8.2-fix: WorldRoot is now a direct child of the Control root.
+        // Previously it was nested under a BackgroundLayer (CanvasLayer)
+        // which silently broke the Camera2D's effect on rendering -- see
+        // class docstring P8.2-fix section.
+        _worldRoot = GetNode<Node2D>("WorldRoot");
+        _worldMapSprite = GetNode<Sprite2D>("WorldRoot/WorldMapSprite");
+        _worldCamera = GetNode<Camera2D>("WorldRoot/WorldCamera");
+        _poiContainer = GetNode<Node2D>("WorldRoot/PoiContainer");
 
         _bannerTop = GetNode<TextureRect>("DecorationLayer/BannerTop");
         _bannerTitleLabel = GetNode<Label>("DecorationLayer/BannerTop/BannerTitleLabel");
