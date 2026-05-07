@@ -87,6 +87,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+theme_type_variation = &"Heading"
 horizontal_alignment = 1
 vertical_alignment = 1
 theme_override_font_sizes/font_size = 32
@@ -150,6 +151,7 @@ theme_override_constants/separation = 12
 
 [node name="PanelLeftTitleLabel" type="Label" parent="DecorationLayer/PanelLeft/PanelLeftVBox"]
 layout_mode = 2
+theme_type_variation = &"Subheading"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 22
 theme_override_colors/font_color = Color(0.13, 0.10, 0.08, 1)
@@ -182,6 +184,7 @@ theme_override_constants/separation = 12
 
 [node name="PanelRightTitleLabel" type="Label" parent="DecorationLayer/PanelRight/PanelRightVBox"]
 layout_mode = 2
+theme_type_variation = &"Subheading"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 22
 theme_override_colors/font_color = Color(0.13, 0.10, 0.08, 1)
@@ -234,6 +237,7 @@ theme_override_constants/separation = 8
 
 [node name="PanelBottomTitleLabel" type="Label" parent="DecorationLayer/PanelBottom/PanelBottomVBox"]
 layout_mode = 2
+theme_type_variation = &"Subheading"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 20
 theme_override_colors/font_color = Color(0.91, 0.85, 0.72, 1)

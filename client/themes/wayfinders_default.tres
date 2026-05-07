@@ -1,0 +1,56 @@
+[gd_resource type="Theme" load_steps=8 format=3 uid="uid://cwfthm0001"]
+
+[ext_resource type="FontFile" path="res://assets/fonts/EBGaramond/EBGaramond-VariableFont_wght.ttf" id="1_ebgaramond_var"]
+[ext_resource type="FontFile" path="res://assets/fonts/EBGaramond/EBGaramond-Italic-VariableFont_wght.ttf" id="2_ebgaramond_var_italic"]
+
+[sub_resource type="FontVariation" id="FontVariation_body"]
+base_font = ExtResource("1_ebgaramond_var")
+variation_opentype = {
+"wght": 500
+}
+
+[sub_resource type="FontVariation" id="FontVariation_heading"]
+base_font = ExtResource("1_ebgaramond_var")
+variation_opentype = {
+"wght": 700
+}
+
+[sub_resource type="FontVariation" id="FontVariation_subheading"]
+base_font = ExtResource("1_ebgaramond_var")
+variation_opentype = {
+"wght": 600
+}
+
+[sub_resource type="FontVariation" id="FontVariation_button"]
+base_font = ExtResource("1_ebgaramond_var")
+variation_opentype = {
+"wght": 600
+}
+
+[sub_resource type="FontVariation" id="FontVariation_italic"]
+base_font = ExtResource("2_ebgaramond_var_italic")
+variation_opentype = {
+"wght": 500
+}
+
+[resource]
+default_font = SubResource("FontVariation_body")
+default_font_size = 20
+Label/font_sizes/font_size = 20
+Label/fonts/font = SubResource("FontVariation_body")
+Button/font_sizes/font_size = 20
+Button/fonts/font = SubResource("FontVariation_button")
+RichTextLabel/font_sizes/normal_font_size = 20
+RichTextLabel/fonts/normal_font = SubResource("FontVariation_body")
+RichTextLabel/fonts/bold_font = SubResource("FontVariation_heading")
+RichTextLabel/fonts/italics_font = SubResource("FontVariation_italic")
+LineEdit/fonts/font = SubResource("FontVariation_body")
+LineEdit/font_sizes/font_size = 20
+TextEdit/fonts/font = SubResource("FontVariation_body")
+TextEdit/font_sizes/font_size = 20
+Label/Heading/base_type = "Label"
+Label/Heading/fonts/font = SubResource("FontVariation_heading")
+Label/Heading/font_sizes/font_size = 36
+Label/Subheading/base_type = "Label"
+Label/Subheading/fonts/font = SubResource("FontVariation_subheading")
+Label/Subheading/font_sizes/font_size = 24

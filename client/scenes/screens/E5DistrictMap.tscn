@@ -26,6 +26,7 @@ offset_right = 600.0
 offset_bottom = 480.0
 
 [node name="Title" type="Label" parent="VBox"]
+theme_type_variation = &"Heading"
 text = "Wayfinders — E5 QUARTIER (zoom intra-cité)"
 
 [node name="StatusLabel" type="Label" parent="VBox"]
