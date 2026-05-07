@@ -17,7 +17,7 @@ namespace Wayfinders.Client.Services;
 ///
 /// <para>
 /// <b>Pre-brief Risk #2 mitigation (file lock during hot-swap).</b>
-/// <see cref="Resolve"/> wraps <c>GD.Load</c> in try/catch and falls back
+/// <see cref="Resolve"/> wraps loads in try/catch and falls back
 /// to the placeholder rather than throwing if the file is mid-write.
 /// Logged at warning level so dev sees what happened.
 /// </para>
@@ -29,6 +29,16 @@ namespace Wayfinders.Client.Services;
 /// override without rebuild ; the shipped Steam binary embeds res://
 /// proudly because user:// is empty. Both roots are configurable through
 /// editor [Export] for future flexibility.
+/// </para>
+///
+/// <para>
+/// <b>Loading paths differ by root.</b> <c>res://</c> assets are imported
+/// by the editor (have a <c>.import</c> sidecar) and load via
+/// <see cref="GD.Load{T}"/>. <c>user://</c> assets are raw PNGs dropped
+/// at runtime — the editor never imports them, so <see cref="GD.Load{T}"/>
+/// returns null. We load those with <see cref="Image.LoadFromFile"/> +
+/// <see cref="ImageTexture.CreateFromImage"/>, which decodes the file
+/// directly with no import pipeline.
 /// </para>
 /// </summary>
 public partial class AssetResolver : Node
@@ -83,8 +93,8 @@ public partial class AssetResolver : Node
     /// Resolve an asset key to a <see cref="Texture2D"/>. Order:
     /// <list type="number">
     ///   <item>Look up the key in the JSON map. If unknown, log + fallback.</item>
-    ///   <item>Try user://[path]. If it exists and loads, return it.</item>
-    ///   <item>Try res://[path]. If it exists and loads, return it.</item>
+    ///   <item>Try user://[path] (raw PNG decode). If it exists and loads, return it.</item>
+    ///   <item>Try res://[path] (imported resource). If it exists and loads, return it.</item>
     ///   <item>Return a colored placeholder (deterministic per key).</item>
     /// </list>
     /// </summary>
@@ -101,11 +111,14 @@ public partial class AssetResolver : Node
         }
 
         var userPath = UserAssetRoot.TrimEnd('/') + "/" + relativePath;
-        if (TryLoadTexture(userPath, out var userTex) && userTex is not null)
+        if (TryLoadFromUser(userPath, out var userTex) && userTex is not null)
+        {
+            GD.Print($"[AssetResolver] resolved '{assetKey}' from user:// override");
             return userTex;
+        }
 
         var resPath = ResAssetRoot.TrimEnd('/') + "/" + relativePath;
-        if (TryLoadTexture(resPath, out var resTex) && resTex is not null)
+        if (TryLoadFromRes(resPath, out var resTex) && resTex is not null)
             return resTex;
 
         GD.PushWarning($"[AssetResolver] missing file for key '{assetKey}' (tried {userPath}, {resPath}) — fallback");
@@ -113,14 +126,42 @@ public partial class AssetResolver : Node
     }
 
     /// <summary>
-    /// Try loading a Texture2D at the given absolute Godot path. Wraps the
-    /// load in try/catch to neutralize transient Windows file-lock errors
-    /// during hot-swap (Pre-brief Risk #2).
+    /// Load a raw PNG/JPG sitting in user://. Bypasses the import pipeline
+    /// (which only runs on res://). Decodes the file directly.
     /// </summary>
-    private static bool TryLoadTexture(string godotPath, out Texture2D? texture)
+    private static bool TryLoadFromUser(string godotPath, out Texture2D? texture)
     {
         texture = null;
         if (!FileAccess.FileExists(godotPath))
+            return false;
+
+        try
+        {
+            var image = new Image();
+            var err = image.Load(godotPath);
+            if (err != Error.Ok)
+            {
+                GD.PushWarning($"[AssetResolver] Image.Load failed for {godotPath}: {err} — falling back");
+                return false;
+            }
+            texture = ImageTexture.CreateFromImage(image);
+            return texture is not null;
+        }
+        catch (Exception ex)
+        {
+            GD.PushWarning($"[AssetResolver] user load failed for {godotPath}: {ex.Message} — falling back");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Load an imported texture from res://. Uses ResourceLoader (GD.Load)
+    /// which expects a .import sidecar produced by the editor.
+    /// </summary>
+    private static bool TryLoadFromRes(string godotPath, out Texture2D? texture)
+    {
+        texture = null;
+        if (!ResourceLoader.Exists(godotPath))
             return false;
 
         try
@@ -130,7 +171,7 @@ public partial class AssetResolver : Node
         }
         catch (Exception ex)
         {
-            GD.PushWarning($"[AssetResolver] load failed for {godotPath}: {ex.Message} — falling back");
+            GD.PushWarning($"[AssetResolver] res load failed for {godotPath}: {ex.Message} — falling back");
             return false;
         }
     }
