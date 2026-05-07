@@ -185,17 +185,22 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// </para>
 ///
 /// <para>
-/// <b>No conflict with P8.1 ladder wheel (D-P8.2-16 + Risk #2).</b>
+/// <b>P8.2-UX-fix (Bug 2) -- drag and ladder wheel are mutually exclusive.</b>
 /// SceneManager handles <see cref="MouseButton.WheelUp"/> /
-/// <see cref="MouseButton.WheelDown"/>. E2WorldMap handles
-/// <see cref="MouseButton.Middle"/> + ZQSD. Disjoint constants on the
-/// Godot side, disjoint handlers on the C# side. A drag clic-milieu in
-/// progress does not absorb the wheel (we never call
-/// <c>SetInputAsHandled</c> on a wheel event), so spinning the wheel
-/// during a drag still triggers ladder navigation -- manual checklist
-/// step 9 validates this. Note: SceneManager's wheel handler stays on
-/// <c>_UnhandledInput</c> ; our <c>_Input</c> only marks middle-button
-/// + middle-button-motion as handled, so wheel events still propagate.
+/// <see cref="MouseButton.WheelDown"/> on <c>_UnhandledInput</c>.
+/// E2WorldMap handles <see cref="MouseButton.Middle"/> + ZQSD on
+/// <c>_Input</c>. The original P8.2 design considered them disjoint
+/// gestures and let wheel events propagate even during a drag ("spinning
+/// the wheel during a drag still triggers ladder navigation -- manual
+/// checklist step 9 validates this"). Manual testing of the deep-fix
+/// surfaced the failure mode: while panning with middle-click held, the
+/// thumb resting on the wheel brushes it and triggers an unintended layer
+/// navigation. The two gestures are now mutually exclusive: while
+/// <c>_isDragging</c> is true, <c>_Input</c> consumes wheel events
+/// (<c>SetInputAsHandled</c>) before SceneManager's <c>_UnhandledInput</c>
+/// gets to see them. Pattern justification: the dragging screen owns the
+/// input contract during its drag (option (c) in the P8.2-UX-fix closeout).
+/// IScreen interface is unchanged.
 /// </para>
 ///
 /// <para>
@@ -545,6 +550,37 @@ public partial class E2WorldMap : Control, IScreen
     /// </summary>
     public override void _Input(InputEvent @event)
     {
+        // P8.2-UX-fix (Bug 2) -- suppress wheel events during an active
+        // middle-button drag. Without this, the player can accidentally
+        // brush the wheel mid-pan and trigger an unintended P8.1 ladder
+        // navigation (E2 -> E3 / E5 -> E3) in the middle of a pan gesture.
+        // Drag and ladder are mutually exclusive gestures by design.
+        //
+        // Pattern: option (c) -- the screen that knows it is dragging is
+        // the screen that suppresses the conflicting input. _Input runs
+        // before _UnhandledInput, so SetInputAsHandled here prevents
+        // SceneManager._UnhandledInput from ever seeing the wheel event.
+        // Alternative options were:
+        //   (a) IScreen.IsDraggingActive new field on the interface --
+        //       rejected: pollutes IScreen with an E2-specific concern
+        //       and propagates to E1/E3/E4/E5 stubs that do not drag.
+        //   (b) SceneManager polls Input.IsMouseButtonPressed(Middle) --
+        //       rejected: pulls knowledge of "who drags" up into the
+        //       autoload and couples ladder policy to mouse semantics ;
+        //       also wrong direction architecturally (autoload should
+        //       not know about per-screen gestures).
+        // Option (c) keeps ownership where it belongs: the dragging
+        // screen owns the input contract during its drag.
+        if (_isDragging
+            && @event is InputEventMouseButton wheel
+            && wheel.Pressed
+            && (wheel.ButtonIndex == MouseButton.WheelUp
+                || wheel.ButtonIndex == MouseButton.WheelDown))
+        {
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+
         if (@event is InputEventMouseButton mb && mb.ButtonIndex == MouseButton.Middle)
         {
             // Modal-owns-input mirror of P8.1 (D-P8.2-12). When a modal

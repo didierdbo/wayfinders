@@ -518,9 +518,24 @@ public partial class SceneManager : Node
     /// Esc key handler + P8.1 mouse wheel ladder navigation. Routes Esc
     /// to CloseModal if a modal is open, else NavigateBack if the stack
     /// has more than 1 entry. Esc on root is a silent no-op (Title screen
-    /// owns the Quit confirmation in J2). Mouse wheel up/down trigger
-    /// <see cref="NavigateLadderUp"/> / <see cref="NavigateLadderDown"/>
-    /// with a 200ms debounce ; ignored entirely while a modal is open.
+    /// owns the Quit confirmation in J2).
+    ///
+    /// <para>
+    /// <b>P8.2-UX-fix wheel direction (Bug 1).</b> Physical wheel forward
+    /// ("up") triggers <see cref="NavigateLadderDown"/> (drill in toward
+    /// the more granular layer) ; physical wheel backward ("down") triggers
+    /// <see cref="NavigateLadderUp"/> (climb out toward the less granular
+    /// layer). The names of the navigation methods stay aligned with the
+    /// ladder semantics (Up = lower index = top of ladder = climb out) ;
+    /// the swap lives at the InputEventMouseButton dispatch site, see body
+    /// comment for the rationale (empirical hardware quirk on Win11 +
+    /// Logitech wheel).
+    /// </para>
+    ///
+    /// <para>
+    /// 200ms debounce mitigates trackpad continuous scroll. Wheel events
+    /// are ignored entirely while a modal is open.
+    /// </para>
     /// </summary>
     public override void _UnhandledInput(InputEvent @event)
     {
@@ -569,13 +584,32 @@ public partial class SceneManager : Node
             }
             _lastWheelTickMs = nowMs;
 
+            // P8.2-UX-fix (Bug 1) -- empirical wheel direction swap.
+            // Didier reported (commit 8295c0d, Win11 + Logitech wheel) that
+            // physically scrolling the wheel forward ("up") fired the
+            // ladder-down navigation, and vice versa. The original P8.1
+            // binding (WheelUp -> NavigateLadderUp, WheelDown -> NavigateLadderDown)
+            // read semantically correct -- both LadderResolutionLogic.ResolveUpTarget
+            // and the Up/Down naming on NavigateLadderUp/Down are
+            // self-consistent (Up = walk toward ladder index 0 = climb out
+            // toward less granular ; Down = walk toward higher index = drill
+            // in). The empirical mismatch is at the InputEventMouseButton
+            // boundary -- the way Godot 4.x surfaces MouseButton.WheelUp/Down
+            // on this hardware does not match the player's physical-gesture
+            // mental model. The correct fix is here, at the policy site, not
+            // in the resolution logic (which stays semantically pure).
+            //
+            // After fix: physical wheel forward = NavigateLadderUp (climb out
+            // E5 -> E3 -> E2) ; physical wheel backward = NavigateLadderDown
+            // (drill in E2 -> E3 -> E5). Matches maps / IDE / browser
+            // convention as expressed by Didier.
             if (mb.ButtonIndex == MouseButton.WheelUp)
             {
-                _ = NavigateLadderUp();
+                _ = NavigateLadderDown();
             }
             else
             {
-                _ = NavigateLadderDown();
+                _ = NavigateLadderUp();
             }
             GetViewport().SetInputAsHandled();
         }
