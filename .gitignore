@@ -102,6 +102,12 @@ client/builds/
 client/*.pck
 client/*.translation
 
+# Visual exploration sandbox -- not shipped, not versioned.
+# Mira drops candidate variants under any _concept/ subfolder ; AssetResolver
+# never reads from there. Keep it out of git so we can iterate on visuals
+# without polluting history. Includes the .import sidecars Godot generates.
+client/assets/wayfinders_visual_assets/**/_concept/
+
 # --- ML model artefacts inside client (Phase 6 L2+) ---
 # The encoder ONNX (~45 MB fp16) and tokenizer/vocab files ship as release
 # assets, fetched manually into client/ml/ before running the test suite.
