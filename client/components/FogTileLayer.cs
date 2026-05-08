@@ -7,107 +7,98 @@ namespace Wayfinders.Client.Components;
 
 /// <summary>
 /// Polygon2D-per-cell fog renderer (slice 1 livrable 2 → slice 2 livrables
-/// 1+2+3 → slice 3.5 iso refactor → slice 3.6 iso bitmap atlas — M3 /
-/// L1 World fondations / 2026-05-08). Sits as a child of
-/// <see cref="MapPan2DComponent"/>'s world tree, above the world map
-/// sprite and the POI container. Each cell now has four sub-nodes :
-/// shadow, palette swatch (3 quantified teintes en bandes parallèles),
-/// carton (modulated alpha by knowledge state, optionally overridden by
-/// a per-cell bitmap or an iso atlas slice of the source map), and a
-/// sceau placeholder for <see cref="TileKnowledgeState.Scellee"/>.
+/// 1+2+3 → slice 3.5 iso refactor → slice 3.6 iso bitmap atlas → slice 3.6
+/// design fix two-polygon carton — M3 / L1 World fondations / 2026-05-08).
+/// Sits as a child of <see cref="MapPan2DComponent"/>'s world tree, above
+/// the world map sprite and the POI container.
 ///
 /// <para>
-/// <b>Slice 3.5 iso refactor.</b> The grid projection switched from rect
-/// (slice 1/2/3) to <see cref="GridProjection.IsoDiamondDown"/> by default
-/// for L1 World — every cell is rendered as a 2:1 iso diamond instead of
-/// a square. The renderer uses <see cref="Polygon2D"/> for the carton
-/// and the swatch (Polygon2D supports arbitrary 4-vertex shapes natively
-/// without a custom shader), <see cref="Polygon2D"/> for the shadow
-/// (4-vertex offset diamond), and a regular Polygon2D for the sceau
-/// placeholder (12-gon disc, deforms least under iso projection).
-/// The <see cref="Projection"/> [Export] field lets the renderer fall
-/// back to rect mode for any future consumer (E3+ city overlay) without
-/// touching this file.
-/// </para>
-///
-/// <para>
-/// <b>Slice 3.5 visual contract.</b>
+/// <b>Slice 3.6 design fix — two-polygon carton (back + face).</b>
+/// The slice 3.6 hotfix gave the single Carton Polygon2D the source-map
+/// texture for every state, then modulated it by a beige tint at full
+/// alpha. Result : a beige-tinted source map at Inconnue, not an opaque
+/// beige carton. The "carton hides → carte revealed" progression was
+/// visually inverted (the user perceived Esquissée as more opaque
+/// because the beige tint faded together with the alpha, exposing more
+/// of the source map). This slice splits the carton into two stacked
+/// Polygon2D children per cell so the back and the face can be
+/// controlled independently :
 /// <list type="bullet">
-///   <item><b>Inconnue</b> — carton diamant fully opaque (carton beige-écru
-///         ou slice de la map source via atlas si activé), palette swatch
-///         hidden, sceau hidden.</item>
-///   <item><b>Pressentie</b> — carton ~70 % opaque, palette swatch visible
-///         behind (3 bandes parallèles à la diagonale top→bottom-right
-///         du losange — strates lisibles en projection iso), sceau hidden.</item>
-///   <item><b>Esquissée</b> — carton ~40 % opaque, palette swatch fully
-///         visible. Drill zoom-driven autorisé à partir d'ici.</item>
-///   <item><b>Levée</b> — carton invisible, swatch hidden, sceau hidden.
-///         Pliure-soulèvement animation joue sur la transition Esquissée
-///         → Levée — 800 ms, rotation autour du bord nord-ouest du
-///         losange + lift Y + fade.</item>
-///   <item><b>Scellée</b> — comme Levée plus un sceau placeholder
-///         (12-gon disque centré modulé rouge cire) au centre du losange.</item>
+///   <item><b>CartonFace</b> (z 10) — Polygon2D <i>with</i> the source-map
+///         texture and absolute-source UV coords (the slice 3.6 hotfix
+///         math). Alpha resolved by
+///         <see cref="TileKnowledgeStateHelpers.ResolveCartonFaceAlpha"/>.
+///         Rendered <i>below</i> the back so the back masks it when the
+///         cell is fully Inconnue.</item>
+///   <item><b>CartonBack</b> (z 11) — Polygon2D <i>without</i> any texture,
+///         modulated by <see cref="CartonBaseTint"/> (beige opaque). Alpha
+///         resolved by
+///         <see cref="TileKnowledgeStateHelpers.ResolveCartonBackAlpha"/>.
+///         Acts as the "dos de carte" that hides everything below it
+///         (face + world map sprite) when the cell is Inconnue.</item>
+/// </list>
+/// The five-state visual table is now :
+/// <list type="bullet">
+///   <item><b>Inconnue</b> — back alpha 1.0, face alpha 0.0 → opaque beige
+///         losange, source map fully hidden.</item>
+///   <item><b>Pressentie</b> — back 0.7, face 0.3 → mostly beige with a
+///         hint of the source-map slice surfacing.</item>
+///   <item><b>Esquissée</b> — back 0.4, face 0.6 → source map dominates,
+///         beige residual. Drill autorisé.</item>
+///   <item><b>Levée</b> — back 0.0, face 0.0 → both polygons invisible,
+///         the WorldMapSprite below shows the unclipped world map.</item>
+///   <item><b>Scellée</b> — like Levée, plus a sceau placeholder.</item>
 /// </list>
 /// </para>
 ///
 /// <para>
-/// <b>Slice 3.5 livrable 4 — per-tile bitmap API.</b>
-/// <see cref="SetCellBitmap"/> et <see cref="ClearCellBitmap"/> permettent
-/// d'associer un <see cref="Texture2D"/> iso à une cellule donnée. Le
-/// bitmap est dessiné via la même <see cref="Polygon2D"/> Carton (avec
-/// la texture mappée sur les 4 vertices du losange — le mapping clip
-/// naturellement par la forme du polygone), pas un Sprite2D séparé.
+/// <b>PaletteSwatch retired.</b> The 3-band palette swatch carried the
+/// "hint of palette" diegetic signal at slice 2 when there was no source
+/// map per cell. With CartonFace showing the actual source-map slice, the
+/// swatch's role is fulfilled by the face. The swatch node is kept in the
+/// scene for back-compat (any consumer that walks the cell tree by name
+/// won't crash) but is set <c>Visible = false</c> at every state by
+/// <see cref="TileKnowledgeStateHelpers.ShouldRenderPaletteSwatch"/>.
+/// </para>
+///
+/// <para>
+/// <b>Z-stack inside a cell (top to bottom in screen-space, i.e.
+/// drawn-last is on top).</b>
+/// <list type="bullet">
+///   <item>Sceau (z 12) — only Scellée.</item>
+///   <item>CartonBack (z 11) — beige opaque, the visual blocker.</item>
+///   <item>CartonFace (z 10) — source-map slice, surfaces under the back.</item>
+///   <item>PaletteSwatch (z -1) — hidden by default.</item>
+///   <item>Shadow (z -2) — under everything.</item>
+/// </list>
+/// </para>
+///
+/// <para>
+/// <b>Slice 3.5 iso refactor preserved.</b> Every renderable is
+/// <see cref="Polygon2D"/> with iso-diamond vertices. The hit-test math
+/// agrees with the visual shape ; the
+/// <see cref="GridProjection.IsoDiamondDown"/> default for L1 World is
+/// unchanged.
 /// </para>
 ///
 /// <para>
 /// <b>Slice 3.6 — Iso bitmap atlas.</b> <see cref="EnableSourceMapAtlas"/>
-/// crée un <see cref="AtlasTexture"/> par cellule, chacun pointant vers
-/// la même texture mère (la map source 3840×2160) avec une
-/// <see cref="AtlasTexture.Region"/> calibrée sur la bounding-box iso de
-/// la cellule en world coords. Aucun baking de fichier, partage VRAM
-/// (les ~4761 AtlasTexture ne dupliquent pas les pixels — juste pointer
-/// + region), aucun overhead disque. <see cref="DisableSourceMapAtlas"/>
-/// retombe sur le carton beige uniforme via <see cref="ClearCellBitmap"/>
-/// pour chaque cellule, idempotent. UV mapping explicite : pour un
-/// AtlasTexture, Godot 4 sample en coords <c>[0..regionWidth, 0..regionHeight]</c>
-/// (pixels de la région, pas de la texture mère), donc on assigne
-/// explicitement <see cref="Polygon2D.UV"/> aux 4 coins du losange en
-/// pixels-de-region : top→(rW/2, 0), right→(rW, rH/2), bottom→(rW/2, rH),
-/// left→(0, rH/2). Sans ce mapping explicite, Polygon2D interprète
-/// <c>polygon</c> directement comme UV en pixels texture — qui pour des
-/// vertices iso centrés sur 0 produit des UVs négatifs et wrap/mirror
-/// le sampling (artefact visible dès la première frame).
-/// </para>
-///
-/// <para>
-/// <b>Architectural decision : Polygon2D-per-cell, not Sprite2D-per-cell,
-/// not TileMapLayer.</b> Sprite2D-rotated-by-45° produces a square rotated
-/// in screen space, not a true iso diamond — the bounding box is wrong
-/// (rotated square = √2× wider than diamond width on screen) and the
-/// hit-test diverges. Polygon2D with 4 vertices is the right primitive :
-/// the geometry IS the diamond, the hit-test math agrees with the visual
-/// shape, and texture mapping lets us paint either a uniform colour
-/// (placeholder) or a per-cell bitmap (slice 3.5 livrable 4) or an
-/// AtlasTexture slice (slice 3.6) without changing node type.
-/// TileMapLayer was already ruled out at slice 1 (need per-cell tweens
-/// for the pliure-soulèvement) ; the iso refactor re-confirms the call.
+/// assigns the full source-map texture as <c>CartonFace.Texture</c> (every
+/// cell shares the same <see cref="Texture2D"/> reference, no pixel
+/// duplication) and sets <c>CartonFace.UV</c> to the four diamond
+/// vertices in absolute source-map pixel coords. Each cell samples its
+/// own slice ; the polygon shape clips out-of-diamond pixels.
+/// <c>CartonBack</c> is never assigned a texture — it stays a flat
+/// beige modulated quad.
 /// </para>
 ///
 /// <para>
 /// <b>Tween discipline.</b> Each cell maintains at most one active tween
 /// in <see cref="_activeCellTweens"/>. Before scheduling a new
-/// transition (state change), the prior tween is killed. Same leak-prevention
-/// requirement as slice 2 ; iso refactor doesn't change this discipline.
-/// </para>
-///
-/// <para>
-/// <b>Pliure pivot in iso.</b> Slice 2 rotated the rect carton around its
-/// center. Iso slice 3.5 rotates around the <b>nord-ouest vertex of the
-/// diamond</b> — the geste "feuille qu'on soulève par le coin haut-gauche"
-/// reads as a natural iso fold. Implementation : the Carton Polygon2D's
-/// Position is offset to the NW vertex (-halfW/2, -halfH/2 from cell
-/// center), the polygon's vertices are re-expressed relative to that
-/// pivot, and the rotation tween is unchanged.
+/// transition (state change), the prior tween is killed. The slice 3.6
+/// design fix runs all carton-affecting tweens (alpha, rotation, position,
+/// scale) on both back and face in parallel, so the pliure-soulèvement
+/// at Esquissée → Levée and the drill-blocked pulse stay visually coherent.
 /// </para>
 /// </summary>
 public partial class FogTileLayer : Node2D
@@ -128,8 +119,7 @@ public partial class FogTileLayer : Node2D
 
     /// <summary>
     /// Static vertical offset for the 'tuile flottante' effect (Varn §4.1).
-    /// Negative because Y grows downward in world coords. Slice 2 placeholder
-    /// stays for slice 3.5 — pli iso doesn't change the desired flottement.
+    /// Negative because Y grows downward in world coords.
     /// </summary>
     [Export] public float FogYOffset { get; set; } = -8f;
 
@@ -161,9 +151,9 @@ public partial class FogTileLayer : Node2D
     [Export] public float PliureLiftFractionOfCell { get; set; } = 0.25f;
 
     /// <summary>
-    /// Carton beige-écru base modulate (Varn §4.2). Alpha is overwritten
-    /// per-cell by the knowledge-state resolver ; only the RGB channels
-    /// matter here.
+    /// Carton beige-écru base modulate (Varn §4.2). Applied to
+    /// <c>CartonBack</c> only ; <c>CartonFace</c> stays at white modulate
+    /// (1, 1, 1, alpha) so the source-map pixels are not tinted.
     /// </summary>
     [Export] public Color CartonBaseTint { get; set; } = new Color(0.91f, 0.85f, 0.72f, 1f);
 
@@ -185,8 +175,8 @@ public partial class FogTileLayer : Node2D
     /// <summary>
     /// Slice 3.6 — source map texture for the iso atlas. Stored at
     /// <see cref="EnableSourceMapAtlas"/> time so a re-enable / repopulate
-    /// after <c>DespawnAll</c> can rebuild the per-cell AtlasTextures
-    /// against the same source. Null when atlas is not enabled.
+    /// after <c>DespawnAll</c> can rebuild the per-cell UV against the
+    /// same source. Null when atlas is not enabled.
     /// </summary>
     private Texture2D? _sourceMapTexture;
 
@@ -243,10 +233,9 @@ public partial class FogTileLayer : Node2D
     }
 
     /// <summary>
-    /// Hit-test entry point for the slice 2 debug commands and slice 3
-    /// drill-target resolver. Translates a world-space cursor position
-    /// to a grid coord using the same <see cref="FogTileGridLogic"/>
-    /// seam every other consumer uses, in the configured projection.
+    /// Hit-test entry point. Translates a world-space cursor position to
+    /// a grid coord using the same <see cref="FogTileGridLogic"/> seam
+    /// every other consumer uses, in the configured projection.
     /// </summary>
     public GridCoord? WorldPositionToCell(Vector2 worldPosition)
     {
@@ -261,10 +250,11 @@ public partial class FogTileLayer : Node2D
     public GridDimensions Dimensions => _dimensions;
 
     /// <summary>
-    /// Slice 3.5 livrable 4 + slice 3.6 hotfix -- assign a bitmap to a
-    /// single cell. The bitmap replaces the carton placeholder colour
-    /// for that cell ; the rest of the cell rendering (palette swatch,
-    /// shadow, sceau, alpha state) is unchanged.
+    /// Slice 3.5 livrable 4 + slice 3.6 hotfix + slice 3.6 design fix --
+    /// assign a bitmap to a single cell's <b>CartonFace</b>. The bitmap
+    /// replaces the face placeholder (no texture) for that cell ; the
+    /// CartonBack stays a flat beige modulated quad regardless. Other
+    /// cell rendering (shadow, sceau, alphas) is unchanged.
     ///
     /// <para>
     /// <b>Two UV modes.</b>
@@ -274,29 +264,15 @@ public partial class FogTileLayer : Node2D
     ///         future per-state Mira bitmap) ; UV is set to the four
     ///         edge-midpoints of <paramref name="bitmap"/>'s
     ///         <c>GetSize()</c>, mapping the diamond vertices onto the
-    ///         centered, axis-aligned slice of the texture. The polygon
-    ///         shape clips out-of-diamond pixels at render time.</item>
+    ///         centered, axis-aligned slice of the texture.</item>
     ///   <item><b><paramref name="sourceMapCellCenter"/> non-null</b> --
     ///         slice 3.6 source-map atlas mode. Caller passes the full
     ///         source map (same texture for every cell) plus this cell's
     ///         center expressed in source-map pixel coords. UV is set to
     ///         the four diamond vertices of the cell in <i>absolute
     ///         source-map pixel coords</i>, so each cell samples its own
-    ///         slice of the source map. This is the path used by
-    ///         <see cref="EnableSourceMapAtlas"/> after the slice 3.6
-    ///         AtlasTexture-based first attempt was found to be broken
-    ///         (Polygon2D + AtlasTexture in Godot 4 ignores the region
-    ///         offset, so every cell ended up sampling the same absolute
-    ///         pixels around (0, 0)).</item>
+    ///         slice of the source map.</item>
     /// </list>
-    /// </para>
-    ///
-    /// <para>
-    /// <b>No leak guarantee.</b> Calling <see cref="SetCellBitmap"/> a
-    /// second time on the same cell replaces the texture reference ; the
-    /// prior texture is released by Godot's reference counting (Texture2D
-    /// is RefCounted). Calling for an unknown cell is a silent warning
-    /// (logged) -- the same tolerance as <see cref="PlayDrillBlockedFeedback"/>.
     /// </para>
     /// </summary>
     public void SetCellBitmap(GridCoord coord, Texture2D bitmap, Vector2? sourceMapCellCenter = null)
@@ -308,18 +284,18 @@ public partial class FogTileLayer : Node2D
                 $"cell not in registry (Configure not called or coord out of range)");
             return;
         }
-        visuals.Carton.Texture = bitmap;
-        visuals.Carton.UV = sourceMapCellCenter is { } center
+        visuals.CartonFace.Texture = bitmap;
+        visuals.CartonFace.UV = sourceMapCellCenter is { } center
             ? ComputeIsoCartonUvInSourceCoords(center)
             : ComputeIsoCartonUv(bitmap);
     }
 
     /// <summary>
-    /// Slice 3.5 livrable 4 -- clear any per-tile bitmap on a cell, falling
-    /// back to the placeholder colour modulated by <see cref="CartonBaseTint"/>.
-    /// Idempotent : clearing a cell with no bitmap is a silent no-op.
-    /// Also clears the explicit UV array so the carton renders as a flat
-    /// modulated colour without spurious sampling.
+    /// Slice 3.5 livrable 4 -- clear any per-tile bitmap on a cell's
+    /// CartonFace, falling back to the placeholder (no texture, alpha
+    /// resolver still in charge of visibility). Idempotent. Also clears
+    /// the explicit UV array so the face renders as a flat modulated
+    /// colour without spurious sampling.
     /// </summary>
     public void ClearCellBitmap(GridCoord coord)
     {
@@ -330,29 +306,28 @@ public partial class FogTileLayer : Node2D
                 $"cell not in registry");
             return;
         }
-        visuals.Carton.Texture = null;
-        visuals.Carton.UV = System.Array.Empty<Vector2>();
+        visuals.CartonFace.Texture = null;
+        visuals.CartonFace.UV = System.Array.Empty<Vector2>();
     }
 
     /// <summary>
     /// Slice 3.5 livrable 4 -- diagnostic surface for tests + the runtime
-    /// HUD overlay. Returns the texture currently bound to the cell, or
-    /// null if no bitmap is plugged in.
+    /// HUD overlay. Returns the texture currently bound to the cell's
+    /// CartonFace, or null if no bitmap is plugged in.
     /// </summary>
     public Texture2D? GetCellBitmap(GridCoord coord)
     {
         if (!_cells.TryGetValue(coord, out var visuals)) return null;
-        return visuals.Carton.Texture;
+        return visuals.CartonFace.Texture;
     }
 
     /// <summary>
-    /// Slice 3.6 livrable 2 + hotfix -- enable the source-map atlas mode.
-    /// For every cell in the grid, assign the full
-    /// <paramref name="sourceMap"/> texture as the cell's Carton texture
-    /// and set its UV to the four diamond vertices of the cell expressed
-    /// in absolute source-map pixel coords. Each cell then samples its
-    /// own slice of the source map, clipped to the diamond shape by the
-    /// Polygon2D primitive.
+    /// Slice 3.6 livrable 2 + hotfix + design fix -- enable the source-map
+    /// atlas mode. For every cell in the grid, assign the full
+    /// <paramref name="sourceMap"/> texture as the cell's <b>CartonFace</b>
+    /// texture and set its UV to the four diamond vertices of the cell
+    /// expressed in absolute source-map pixel coords. CartonBack stays
+    /// untouched (no texture, beige modulate).
     ///
     /// <para>
     /// <b>Why this dropped AtlasTexture.</b> The first slice 3.6 attempt
@@ -361,32 +336,15 @@ public partial class FogTileLayer : Node2D
     /// every cell rendered the same green slice (~the top-left of the
     /// source map). Root cause : Godot 4's <c>Polygon2D</c> +
     /// <c>AtlasTexture</c> path does <i>not</i> honour the AtlasTexture's
-    /// region offset when computing texel coords from the UV array -- it
-    /// samples the parent atlas at the raw UV pixel value as if no region
-    /// were set. With identical UV per cell, every cell pulled the same
-    /// absolute pixels. Dropping AtlasTexture and computing UV in absolute
-    /// source-map coords fixes the seam without losing the "single
-    /// shared allocation" property : every cell's Carton.Texture is the
-    /// same <see cref="Texture2D"/> reference, no pixel duplication.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Source-map coord frame.</b> The runtime invariant
-    /// <c>worldImageSize == sourceMap.GetSize()</c> is preserved by
-    /// <see cref="MapPan2DComponent.Configure"/> -- the world map sprite
-    /// IS the source for the atlas. World coords with the iso origin
-    /// shift applied therefore equal source-map pixel coords directly,
-    /// so we pass <c>ComputeCellCenter(coord) + ComputeIsoOriginShift</c>
-    /// as the cell center.
+    /// region offset when computing texel coords from the UV array. The
+    /// hotfix dropped AtlasTexture and computes UV in absolute source-map
+    /// coords. Single shared texture allocation preserved.
     /// </para>
     ///
     /// <para>
     /// Idempotent : calling twice rebuilds the UV arrays from the latest
-    /// state (cheap, ~5 ms at 4761 cells -- no AtlasTexture allocation).
-    /// Re-callable after a <c>DespawnAll</c> + <c>SpawnCells</c> cycle ;
-    /// the source map reference is stored privately so a new
-    /// <see cref="Configure"/> can re-enable atlas without the consumer
-    /// holding the texture.
+    /// state. Re-callable after a <c>DespawnAll</c> + <c>SpawnCells</c>
+    /// cycle.
     /// </para>
     /// </summary>
     public void EnableSourceMapAtlas(Texture2D sourceMap)
@@ -405,9 +363,6 @@ public partial class FogTileLayer : Node2D
         foreach (var (coord, _) in _cells)
         {
             var center = FogTileGridLogic.ComputeCellCenter(coord, CellSizePx, Projection);
-            // Source-map coords = world coords with iso origin shift applied.
-            // Y has no FogYOffset here -- FogYOffset is a visual lift on the
-            // cell node's Position (rendering side), not a sampling shift.
             var sourceCenter = new Vector2(center.X + isoShift.X, center.Y + isoShift.Y);
             SetCellBitmap(coord, sourceMap, sourceCenter);
             assigned++;
@@ -415,17 +370,16 @@ public partial class FogTileLayer : Node2D
         sw.Stop();
         GD.Print(
             $"[FogTileLayer] EnableSourceMapAtlas: assigned {assigned} cells with source-map UV " +
-            $"in {sw.ElapsedMilliseconds} ms (source size = {sourceMap.GetSize()}, " +
+            $"on CartonFace in {sw.ElapsedMilliseconds} ms (source size = {sourceMap.GetSize()}, " +
             $"projection = {Projection}, cellSize = {CellSizePx}px) -- single shared texture, " +
-            $"per-cell absolute UV");
+            $"per-cell absolute UV, CartonBack untouched");
     }
 
     /// <summary>
-    /// Slice 3.6 livrable 2 -- disable the source-map atlas mode by clearing
-    /// the per-cell bitmap on every cell, falling back to the carton beige
-    /// uniform. Idempotent : calling without a prior
-    /// <see cref="EnableSourceMapAtlas"/> just runs <c>ClearCellBitmap</c>
-    /// over cells that already have no bitmap (silent no-ops).
+    /// Slice 3.6 livrable 2 -- disable the source-map atlas mode by
+    /// clearing the per-cell bitmap on every cell's CartonFace, falling
+    /// back to the face placeholder (no texture). CartonBack is unaffected.
+    /// Idempotent.
     /// </summary>
     public void DisableSourceMapAtlas()
     {
@@ -434,53 +388,35 @@ public partial class FogTileLayer : Node2D
         {
             ClearCellBitmap(coord);
         }
-        GD.Print("[FogTileLayer] DisableSourceMapAtlas: reverted all cells to carton placeholder");
+        GD.Print("[FogTileLayer] DisableSourceMapAtlas: reverted all CartonFace to placeholder");
     }
 
     /// <summary>
     /// Slice 3.6 livrable 1 -- compute the UV array for an iso-diamond
-    /// Carton when textured by a generic <see cref="Texture2D"/> (no
+    /// CartonFace when textured by a generic <see cref="Texture2D"/> (no
     /// per-cell source-map mapping). Returns four UV points in pixel
     /// coords matching the order of <see cref="BuildCellVertices"/> :
     /// top, right, bottom, left.
-    ///
-    /// <para>
-    /// UV space spans the full texture size <c>[0..textureWidth] x
-    /// [0..textureHeight]</c>. The four edge-midpoints of the texture
-    /// rectangle map to the four diamond vertices, so the diamond samples
-    /// the centered, axis-aligned slice of the texture -- clipped at
-    /// render time by the polygon shape. Used by callers that pass a
-    /// per-cell texture (e.g. future per-knowledge-state Mira bitmaps).
-    /// </para>
     /// </summary>
     private static Vector2[] ComputeIsoCartonUv(Texture2D texture)
     {
         var size = texture.GetSize();
         var rW = size.X;
         var rH = size.Y;
-        // Order matches BuildCellVertices iso branch : top, right, bottom, left.
         return new[]
         {
-            new Vector2(rW * 0.5f, 0f),     // top vertex -> top-middle of texture
-            new Vector2(rW,        rH * 0.5f), // right vertex -> right-middle of texture
-            new Vector2(rW * 0.5f, rH),     // bottom vertex -> bottom-middle of texture
-            new Vector2(0f,        rH * 0.5f), // left vertex -> left-middle of texture
+            new Vector2(rW * 0.5f, 0f),
+            new Vector2(rW,        rH * 0.5f),
+            new Vector2(rW * 0.5f, rH),
+            new Vector2(0f,        rH * 0.5f),
         };
     }
 
     /// <summary>
-    /// Slice 3.6 hotfix -- compute the UV array for an iso-diamond Carton
-    /// when textured by the shared source map and sampled at the cell's
-    /// absolute pixel coords. Returns four UV points in source-map pixel
-    /// coords (top, right, bottom, left vertices of the diamond).
-    ///
-    /// <para>
-    /// Thin wrapper over
-    /// <see cref="FogTileGridLogic.ComputeIsoCartonUvInSourceCoords"/> --
-    /// the math lives in the pure-C# seam, this method just translates
-    /// the <see cref="PanVec2"/> tuple to a Godot <see cref="Vector2"/>
-    /// array in the order Polygon2D expects.
-    /// </para>
+    /// Slice 3.6 hotfix -- compute the UV array for an iso-diamond
+    /// CartonFace when textured by the shared source map and sampled at
+    /// the cell's absolute pixel coords. Returns four UV points in
+    /// source-map pixel coords (top, right, bottom, left vertices).
     /// </summary>
     private Vector2[] ComputeIsoCartonUvInSourceCoords(Vector2 cellCenterInSourceCoords)
     {
@@ -501,7 +437,8 @@ public partial class FogTileLayer : Node2D
     /// Slice 3 livrable 4 — visual feedback for a drill that the player
     /// attempted at a cell whose knowledge state is below
     /// <see cref="TileKnowledgeState.Esquissee"/>. Plays a 200 ms scale
-    /// pulse 1.0 → 1.05 → 1.0 on the carton sub-polygon.
+    /// pulse 1.0 → 1.05 → 1.0 on both CartonBack and CartonFace in
+    /// parallel so the pulse reads as the cell pulsing as a unit.
     /// </summary>
     public void PlayDrillBlockedFeedback(GridCoord coord)
     {
@@ -519,16 +456,29 @@ public partial class FogTileLayer : Node2D
         var pulseScale = baseScale * 1.05f;
 
         var tween = CreateTween();
-        tween.SetParallel(false);
-        tween.TweenProperty(visuals.Carton, "scale", pulseScale, 0.10f)
+        tween.SetParallel(true);
+
+        // Phase 1 : ramp up to peak — 100 ms on both polygons in parallel.
+        tween.TweenProperty(visuals.CartonBack, "scale", pulseScale, 0.10f)
             .SetTrans(Tween.TransitionType.Sine)
             .SetEase(Tween.EaseType.InOut);
-        tween.TweenProperty(visuals.Carton, "scale", baseScale, 0.10f)
+        tween.TweenProperty(visuals.CartonFace, "scale", pulseScale, 0.10f)
             .SetTrans(Tween.TransitionType.Sine)
             .SetEase(Tween.EaseType.InOut);
-        tween.TweenCallback(Callable.From(() =>
+
+        // Chain — phase 2 : back to base over the second 100 ms.
+        tween.Chain();
+        tween.TweenProperty(visuals.CartonBack, "scale", baseScale, 0.10f)
+            .SetTrans(Tween.TransitionType.Sine)
+            .SetEase(Tween.EaseType.InOut);
+        tween.TweenProperty(visuals.CartonFace, "scale", baseScale, 0.10f)
+            .SetTrans(Tween.TransitionType.Sine)
+            .SetEase(Tween.EaseType.InOut);
+
+        tween.Chain().TweenCallback(Callable.From(() =>
         {
-            visuals.Carton.Scale = baseScale;
+            visuals.CartonBack.Scale = baseScale;
+            visuals.CartonFace.Scale = baseScale;
             _activeCellTweens.Remove(coord);
         }));
 
@@ -564,9 +514,6 @@ public partial class FogTileLayer : Node2D
         var isoOriginShift = FogTileGridLogic.ComputeIsoOriginShift(
             _dimensions, CellSizePx, Projection);
 
-        // Build the four vertices of a single cell at world-origin once ;
-        // every Polygon2D shares the same vertex array (Polygon2D copies
-        // it on assign so this is just a template).
         Vector2[] cellVertices = BuildCellVertices(halfW, halfH);
 
         foreach (var coord in FogTileGridLogic.EnumerateCells(_dimensions))
@@ -593,16 +540,17 @@ public partial class FogTileLayer : Node2D
                 ZIndex = -2,
             };
 
-            // Palette swatch — 3 parallel bands aligned to the
-            // top→bottom-right diagonal of the diamond. We synthesise
-            // each band as a Polygon2D quad whose 4 corners cut the
-            // diamond into thirds along that diagonal. See
-            // ComputeSwatchBandVertices for the math.
+            // Palette swatch — kept in the scene for back-compat but
+            // hidden by default (slice 3.6 design fix retired the swatch ;
+            // CartonFace carries the diegetic role now). The bands are
+            // still synthesised so a future slice can flip
+            // ShouldRenderPaletteSwatch back on without re-spawning cells.
             var swatch = new Node2D
             {
                 Name = "PaletteSwatch",
                 Position = Vector2.Zero,
                 ZIndex = -1,
+                Visible = false,
             };
             var palette = ResolvePalette(coord);
             var bandVerticesArrays = ComputeSwatchBandVertices(halfW, halfH);
@@ -618,40 +566,51 @@ public partial class FogTileLayer : Node2D
                 swatch.AddChild(bandPolygon);
             }
 
-            // Carton — main occluder, the one that animates on transitions.
-            // Polygon2D with 4 diamond vertices, modulated to CartonBaseTint.
-            // Texture is null by default ; SetCellBitmap can plug an iso
-            // bitmap that the polygon clips to the diamond shape.
-            //
-            // Pliure pivot : carton is centered on the cell root so the
-            // pliure tween rotates around the NW vertex via an offset
-            // applied at tween-time (see SchedulePliure).
-            var carton = new Polygon2D
+            // CartonFace — Polygon2D with iso-diamond vertices, no texture
+            // by default. EnableSourceMapAtlas / SetCellBitmap plug a
+            // texture + UV. Modulate stays white (1, 1, 1, alpha) so the
+            // source-map pixels are not tinted ; alpha is resolved by
+            // ResolveCartonFaceAlpha. z_index 10 — above shadow + swatch,
+            // below back.
+            var cartonFace = new Polygon2D
             {
-                Name = "Carton",
+                Name = "CartonFace",
                 Polygon = cellVertices,
-                Color = CartonBaseTint,
-                ZIndex = 0,
+                Color = new Color(1f, 1f, 1f, 0f),
+                ZIndex = 10,
             };
 
-            // Sceau placeholder — 12-gon disc, centered. Polygon2D with
-            // 12 vertices on a circle of radius SceauPlaceholderRadiusPx.
+            // CartonBack — Polygon2D with iso-diamond vertices, no texture
+            // ever. Modulate = CartonBaseTint (beige opaque RGB) ; alpha
+            // is resolved by ResolveCartonBackAlpha. z_index 11 — above
+            // face so it masks face when fully opaque.
+            var cartonBack = new Polygon2D
+            {
+                Name = "CartonBack",
+                Polygon = cellVertices,
+                Color = CartonBaseTint,
+                ZIndex = 11,
+            };
+
+            // Sceau placeholder — 12-gon disc, centered. z_index 12, above
+            // both carton polygons. Visible only at Scellée.
             var sceau = new Polygon2D
             {
                 Name = "Sceau",
                 Polygon = BuildDiscVertices(SceauPlaceholderRadiusPx, vertexCount: 12),
                 Color = SceauPlaceholderColor,
-                ZIndex = 1,
+                ZIndex = 12,
                 Visible = false,
             };
 
             cell.AddChild(shadow);
             cell.AddChild(swatch);
-            cell.AddChild(carton);
+            cell.AddChild(cartonFace);
+            cell.AddChild(cartonBack);
             cell.AddChild(sceau);
             _fogContainer.AddChild(cell);
 
-            _cells[coord] = new CellVisuals(cell, shadow, swatch, carton, sceau);
+            _cells[coord] = new CellVisuals(cell, shadow, swatch, cartonFace, cartonBack, sceau);
 
             ApplyVisualState(coord, _knowledgeStore.GetState(coord), animate: false);
         }
@@ -685,22 +644,16 @@ public partial class FogTileLayer : Node2D
 
     /// <summary>
     /// Build the three palette-swatch band vertex arrays for the iso
-    /// diamond. The bands are parallel to the top→bottom-right diagonal
-    /// of the diamond (i.e. the line from the top vertex to the right
-    /// vertex), so they read as iso strata stacked top-to-bottom-left
-    /// along the perpendicular axis.
-    ///
-    /// <para>
-    /// In rect mode, fall back to the slice 2 horizontal bands convention
-    /// (top, middle, bottom) so any consumer that re-uses the layer in
-    /// rect projection still gets sensible output.
-    /// </para>
+    /// diamond. Retained from slice 3.5 for back-compat ; the swatch is
+    /// hidden by default at slice 3.6 design fix but the bands are still
+    /// synthesised so a future flip of
+    /// <see cref="TileKnowledgeStateHelpers.ShouldRenderPaletteSwatch"/>
+    /// works without re-spawning cells.
     /// </summary>
     private Vector2[][] ComputeSwatchBandVertices(float halfW, float halfH)
     {
         if (Projection != GridProjection.IsoDiamondDown)
         {
-            // Rect mode : 3 horizontal bands as in slice 2.
             var bandH = halfH * 2f / 3f;
             var result = new Vector2[3][];
             for (int b = 0; b < 3; b++)
@@ -718,28 +671,6 @@ public partial class FogTileLayer : Node2D
             return result;
         }
 
-        // Iso mode : cut the diamond into 3 strips parallel to the
-        // top-right edge (vertices : top (0,-halfH) and right (halfW,0)).
-        // The perpendicular direction is from top-right edge toward
-        // bottom-left vertex (-halfW, 0) ⇄ (0, halfH). We slice along the
-        // perpendicular axis at t = 1/3 and t = 2/3.
-        //
-        // Diamond vertices : top T = (0,-halfH), right R = (halfW,0),
-        // bottom B = (0,halfH), left L = (-halfW,0).
-        //
-        // Strip 0 (closest to top-right edge T-R): triangle T, R, midpoint
-        //         on T-L at t=1/3 ; or rather: the strip is bounded above
-        //         by T-R edge and below by a parallel line through points
-        //         t=1/3 along T-L and 1/3 along R-B.
-        //
-        // For simplicity and clarity, we synthesise each strip as a quad
-        // whose four vertices are :
-        //   strip 0 : T, R, p1on(R-B), p1on(T-L)
-        //   strip 1 : p1on(T-L), p1on(R-B), p2on(R-B), p2on(T-L)
-        //   strip 2 : p2on(T-L), p2on(R-B), B, L  (reordered for convexity)
-        //
-        // where p_t on (X-Y) = X + t × (Y - X).
-
         var T = new Vector2(0f, -halfH);
         var R = new Vector2(halfW, 0f);
         var B = new Vector2(0f, halfH);
@@ -747,17 +678,14 @@ public partial class FogTileLayer : Node2D
 
         Vector2 Lerp(Vector2 a, Vector2 b, float t) => a + (b - a) * t;
 
-        // Strip 0 : T, R, p1RB, p1TL
         var p1TL = Lerp(T, L, 1f / 3f);
         var p1RB = Lerp(R, B, 1f / 3f);
         var strip0 = new[] { T, R, p1RB, p1TL };
 
-        // Strip 1 : p1TL, p1RB, p2RB, p2TL
         var p2TL = Lerp(T, L, 2f / 3f);
         var p2RB = Lerp(R, B, 2f / 3f);
         var strip1 = new[] { p1TL, p1RB, p2RB, p2TL };
 
-        // Strip 2 : p2TL, p2RB, B, L
         var strip2 = new[] { p2TL, p2RB, B, L };
 
         return new[] { strip0, strip1, strip2 };
@@ -815,20 +743,29 @@ public partial class FogTileLayer : Node2D
     {
         if (!_cells.TryGetValue(coord, out var visuals)) return;
 
-        var targetCartonAlpha = TileKnowledgeStateHelpers.ResolveCartonAlpha(state);
+        var targetBackAlpha = TileKnowledgeStateHelpers.ResolveCartonBackAlpha(state);
+        var targetFaceAlpha = TileKnowledgeStateHelpers.ResolveCartonFaceAlpha(state);
         var showSwatch = TileKnowledgeStateHelpers.ShouldRenderPaletteSwatch(state);
         var showSceau = TileKnowledgeStateHelpers.ShouldRenderSceau(state);
 
         if (!animate)
         {
-            visuals.Carton.Color = WithAlpha(CartonBaseTint, targetCartonAlpha);
-            visuals.Carton.RotationDegrees = 0f;
-            visuals.Carton.Position = Vector2.Zero;
-            visuals.Carton.Scale = Vector2.One;
-            visuals.Carton.Visible = targetCartonAlpha > 0f;
+            visuals.CartonBack.Color = WithAlpha(CartonBaseTint, targetBackAlpha);
+            visuals.CartonBack.RotationDegrees = 0f;
+            visuals.CartonBack.Position = Vector2.Zero;
+            visuals.CartonBack.Scale = Vector2.One;
+            visuals.CartonBack.Visible = targetBackAlpha > 0f;
 
-            visuals.Shadow.Color = new Color(0f, 0f, 0f, targetCartonAlpha * 0.4f);
-            visuals.Shadow.Visible = targetCartonAlpha > 0f;
+            visuals.CartonFace.Color = new Color(1f, 1f, 1f, targetFaceAlpha);
+            visuals.CartonFace.RotationDegrees = 0f;
+            visuals.CartonFace.Position = Vector2.Zero;
+            visuals.CartonFace.Scale = Vector2.One;
+            visuals.CartonFace.Visible = targetFaceAlpha > 0f;
+
+            // Shadow tied to the back's opacity — when the back is gone
+            // the cell as a whole is gone (Levée / Scellée), no shadow.
+            visuals.Shadow.Color = new Color(0f, 0f, 0f, targetBackAlpha * 0.4f);
+            visuals.Shadow.Visible = targetBackAlpha > 0f;
 
             visuals.Swatch.Visible = showSwatch;
             visuals.Sceau.Visible = showSceau;
@@ -837,8 +774,13 @@ public partial class FogTileLayer : Node2D
 
         KillCellTween(coord);
 
+        // Pliure plays only on Esquissée → Levée, when the back is the
+        // last visible carton-blocker. The trigger condition is "we are
+        // transitioning to Levée AND the back is still drawn" — using
+        // back alpha (not face alpha) is correct since the back is the
+        // visual blocker that "lifts off".
         var isPliure = state == TileKnowledgeState.Levee
-            && visuals.Carton.Color.A > 0f;
+            && visuals.CartonBack.Color.A > 0f;
 
         if (isPliure)
         {
@@ -846,7 +788,7 @@ public partial class FogTileLayer : Node2D
         }
         else
         {
-            ScheduleCrossfade(coord, visuals, state, targetCartonAlpha, showSwatch, showSceau);
+            ScheduleCrossfade(coord, visuals, state, targetBackAlpha, targetFaceAlpha, showSwatch, showSceau);
         }
     }
 
@@ -860,36 +802,46 @@ public partial class FogTileLayer : Node2D
         var tween = CreateTween();
         tween.SetParallel(true);
 
-        // Pliure rotation — slice 3.5 anchors around the NW vertex of
-        // the iso diamond (or the top-left corner of the rect cell).
-        // Implementation : we don't use Polygon2D.Pivot (Polygon2D has
-        // no pivot field in 4.6) ; instead we shift Position by the
-        // pivot vector and re-express vertices around that pivot. That
-        // edit happens once per cell at spawn time -- but we kept the
-        // vertices anchored at center for hit-test consistency with
-        // the math seam, so for the pliure we just rotate around the
-        // current center and visually accept the small offset. The
-        // 25° rotation reads as a corner peel either way ; a future
-        // slice can wire a true off-center rotation via a wrapper Node2D.
-        tween.TweenProperty(visuals.Carton, "rotation_degrees", PliureRotationDegrees, PliureDurationSec)
-            .SetTrans(Tween.TransitionType.Quad)
-            .SetEase(Tween.EaseType.InOut);
-
+        // Pliure rotation + lift — applied to both back and face in
+        // parallel so the cell reads as a single sheet lifting (the back
+        // is the visual sheet ; the face slides off underneath as it
+        // fades). The two polygons share Position / Rotation tweens with
+        // the same curve.
         var halfH = (Projection == GridProjection.IsoDiamondDown)
             ? CellSizePx / 4f
             : CellSizePx / 2f;
         var liftPx = -(halfH * 2f) * PliureLiftFractionOfCell;
-        tween.TweenProperty(visuals.Carton, "position", new Vector2(0f, liftPx), PliureDurationSec)
+        var liftPos = new Vector2(0f, liftPx);
+
+        tween.TweenProperty(visuals.CartonBack, "rotation_degrees", PliureRotationDegrees, PliureDurationSec)
+            .SetTrans(Tween.TransitionType.Quad)
+            .SetEase(Tween.EaseType.InOut);
+        tween.TweenProperty(visuals.CartonBack, "position", liftPos, PliureDurationSec)
             .SetTrans(Tween.TransitionType.Quad)
             .SetEase(Tween.EaseType.InOut);
 
-        var startAlpha = visuals.Carton.Color.A;
+        tween.TweenProperty(visuals.CartonFace, "rotation_degrees", PliureRotationDegrees, PliureDurationSec)
+            .SetTrans(Tween.TransitionType.Quad)
+            .SetEase(Tween.EaseType.InOut);
+        tween.TweenProperty(visuals.CartonFace, "position", liftPos, PliureDurationSec)
+            .SetTrans(Tween.TransitionType.Quad)
+            .SetEase(Tween.EaseType.InOut);
+
+        // Alpha fade — back fades out over the full duration with a
+        // hold-then-fade two-stage curve preserved from slice 2 ; face
+        // fades out in parallel (face starts at whatever alpha the
+        // current state had, fades to 0 in step with the back).
+        var startBackAlpha = visuals.CartonBack.Color.A;
+        var startFaceAlpha = visuals.CartonFace.Color.A;
         var preFadeDuration = PliureDurationSec - 0.20f;
         if (preFadeDuration > 0f)
         {
-            tween.TweenProperty(visuals.Carton, "color:a", startAlpha, preFadeDuration);
+            tween.TweenProperty(visuals.CartonBack, "color:a", startBackAlpha, preFadeDuration);
+            tween.TweenProperty(visuals.CartonFace, "color:a", startFaceAlpha, preFadeDuration);
         }
-        tween.TweenProperty(visuals.Carton, "color:a", 0f, 0.20f)
+        tween.TweenProperty(visuals.CartonBack, "color:a", 0f, 0.20f)
+            .SetDelay(System.MathF.Max(preFadeDuration, 0f));
+        tween.TweenProperty(visuals.CartonFace, "color:a", 0f, 0.20f)
             .SetDelay(System.MathF.Max(preFadeDuration, 0f));
 
         tween.TweenProperty(visuals.Shadow, "color:a", 0f, PliureDurationSec)
@@ -909,14 +861,22 @@ public partial class FogTileLayer : Node2D
         GridCoord coord,
         CellVisuals visuals,
         TileKnowledgeState targetState,
-        float targetCartonAlpha,
+        float targetBackAlpha,
+        float targetFaceAlpha,
         bool showSwatch,
         bool showSceau)
     {
-        visuals.Carton.RotationDegrees = 0f;
-        visuals.Carton.Position = Vector2.Zero;
-        visuals.Carton.Scale = Vector2.One;
-        visuals.Carton.Visible = true;
+        // Reset transform on both polygons (a previous pliure may have
+        // left rotation / position non-zero on the cached visuals).
+        visuals.CartonBack.RotationDegrees = 0f;
+        visuals.CartonBack.Position = Vector2.Zero;
+        visuals.CartonBack.Scale = Vector2.One;
+        visuals.CartonBack.Visible = true;
+
+        visuals.CartonFace.RotationDegrees = 0f;
+        visuals.CartonFace.Position = Vector2.Zero;
+        visuals.CartonFace.Scale = Vector2.One;
+        visuals.CartonFace.Visible = true;
 
         visuals.Swatch.Visible = showSwatch;
         visuals.Sceau.Visible = showSceau;
@@ -924,11 +884,14 @@ public partial class FogTileLayer : Node2D
         var tween = CreateTween();
         tween.SetParallel(true);
 
-        tween.TweenProperty(visuals.Carton, "color:a", targetCartonAlpha, CrossfadeDurationSec)
+        tween.TweenProperty(visuals.CartonBack, "color:a", targetBackAlpha, CrossfadeDurationSec)
+            .SetTrans(Tween.TransitionType.Sine)
+            .SetEase(Tween.EaseType.InOut);
+        tween.TweenProperty(visuals.CartonFace, "color:a", targetFaceAlpha, CrossfadeDurationSec)
             .SetTrans(Tween.TransitionType.Sine)
             .SetEase(Tween.EaseType.InOut);
 
-        tween.TweenProperty(visuals.Shadow, "color:a", targetCartonAlpha * 0.4f, CrossfadeDurationSec)
+        tween.TweenProperty(visuals.Shadow, "color:a", targetBackAlpha * 0.4f, CrossfadeDurationSec)
             .SetTrans(Tween.TransitionType.Sine)
             .SetEase(Tween.EaseType.InOut);
 
@@ -943,15 +906,23 @@ public partial class FogTileLayer : Node2D
 
     private void FinalizeCell(CellVisuals visuals, TileKnowledgeState state, bool showSwatch, bool showSceau)
     {
-        var alpha = TileKnowledgeStateHelpers.ResolveCartonAlpha(state);
-        visuals.Carton.Color = WithAlpha(CartonBaseTint, alpha);
-        visuals.Carton.Visible = alpha > 0f;
-        visuals.Carton.RotationDegrees = 0f;
-        visuals.Carton.Position = Vector2.Zero;
-        visuals.Carton.Scale = Vector2.One;
+        var backAlpha = TileKnowledgeStateHelpers.ResolveCartonBackAlpha(state);
+        var faceAlpha = TileKnowledgeStateHelpers.ResolveCartonFaceAlpha(state);
 
-        visuals.Shadow.Color = new Color(0f, 0f, 0f, alpha * 0.4f);
-        visuals.Shadow.Visible = alpha > 0f;
+        visuals.CartonBack.Color = WithAlpha(CartonBaseTint, backAlpha);
+        visuals.CartonBack.Visible = backAlpha > 0f;
+        visuals.CartonBack.RotationDegrees = 0f;
+        visuals.CartonBack.Position = Vector2.Zero;
+        visuals.CartonBack.Scale = Vector2.One;
+
+        visuals.CartonFace.Color = new Color(1f, 1f, 1f, faceAlpha);
+        visuals.CartonFace.Visible = faceAlpha > 0f;
+        visuals.CartonFace.RotationDegrees = 0f;
+        visuals.CartonFace.Position = Vector2.Zero;
+        visuals.CartonFace.Scale = Vector2.One;
+
+        visuals.Shadow.Color = new Color(0f, 0f, 0f, backAlpha * 0.4f);
+        visuals.Shadow.Visible = backAlpha > 0f;
 
         visuals.Swatch.Visible = showSwatch;
         visuals.Sceau.Visible = showSceau;
@@ -975,14 +946,15 @@ public partial class FogTileLayer : Node2D
     }
 
     /// <summary>
-    /// Per-cell node references. Slice 3.5 swaps Sprite2D for Polygon2D
-    /// on Carton, Shadow, Sceau (true diamond geometry) ; Swatch stays a
-    /// Node2D parent of three Polygon2D bands.
+    /// Per-cell node references. Slice 3.6 design fix splits the single
+    /// Carton Polygon2D into <c>CartonFace</c> (textured, source-map slice)
+    /// and <c>CartonBack</c> (no texture, beige opaque dos de carte).
     /// </summary>
     private readonly record struct CellVisuals(
         Node2D Cell,
         Polygon2D Shadow,
         Node2D Swatch,
-        Polygon2D Carton,
+        Polygon2D CartonFace,
+        Polygon2D CartonBack,
         Polygon2D Sceau);
 }

@@ -73,64 +73,196 @@ public enum TileKnowledgeState
 /// <see cref="MapPanInputLogic"/> seam pattern: small static surface,
 /// every consumer (the runtime store, the fog renderer, the future
 /// save/load) calls these helpers instead of recoding the rules.
+///
+/// <para>
+/// <b>Slice 3.6 design fix — two-polygon carton (back + face).</b>
+/// Slice 3.6 hotfix <c>659b5e6</c> made the single Carton Polygon2D show
+/// the source-map slice for every state, then modulated it by a beige
+/// tint at full alpha. The result was a beige-tinted source map at
+/// Inconnue, not an opaque beige carton. Symptom: the user perceived
+/// Esquissée as "more opaque" than Inconnue because the beige tint
+/// faded together with the alpha, exposing more of the source map
+/// underneath. The progression "carton hides → carte revealed" was
+/// visually inverted.
+/// </para>
+///
+/// <para>
+/// <b>Fix.</b> Split the carton into two stacked Polygon2D children per
+/// cell:
+/// <list type="bullet">
+///   <item><b>CartonBack</b> — no texture, modulate beige opaque. Alpha
+///         resolved by <see cref="ResolveCartonBackAlpha"/>. Acts as the
+///         "dos de carte" that hides everything below it (face + world
+///         map) when the cell is Inconnue.</item>
+///   <item><b>CartonFace</b> — textured with the source map slice in
+///         absolute source-map UV (the slice 3.6 hotfix UV math). Alpha
+///         resolved by <see cref="ResolveCartonFaceAlpha"/>. Sits below
+///         CartonBack in z-order so the back masks it when fully opaque,
+///         and progressively exposes it as the player advances on the
+///         knowledge ladder.</item>
+/// </list>
+/// </para>
 /// </summary>
 public static class TileKnowledgeStateHelpers
 {
-    /// <summary>
-    /// Carton alpha at <see cref="TileKnowledgeState.Inconnue"/> — fully
-    /// opaque (the master case, Varn §1.2 "le carton bouche tout").
-    /// </summary>
-    public const float CartonAlphaInconnue = 1.0f;
+    // ---------------------------------------------------------------
+    // CartonBack alpha table (the beige opaque "dos de carte")
+    // ---------------------------------------------------------------
 
     /// <summary>
-    /// Carton alpha at <see cref="TileKnowledgeState.Pressentie"/>. Varn
-    /// §1.2 "carton translucide ~70 %" → 70 % visible carton means alpha
-    /// 0.70 on top of the palette swatch. The 3 teintes show through.
+    /// CartonBack alpha at <see cref="TileKnowledgeState.Inconnue"/> —
+    /// fully opaque (the master case, Varn §1.2 "le carton bouche tout").
+    /// At this alpha the back fully masks both the face below it and the
+    /// world map sprite further below.
     /// </summary>
-    public const float CartonAlphaPressentie = 0.70f;
+    public const float CartonBackAlphaInconnue = 1.0f;
 
     /// <summary>
-    /// Carton alpha at <see cref="TileKnowledgeState.Esquissee"/>. Varn
-    /// §1.2 "carton translucide ~50 %", brief slice 2 calibre à ~0.4
-    /// pour que la palette soit nettement plus lisible qu'à Pressentie
-    /// — l'opposition lisible/non-lisible est la vraie information à ce
-    /// niveau (le drill devient autorisé). Silhouette sépia (Varn §3.4
-    /// 1.2 s plume) reportée slice 3+.
+    /// CartonBack alpha at <see cref="TileKnowledgeState.Pressentie"/>.
+    /// 70 % beige back + the face starts to peek through the residual 30 %.
     /// </summary>
-    public const float CartonAlphaEsquissee = 0.40f;
+    public const float CartonBackAlphaPressentie = 0.70f;
 
     /// <summary>
-    /// Carton alpha at <see cref="TileKnowledgeState.Levee"/> — invisible.
-    /// The pliure-soulèvement animation (Varn §4.5, brief slice 2 livrable
-    /// 3) carries the transition ; the steady-state value is 0.
+    /// CartonBack alpha at <see cref="TileKnowledgeState.Esquissee"/>.
+    /// 40 % beige back ; the face dominates. The contrast Pressentie 0.7 vs
+    /// Esquissée 0.4 is what carries the "drill becomes legal" signal.
     /// </summary>
-    public const float CartonAlphaLevee = 0.0f;
+    public const float CartonBackAlphaEsquissee = 0.40f;
+
+    /// <summary>CartonBack alpha at <see cref="TileKnowledgeState.Levee"/> — invisible.</summary>
+    public const float CartonBackAlphaLevee = 0.0f;
+
+    /// <summary>CartonBack alpha at <see cref="TileKnowledgeState.Scellee"/> — invisible.</summary>
+    public const float CartonBackAlphaScellee = 0.0f;
+
+    // ---------------------------------------------------------------
+    // CartonFace alpha table (the source-map slice)
+    // ---------------------------------------------------------------
 
     /// <summary>
-    /// Carton alpha at <see cref="TileKnowledgeState.Scellee"/> — same as
-    /// Levée (the scellement adds a sceau on the iso ground, it does not
-    /// alter the carton state ; the carton is already gone by the time we
-    /// reach Scellée).
+    /// CartonFace alpha at <see cref="TileKnowledgeState.Inconnue"/> —
+    /// fully hidden. The back is opaque so the face is invisible anyway,
+    /// but we set face alpha to 0 explicitly so the ordering is correct
+    /// during transitions and so we don't pay for a draw call at this
+    /// state (Polygon2D with alpha 0 still issues a draw — see
+    /// <see cref="ShouldRenderCartonFace"/> for the visibility short-circuit).
     /// </summary>
-    public const float CartonAlphaScellee = 0.0f;
+    public const float CartonFaceAlphaInconnue = 0.0f;
 
     /// <summary>
-    /// Slice 2 alpha resolver — replaces the slice 1 binary
-    /// <see cref="ShouldRenderOpaque"/>. Returns the steady-state carton
-    /// alpha for a given knowledge state. The renderer uses this both
-    /// for the initial spawn and for crossfade tween targets ; the
-    /// pliure-soulèvement at <c>Esquissee → Levee</c> tweens to 0 over
-    /// 800 ms while the rotation/translation play in parallel.
+    /// CartonFace alpha at <see cref="TileKnowledgeState.Pressentie"/>.
+    /// 30 % visible face under a 70 % beige back ; the source-map slice
+    /// starts to surface. This is the "rumeur, longue-vue" visual.
     /// </summary>
-    public static float ResolveCartonAlpha(TileKnowledgeState state) => state switch
+    public const float CartonFaceAlphaPressentie = 0.30f;
+
+    /// <summary>
+    /// CartonFace alpha at <see cref="TileKnowledgeState.Esquissee"/>.
+    /// 60 % visible face under a 40 % beige back ; the slice is now
+    /// the dominant signal. "Lisible mais pas révélé."
+    /// </summary>
+    public const float CartonFaceAlphaEsquissee = 0.60f;
+
+    /// <summary>
+    /// CartonFace alpha at <see cref="TileKnowledgeState.Levee"/> —
+    /// invisible. At Levée the WorldMapSprite below shows the same pixels
+    /// the face would show (UV in source coords); keeping the face hidden
+    /// here avoids the duplicate draw and the seam between iso-clipped
+    /// face and full world map sprite. Choice documented in M3/Phase 9
+    /// slice 3.6 design fix brief.
+    /// </summary>
+    public const float CartonFaceAlphaLevee = 0.0f;
+
+    /// <summary>CartonFace alpha at <see cref="TileKnowledgeState.Scellee"/> — same as Levée.</summary>
+    public const float CartonFaceAlphaScellee = 0.0f;
+
+    // ---------------------------------------------------------------
+    // Back-compat aliases for the slice 2 single-carton vocabulary.
+    // Kept for the slice 2 xUnit suite and any consumer that reads the
+    // "is the carton blocking" signal without caring about the back/face
+    // split. Resolved as the BACK alpha, since "the carton" semantically
+    // is the opaque blocker, not the faded face.
+    // ---------------------------------------------------------------
+
+    /// <summary>Back-compat alias for <see cref="CartonBackAlphaInconnue"/>.</summary>
+    public const float CartonAlphaInconnue = CartonBackAlphaInconnue;
+
+    /// <summary>Back-compat alias for <see cref="CartonBackAlphaPressentie"/>.</summary>
+    public const float CartonAlphaPressentie = CartonBackAlphaPressentie;
+
+    /// <summary>Back-compat alias for <see cref="CartonBackAlphaEsquissee"/>.</summary>
+    public const float CartonAlphaEsquissee = CartonBackAlphaEsquissee;
+
+    /// <summary>Back-compat alias for <see cref="CartonBackAlphaLevee"/>.</summary>
+    public const float CartonAlphaLevee = CartonBackAlphaLevee;
+
+    /// <summary>Back-compat alias for <see cref="CartonBackAlphaScellee"/>.</summary>
+    public const float CartonAlphaScellee = CartonBackAlphaScellee;
+
+    /// <summary>
+    /// Slice 3.6 design fix — CartonBack alpha resolver. Returns the
+    /// steady-state alpha for the beige opaque dos de carte. The back
+    /// is the visual blocker that hides both the face and the world map
+    /// sprite below it when the cell is Inconnue, and progressively
+    /// fades as the player advances on the knowledge ladder.
+    /// </summary>
+    public static float ResolveCartonBackAlpha(TileKnowledgeState state) => state switch
     {
-        TileKnowledgeState.Inconnue   => CartonAlphaInconnue,
-        TileKnowledgeState.Pressentie => CartonAlphaPressentie,
-        TileKnowledgeState.Esquissee  => CartonAlphaEsquissee,
-        TileKnowledgeState.Levee      => CartonAlphaLevee,
-        TileKnowledgeState.Scellee    => CartonAlphaScellee,
-        _ => CartonAlphaInconnue,
+        TileKnowledgeState.Inconnue   => CartonBackAlphaInconnue,
+        TileKnowledgeState.Pressentie => CartonBackAlphaPressentie,
+        TileKnowledgeState.Esquissee  => CartonBackAlphaEsquissee,
+        TileKnowledgeState.Levee      => CartonBackAlphaLevee,
+        TileKnowledgeState.Scellee    => CartonBackAlphaScellee,
+        _ => CartonBackAlphaInconnue,
     };
+
+    /// <summary>
+    /// Slice 3.6 design fix — CartonFace alpha resolver. Returns the
+    /// steady-state alpha for the source-map slice (textured face). The
+    /// face is hidden at Inconnue (back is fully opaque so it'd be invisible
+    /// anyway) and at Levée+ (the WorldMapSprite below carries the same
+    /// pixels). It surfaces progressively at Pressentie 0.30 and
+    /// Esquissée 0.60 so the player gets a real preview-of-the-map signal
+    /// at the intermediate states.
+    /// </summary>
+    public static float ResolveCartonFaceAlpha(TileKnowledgeState state) => state switch
+    {
+        TileKnowledgeState.Inconnue   => CartonFaceAlphaInconnue,
+        TileKnowledgeState.Pressentie => CartonFaceAlphaPressentie,
+        TileKnowledgeState.Esquissee  => CartonFaceAlphaEsquissee,
+        TileKnowledgeState.Levee      => CartonFaceAlphaLevee,
+        TileKnowledgeState.Scellee    => CartonFaceAlphaScellee,
+        _ => CartonFaceAlphaInconnue,
+    };
+
+    /// <summary>
+    /// Back-compat alias for <see cref="ResolveCartonBackAlpha"/>. Slice 2
+    /// callers that asked "what's the carton alpha at this state ?" get
+    /// the BACK alpha (the opaque blocker), since that's what the
+    /// "carton" originally meant before the slice 3.6 design fix split it
+    /// into back + face. The slice 2 xUnit suite pins these values
+    /// (1.0 / 0.7 / 0.4 / 0.0 / 0.0).
+    /// </summary>
+    public static float ResolveCartonAlpha(TileKnowledgeState state) =>
+        ResolveCartonBackAlpha(state);
+
+    /// <summary>
+    /// Slice 3.6 design fix — visibility short-circuit for CartonFace. True
+    /// iff the face contributes any visible pixels at this state. Used by
+    /// the renderer to skip the per-frame draw call when alpha would be 0.
+    /// Equivalent to <c>ResolveCartonFaceAlpha(state) &gt; 0f</c>, named
+    /// for the renderer's intent.
+    /// </summary>
+    public static bool ShouldRenderCartonFace(TileKnowledgeState state) =>
+        ResolveCartonFaceAlpha(state) > 0f;
+
+    /// <summary>
+    /// Slice 3.6 design fix — visibility short-circuit for CartonBack.
+    /// Same idiom as <see cref="ShouldRenderCartonFace"/>.
+    /// </summary>
+    public static bool ShouldRenderCartonBack(TileKnowledgeState state) =>
+        ResolveCartonBackAlpha(state) > 0f;
 
     /// <summary>
     /// True iff a sceau de cire placeholder should be rendered over this
@@ -144,14 +276,30 @@ public static class TileKnowledgeStateHelpers
 
     /// <summary>
     /// True iff the palette swatch (3 teintes quantified colors) should
-    /// be visible behind the carton for this cell. At <see cref="TileKnowledgeState.Inconnue"/>
-    /// the carton is fully opaque so the swatch is hidden — we
-    /// short-circuit the swatch's own Visible flag rather than relying
-    /// on the carton's alpha to occlude it (cheaper, cleaner, no risk
-    /// of a partial-alpha edge bleed).
+    /// be visible behind the carton for this cell.
+    ///
+    /// <para>
+    /// <b>Slice 3.6 design fix.</b> With the new CartonFace polygon
+    /// showing the actual source-map slice at Pressentie and Esquissée,
+    /// the PaletteSwatch's diegetic role ("hint of palette through the
+    /// translucent carton") is now fulfilled by the face itself. The
+    /// swatch is therefore retired by default — the renderer keeps the
+    /// node in the scene for back-compat with any consumer that still
+    /// reads it, but always sets <c>Visible = false</c>. This predicate
+    /// returns false for every state to lock that behaviour at the
+    /// helper layer ; if a future slice wants the swatch back (e.g. for
+    /// a stylised parchemin overlay), it can flip this in one place.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Slice 2 callers.</b> The slice 2 xUnit suite pinned the
+    /// previous table (true at Pressentie + Esquissée, false elsewhere).
+    /// That suite is updated as part of the slice 3.6 design fix to
+    /// reflect the retirement of the swatch ; the slice 2 visual contract
+    /// is superseded by slice 3.6's two-polygon carton.
+    /// </para>
     /// </summary>
-    public static bool ShouldRenderPaletteSwatch(TileKnowledgeState state) =>
-        state == TileKnowledgeState.Pressentie || state == TileKnowledgeState.Esquissee;
+    public static bool ShouldRenderPaletteSwatch(TileKnowledgeState state) => false;
 
     /// <summary>
     /// Slice 1 binary contract, retained for back-compat with the slice 1
