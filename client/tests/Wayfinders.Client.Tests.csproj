@@ -128,4 +128,15 @@
     <Compile Include="..\scripts\screens\FogTileGridLogic.cs" Link="src\FogTileGridLogic.cs" />
   </ItemGroup>
 
+  <!-- Phase 9 slice 2 (M3 / L1 World fondations / 2026-05-08): palette
+       source contract. IFogPaletteSource + PaletteRgb are Godot-free
+       so xUnit pins the array-of-3 contract and the neutral-carton
+       fallback shape. The Godot-bound BakedFogPaletteSource (reads the
+       baked PNG via ResourceLoader) stays in the client csproj only —
+       fallback codepath validated through manual smoke (delete the
+       PNG, observe neutral-carton swatches). -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\IFogPaletteSource.cs" Link="src\IFogPaletteSource.cs" />
+  </ItemGroup>
+
 </Project>

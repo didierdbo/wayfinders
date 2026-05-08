@@ -12,56 +12,33 @@ namespace Wayfinders.Client.Scenes.Screens;
 
 /// <summary>
 /// E2 World Map -- the Cadastre's first feuillet. Slice 1 of L1 World
-/// fondations (M3 / Arc 3 / Phase 9 slice 1, 2026-05-08) refactors this
-/// screen along three axes :
-/// <list type="bullet">
-///   <item>The pan stack moves out of inline <c>_Ready</c> / <c>_Input</c>
-///         / <c>_Process</c> code into a reusable
-///         <see cref="MapPan2DComponent"/>. Every Phase 8.x invariant is
-///         preserved verbatim (CanvasLayer trap, mouse_filter / _Input
-///         precedence, AZERTY physical_keycode, wheel-during-drag
-///         suppression with defense-in-depth, modal-owns-input,
-///         post-drag grace, RMB threshold) ; behaviour is unchanged,
-///         the code lives in a different file.</item>
-///   <item>A new <see cref="FogTileLayer"/> renders Sprite2D-per-cell
-///         fog placeholders above the iso ground (Varn 2026-05-08
-///         <c>Tiles as Cartography and Fog</c> §1.2 / §4.6 stack).</item>
-///   <item>A <see cref="TileKnowledgeStore"/> child node holds the
-///         <see cref="TileKnowledgeState"/> dictionary (livrable 3
-///         skeleton). Slice 1 wires only the binary
-///         <see cref="TileKnowledgeState.Inconnue"/> / <see cref="TileKnowledgeState.Levee"/>
-///         visuals — the three intermediate states are reserved in the
-///         enum but treated as Inconnue in the renderer until slice 2.</item>
-/// </list>
+/// fondations refactored the pan stack into <see cref="MapPan2DComponent"/>
+/// and added the fog scaffold ; slice 2 (this revision, 2026-05-08) wires
+/// the baked palette source, paints palette swatches behind translucent
+/// cartons, animates the pliure-soulèvement, and grows the debug surface
+/// to F / Shift+F / Ctrl+F / Alt+F.
 ///
 /// <para>
-/// <b>What this screen still owns directly.</b>
+/// <b>What this screen owns directly.</b>
 /// <list type="bullet">
 ///   <item>POI spawn + hover tooltip + click dispatch (Halfgate-only
-///         Varn §6.D6.10 lock). POIs are spawned as children of
-///         <see cref="MapPan2DComponent.PoiContainer"/> so they pan with
-///         the camera for free.</item>
+///         Varn §6.D6.10 lock). POIs are children of
+///         <see cref="MapPan2DComponent.PoiContainer"/>.</item>
 ///   <item>Decorative chrome (banner, panels, layer indicator, back
 ///         button, blocked indicator). All in CanvasLayer 2 / 3 above
-///         the world tree, unchanged from pre-extraction.</item>
-///   <item>The slice 1 debug toggle (F key) for the
-///         <see cref="TileKnowledgeStore"/> — flips the cell under
-///         the cursor between Inconnue (opaque fog) and Levée (hidden
-///         fog). Validation surface for livrable 3 ; will be retired
-///         when slice 2's actual zoom-driven drill ladders supply the
-///         real state mutations.</item>
+///         the world tree, unchanged.</item>
+///   <item>The slice 2 debug commands for the
+///         <see cref="TileKnowledgeStore"/> :
+///         <c>F</c> cycle next state on the cell under the cursor,
+///         <c>Shift+F</c> cycle previous, <c>Ctrl+F</c> reset all to
+///         Inconnue, <c>Alt+F</c> flip every cell to Levée. Validation
+///         surface for livrable 4. Will be retired once slice 3+'s
+///         zoom-driven drill ladders supply the real state mutations.</item>
+///   <item>Construction of the <see cref="BakedFogPaletteSource"/> from
+///         the editor-baked PNG (slice 2 livrable 1). Falls back to
+///         neutral-carton if the bake doesn't exist yet — the slice 2
+///         scaffold is observable on a fresh checkout pre-bake.</item>
 /// </list>
-/// </para>
-///
-/// <para>
-/// <b>Why POIs stay here, not in the component.</b> POI spawn is tied
-/// to <see cref="OpeningStrings"/> / <see cref="WorldMapPois"/> /
-/// <see cref="PoiDispatchLogic"/> -- screen-specific data and routing
-/// that does not belong inside a generic 2D pan component. The
-/// component exposes the world tree as a public API ; the screen owns
-/// what spawns into it. This keeps <see cref="MapPan2DComponent"/>
-/// reusable for future scenes (E3 cité, ex-E5 quartier) that have
-/// different POI grammars.
 /// </para>
 /// </summary>
 public partial class E2WorldMap : Control, IScreen
@@ -76,16 +53,25 @@ public partial class E2WorldMap : Control, IScreen
     private const string PanelRightAssetKey = "e2.panel_right";
     private const string HalfgatePoiId = "halfgate";
 
+    /// <summary>
+    /// Path of the editor-baked palette PNG. Default matches the slice 1
+    /// <see cref="Wayfinders.Client.Tools.PaletteQuantizerTool"/> output
+    /// for the E2.1 master at 128 px cells. Pre-bake (fresh checkout) the
+    /// path resolves to nothing and the
+    /// <see cref="BakedFogPaletteSource"/> falls back to neutral-carton —
+    /// no crash, slice 2 scaffold remains observable.
+    /// </summary>
+    private const string BakedPaletteResPath = "res://assets/baked/e2_world_palette_3teintes_128px.png";
+
     private const float BlockedFadeInSeconds = 0.1f;
     private const float BlockedHoldSeconds = 2.0f;
     private const float BlockedFadeOutSeconds = 0.2f;
 
     /// <summary>
-    /// Slice 1 debug action name. Bound to the F key in
-    /// <c>project.godot</c> ; toggles the knowledge state of the cell
-    /// under the cursor between Inconnue and Levée (livrable 3 exit
-    /// criterion). Held in a constant so a future rename surfaces every
-    /// consumer at compile time.
+    /// Slice 1+2 debug action name. Bound to the F key in
+    /// <c>project.godot</c>. The slice 2 handler reads modifier state
+    /// off the InputEventKey to dispatch between cycle-next /
+    /// cycle-previous / reset / flip-all (livrable 4 exit criterion).
     /// </summary>
     private const string DebugToggleFogActionName = "debug_toggle_fog_cell";
 
@@ -162,8 +148,7 @@ public partial class E2WorldMap : Control, IScreen
 
         // Configure the pan component with the world texture and an
         // initial center on Halfgate (D-P8.2-08, "tu commences là où
-        // l'action est"). The component handles camera limits and
-        // initial-clamp internally.
+        // l'action est").
         var halfgate = FindPoi(HalfgatePoiId);
         var imageSize = worldTexture.GetSize();
         var initialCenter = halfgate?.Position ?? imageSize / 2f;
@@ -187,20 +172,26 @@ public partial class E2WorldMap : Control, IScreen
         // Configure the fog layer AFTER the pan component is configured
         // (so the world image size is known) and AFTER POIs are spawned
         // (so the z-index ordering on POIs is in place when the fog
-        // layer's own z-index sits above). The placeholder texture is a
-        // 1×1 white pixel — modulate-tinted to beige-écru carton inside
-        // the fog renderer, scaled to cell size at spawn.
+        // layer's own z-index sits above). Slice 2 wires the baked
+        // palette source : compute grid dimensions from the world image
+        // size first, then construct the source against that expected
+        // shape so a stale bake (different cell size / world image)
+        // triggers fallback rather than silent off-by-one.
         var fogPlaceholder = MakePlaceholderCartonTexture();
-        _fogTileLayer.Configure(_panComponent.WorldImageSize, _knowledgeStore, fogPlaceholder);
+        var expectedDimensions = FogTileGridLogic.ComputeGridSize(
+            new PanVec2(_panComponent.WorldImageSize.X, _panComponent.WorldImageSize.Y),
+            _fogTileLayer.CellSizePx);
+        var paletteSource = new BakedFogPaletteSource(BakedPaletteResPath, expectedDimensions);
+        _fogTileLayer.Configure(_panComponent.WorldImageSize, _knowledgeStore, fogPlaceholder, paletteSource);
 
-        // Pre-flight self-check on the slice 1 debug action. If the
-        // project.godot binding is missing the F key will silently no-op
-        // and livrable 3 cannot be demonstrated.
+        // Pre-flight self-check on the slice 2 debug action. If the
+        // project.godot binding is missing, the F-key surface silently
+        // no-ops and livrable 4 cannot be demonstrated.
         if (!InputMap.HasAction(DebugToggleFogActionName))
         {
             GD.PushWarning(
                 $"[E2WorldMap] preflight: {DebugToggleFogActionName} action missing from InputMap. " +
-                "Slice 1 fog toggle (F key) will silently no-op.");
+                "Slice 2 fog cycle commands (F / Shift+F / Ctrl+F / Alt+F) will silently no-op.");
         }
     }
 
@@ -227,20 +218,49 @@ public partial class E2WorldMap : Control, IScreen
     }
 
     /// <summary>
-    /// Slice 1 debug command — F key toggles the knowledge state of the
-    /// cell under the cursor. Lives on <see cref="_UnhandledInput"/> so
-    /// the pan component (which uses <see cref="_Input"/>) cannot
-    /// accidentally swallow the keystroke, and so a future modal that
-    /// claims input via Control's mouse_filter still suppresses the
-    /// toggle when relevant.
+    /// Slice 2 debug surface (livrable 4). The F key dispatches based on
+    /// modifier state read off the <see cref="InputEventKey"/> :
+    /// <list type="bullet">
+    ///   <item><b>F (no modifier)</b> — cycle next state on the cell
+    ///         under the cursor (Inconnue → Pressentie → Esquissée → Levée
+    ///         → Scellée → Inconnue).</item>
+    ///   <item><b>Shift+F</b> — cycle previous state on the cell under
+    ///         the cursor.</item>
+    ///   <item><b>Ctrl+F</b> — reset every non-default cell to Inconnue
+    ///         (bulk wipe).</item>
+    ///   <item><b>Alt+F</b> — flip every cell of the grid to Levée
+    ///         (global event smoke test, brief slice 2 livrable 4).</item>
+    /// </list>
     ///
     /// <para>
-    /// The cursor's world-space position is computed by feeding the
-    /// viewport-space mouse position through the WorldCamera's inverse
-    /// transform. Camera2D exposes <c>GetCanvasTransform()</c> which is
-    /// the same matrix Godot uses to project the world into the
-    /// viewport — inverting it maps a viewport coord back to world
-    /// coords correctly even when the camera is mid-pan.
+    /// <b>Why <see cref="_UnhandledInput"/>, not <see cref="_Input"/>.</b>
+    /// The pan component's <c>_Input</c> handles MMB/RMB drag and
+    /// wheel-during-drag suppression — running there would force
+    /// careful coordination to avoid the keystroke being swallowed by
+    /// the pan component's <c>SetInputAsHandled</c> path. Running on
+    /// <c>_UnhandledInput</c> means a future modal that claims input
+    /// via Control's mouse_filter still suppresses the toggle, and the
+    /// pan component's wheel-during-drag suppression cannot accidentally
+    /// catch a key event. Same precedence reasoning as slice 1.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Modifier order matters.</b> We check Alt before Ctrl before
+    /// Shift so that Ctrl+Alt+F (a future combined binding) does not
+    /// silently take the Ctrl branch. For slice 2 the modifiers are
+    /// mutually exclusive : the brief lists four discrete combos. The
+    /// dispatcher logs the chosen path so console output makes the
+    /// active modifier obvious during smoke tests.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>InputMap action match (AZERTY-safe).</b> The action
+    /// <c>debug_toggle_fog_cell</c> is bound on physical_keycode 70 (F)
+    /// per project.godot, so <see cref="InputMap.EventIsAction"/>
+    /// returns true regardless of modifier state on the action's
+    /// definition. The modifier check happens after the action match,
+    /// not as part of it — same pattern as slice 1, AZERTY-safe by
+    /// inheritance from the action binding.
     /// </para>
     /// </summary>
     public override void _UnhandledInput(InputEvent @event)
@@ -250,6 +270,34 @@ public partial class E2WorldMap : Control, IScreen
         if (IsModalOpen()) return;
 
         var viewport = GetViewport();
+
+        if (key.AltPressed)
+        {
+            // Alt+F : flip every cell to Levée. No cursor-cell lookup
+            // needed.
+            var dimensions = _fogTileLayer.Dimensions;
+            _knowledgeStore.SetAllToLevee(dimensions);
+            GD.Print(
+                $"[E2WorldMap] debug Alt+F: flipped every cell to Levée " +
+                $"({dimensions.Columns}×{dimensions.Rows} = {dimensions.TotalCells} cells)");
+            viewport.SetInputAsHandled();
+            return;
+        }
+
+        if (key.CtrlPressed)
+        {
+            // Ctrl+F : reset every non-default cell to Inconnue.
+            var before = _knowledgeStore.NonDefaultEntryCount;
+            _knowledgeStore.Clear();
+            GD.Print(
+                $"[E2WorldMap] debug Ctrl+F: reset all non-default cells to Inconnue " +
+                $"(was {before} entries, now 0)");
+            viewport.SetInputAsHandled();
+            return;
+        }
+
+        // F or Shift+F : cell-under-cursor cycle. Resolve the cursor's
+        // world-space position via the viewport's canvas transform.
         var mouseViewportPos = viewport.GetMousePosition();
         var canvasTransform = viewport.GetCanvasTransform();
         var worldPos = canvasTransform.AffineInverse() * mouseViewportPos;
@@ -257,16 +305,24 @@ public partial class E2WorldMap : Control, IScreen
         var coord = _fogTileLayer.WorldPositionToCell(worldPos);
         if (coord is null)
         {
-            GD.Print($"[E2WorldMap] debug toggle: cursor at {worldPos} is outside grid bounds");
+            GD.Print($"[E2WorldMap] debug F: cursor at {worldPos} is outside grid bounds");
             return;
         }
 
-        var before = _knowledgeStore.GetState(coord.Value);
-        _knowledgeStore.ToggleAtCell(coord.Value);
+        var before2 = _knowledgeStore.GetState(coord.Value);
+        if (key.ShiftPressed)
+        {
+            _knowledgeStore.CyclePreviousAtCell(coord.Value);
+        }
+        else
+        {
+            _knowledgeStore.CycleNextAtCell(coord.Value);
+        }
         var after = _knowledgeStore.GetState(coord.Value);
+        var direction = key.ShiftPressed ? "Shift+F (prev)" : "F (next)";
         GD.Print(
-            $"[E2WorldMap] debug toggle: cell ({coord.Value.Col},{coord.Value.Row}) " +
-            $"{before} -> {after}");
+            $"[E2WorldMap] debug {direction}: cell ({coord.Value.Col},{coord.Value.Row}) " +
+            $"{before2} -> {after}");
         viewport.SetInputAsHandled();
     }
 
@@ -432,9 +488,9 @@ public partial class E2WorldMap : Control, IScreen
     }
 
     /// <summary>
-    /// Build a 1×1 white <see cref="ImageTexture"/> for the slice 1 fog
+    /// Build a 1×1 white <see cref="ImageTexture"/> for the slice 1+2 fog
     /// placeholder. The fog renderer scales it to cell size and tints
-    /// it via Modulate to the carton beige-écru. When slice 2 ships
+    /// it via Modulate to the carton beige-écru. When slice 3+ ships
     /// the real Mira parchment asset, swap this for an
     /// <c>AssetResolver.Resolve("e2.fog_carton_placeholder")</c> and
     /// drop a key in <c>asset_keys.json</c>.

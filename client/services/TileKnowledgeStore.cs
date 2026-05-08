@@ -6,49 +6,44 @@ namespace Wayfinders.Client.Services;
 
 /// <summary>
 /// Runtime store of <see cref="TileKnowledgeState"/> per grid cell, slice 1
-/// MVP scaffold (M3 / L1 World fondations / livrable 3). Holds the
-/// <c>Dictionary&lt;GridCoord, TileKnowledgeState&gt;</c> backing map,
-/// emits a <see cref="KnowledgeChanged"/> signal on every mutation,
-/// exposes a debug toggle (livrable 3 exit criterion).
+/// MVP scaffold (M3 / L1 World fondations / livrable 3) extended at slice 2
+/// with cycle-next / cycle-previous / set-all-to-Levée debug commands.
+/// Holds the <c>Dictionary&lt;GridCoord, TileKnowledgeState&gt;</c> backing
+/// map, emits a <see cref="KnowledgeChanged"/> signal on every mutation,
+/// exposes ladder-walking debug helpers (slice 2 livrable 4 exit criterion).
 ///
 /// <para>
-/// <b>Why a Node, not an autoload (slice 1 scope).</b> The slice scope is
-/// E2WorldMap only — not E3, not E5, not future tactical scenes — so the
-/// store lives as a child of the <see cref="Wayfinders.Client.Components.MapPan2DComponent"/>
-/// and dies with it on screen exit. When slice 2+ widens scope to L2/L3
+/// <b>Why a Node, not an autoload (slice 1 scope, preserved at slice 2).</b>
+/// The store lives as a child of the <see cref="Wayfinders.Client.Components.MapPan2DComponent"/>
+/// and dies with it on screen exit. When slice 3+ widens scope to L2/L3
 /// (per Varn §6.3 cascade L1→L2→L3) and a save/load lifecycle appears,
 /// the store gets promoted to an autoload (or a typed Resource attached
 /// to a session-level service). Premature autoloading now would couple
-/// the slice 1 scaffold to a lifecycle it doesn't need.
+/// the slice 2 scaffold to a lifecycle it doesn't need.
 /// </para>
 ///
 /// <para>
-/// <b>Persistence shape (slice 1 schema).</b> The dictionary is keyed by
+/// <b>Persistence shape.</b> The dictionary is keyed by
 /// <see cref="GridCoord"/> (Godot-free record struct), value is
 /// <see cref="TileKnowledgeState"/> (Godot-free enum, integer values
 /// pinned). The pair serialises trivially to JSON
-/// (<c>{"col":3,"row":7,"state":3}</c> per entry) so the slice 2 save
-/// system has a stable shape from day one. The actual save/load is out
-/// of slice 1 scope ; <see cref="ToSerialisableEntries"/> exposes the
-/// list shape that a <c>System.Text.Json</c> source-gen context would
-/// consume when slice 2 lands.
+/// (<c>{"col":3,"row":7,"state":3}</c> per entry).
 /// </para>
 ///
 /// <para>
 /// <b>Default-state semantics.</b> Cells absent from the dictionary are
 /// treated as <see cref="TileKnowledgeState.Inconnue"/> by
 /// <see cref="GetState"/>. This keeps the dictionary sparse at startup
-/// (no need to populate 510 entries with the same default) and lines
-/// up with Varn §6.1 "tout le reste à <c>INCONNUE</c>". Only cells
-/// whose state has been explicitly mutated via <see cref="SetState"/>
-/// occupy a slot.
+/// and lines up with Varn §6.1 "tout le reste à <c>INCONNUE</c>". Only
+/// cells whose state has been explicitly mutated occupy a slot.
 /// </para>
 /// </summary>
 public partial class TileKnowledgeStore : Node
 {
     /// <summary>
-    /// Fired after a cell's state changes via <see cref="SetState"/> or
-    /// <see cref="ToggleAtCell"/>. The fog renderer subscribes once at
+    /// Fired after a cell's state changes via <see cref="SetState"/>,
+    /// <see cref="ToggleAtCell"/>, <see cref="CycleNextAtCell"/>, or any
+    /// of the bulk debug helpers. The fog renderer subscribes once at
     /// <c>_Ready</c> and refreshes the matching Sprite2D's visibility on
     /// each emission. Disconnection discipline is the consumer's
     /// responsibility (Rune-coaching Risk #1, signal-leak trap).
@@ -75,10 +70,7 @@ public partial class TileKnowledgeStore : Node
     /// Set the knowledge state for a cell and emit
     /// <see cref="KnowledgeChanged"/> if the value actually changes.
     /// Idempotent: setting a cell to its current state is a silent
-    /// no-op (no signal fired, no allocation). Mirrors the
-    /// <see cref="GameSettings.SetMapPanButton"/> idempotence pattern
-    /// from P8.3 — gratuitous signals are a renderer-frame tax we can
-    /// dodge for free.
+    /// no-op (no signal fired, no allocation).
     /// </summary>
     public void SetState(GridCoord coord, TileKnowledgeState newState)
     {
@@ -88,8 +80,7 @@ public partial class TileKnowledgeStore : Node
         if (newState == TileKnowledgeState.Inconnue)
         {
             // Keep the dictionary sparse — Inconnue is the implicit
-            // default, no need to occupy a slot. This also means a
-            // future "reset to default" path simply Removes the entry.
+            // default, no need to occupy a slot.
             _states.Remove(coord);
         }
         else
@@ -100,12 +91,11 @@ public partial class TileKnowledgeStore : Node
     }
 
     /// <summary>
-    /// Toggle the knowledge state at a cell between
-    /// <see cref="TileKnowledgeState.Inconnue"/> and
-    /// <see cref="TileKnowledgeState.Levee"/>. Slice 1 livrable 3 exit
-    /// criterion: bound to the F key in the runtime debug surface, the
-    /// only path that demonstrates the state machine + signal +
-    /// renderer end-to-end without slice 2's intermediate states.
+    /// Slice 1 toggle helper, retained at slice 2 for back-compat.
+    /// Cycles between <see cref="TileKnowledgeState.Inconnue"/> and
+    /// <see cref="TileKnowledgeState.Levee"/>. Slice 2 debug surface uses
+    /// <see cref="CycleNextAtCell"/> / <see cref="CyclePreviousAtCell"/>
+    /// instead.
     /// </summary>
     public void ToggleAtCell(GridCoord coord)
     {
@@ -114,11 +104,28 @@ public partial class TileKnowledgeStore : Node
     }
 
     /// <summary>
-    /// Snapshot the non-default entries for serialisation. Cells in the
-    /// implicit-Inconnue default are omitted. Returned as a list of
-    /// records so the slice 2 save system can pipe straight through a
-    /// <c>System.Text.Json</c> source-gen context (AOT-safe per the L5a
-    /// audit on the client csproj).
+    /// Slice 2 livrable 4 — bare F key handler. Walks the cell at
+    /// <paramref name="coord"/> one step forward through the ladder
+    /// (<c>Inconnue → Pressentie → Esquissée → Levée → Scellée → Inconnue</c>).
+    /// </summary>
+    public void CycleNextAtCell(GridCoord coord)
+    {
+        var next = TileKnowledgeStateHelpers.CycleNext(GetState(coord));
+        SetState(coord, next);
+    }
+
+    /// <summary>
+    /// Slice 2 livrable 4 — Shift+F handler. Walks the cell at
+    /// <paramref name="coord"/> one step backward through the ladder.
+    /// </summary>
+    public void CyclePreviousAtCell(GridCoord coord)
+    {
+        var next = TileKnowledgeStateHelpers.CyclePrevious(GetState(coord));
+        SetState(coord, next);
+    }
+
+    /// <summary>
+    /// Snapshot the non-default entries for serialisation.
     /// </summary>
     public List<TileKnowledgeEntry> ToSerialisableEntries()
     {
@@ -131,16 +138,13 @@ public partial class TileKnowledgeStore : Node
     }
 
     /// <summary>
-    /// Bulk reset for the slice 1 debug command's "wipe and reseed"
-    /// path (handy when iterating the placeholder asset). Single
-    /// signal emission per cell, in row-major order, so renderers
-    /// see deterministic ordering during a wipe.
+    /// Bulk reset for the debug command's "wipe and reseed" path
+    /// (Ctrl+F at slice 2). Snapshot keys before mutating because
+    /// <see cref="SetState"/>'s remove path would otherwise invalidate
+    /// the live iterator.
     /// </summary>
     public void Clear()
     {
-        // Snapshot the keys before mutating ; emitting from inside an
-        // iterator over the live dictionary would throw on the first
-        // Remove call. Same rule as P8.3 SettingsChanged disconnect.
         var coords = new List<GridCoord>(_states.Keys);
         foreach (var coord in coords)
         {
@@ -149,20 +153,43 @@ public partial class TileKnowledgeStore : Node
     }
 
     /// <summary>
-    /// Cell-count metric for diagnostics. The fog renderer logs this at
-    /// preflight so a regression that nukes the state on screen reload
-    /// shows up in the console without a debugger session — same
-    /// instrumentation reflex as <c>E2WorldMap.DumpInputAndCameraState</c>.
+    /// Slice 2 livrable 4 — Alt+F handler. Flip every cell of the grid
+    /// to <see cref="TileKnowledgeState.Levee"/>. Iterates the supplied
+    /// dimensions rather than the dictionary (which is sparse and would
+    /// miss cells still at the default Inconnue) so the operation is
+    /// deterministic regardless of how many cells have already been
+    /// touched. Single signal emission per cell that actually changes
+    /// state — cells already at Levée are silent no-ops via the
+    /// idempotence guard in <see cref="SetState"/>.
+    ///
+    /// <para>
+    /// <b>Performance note (livrable 3 acceptance — 50-100 cells animating
+    /// simultaneously).</b> The 510-cell grid emits one
+    /// <see cref="KnowledgeChanged"/> per cell that flips, which the
+    /// renderer translates into one tween per cell. The renderer caps
+    /// active tweens by killing any prior tween on the same cell before
+    /// scheduling a new one, so even an Alt+F repeated rapidly does not
+    /// stack.
+    /// </para>
+    /// </summary>
+    public void SetAllToLevee(GridDimensions dimensions)
+    {
+        foreach (var coord in FogTileGridLogic.EnumerateCells(dimensions))
+        {
+            SetState(coord, TileKnowledgeState.Levee);
+        }
+    }
+
+    /// <summary>
+    /// Cell-count metric for diagnostics.
     /// </summary>
     public int NonDefaultEntryCount => _states.Count;
 }
 
 /// <summary>
-/// Serialisation row for one non-default tile state. Slice 1 introduces
-/// the schema ; slice 2 wires it to a <c>System.Text.Json</c> source-gen
-/// context once a save/load lifecycle exists. Kept as a plain record
-/// (no Godot dependency, no <c>JsonPropertyName</c> attribute yet) so
-/// the persistence story stays unblocked when the contract lands.
+/// Serialisation row for one non-default tile state. Plain record (no
+/// Godot dependency, no <c>JsonPropertyName</c> attribute yet) so the
+/// persistence story stays unblocked when the contract lands.
 /// </summary>
 /// <param name="Col">Grid column of the cell.</param>
 /// <param name="Row">Grid row of the cell.</param>
