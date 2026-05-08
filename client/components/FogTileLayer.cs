@@ -261,27 +261,34 @@ public partial class FogTileLayer : Node2D
     public GridDimensions Dimensions => _dimensions;
 
     /// <summary>
-    /// Slice 3.5 livrable 4 -- assign an iso bitmap to a single cell. The
-    /// bitmap replaces the carton placeholder colour for that cell ; the
-    /// rest of the cell rendering (palette swatch, shadow, sceau, alpha
-    /// state) is unchanged. Caller is responsible for providing an
-    /// iso-compatible texture (the polygon clips to the diamond shape,
-    /// so a non-iso texture renders with whatever portion of itself
-    /// happens to fall inside the diamond — typically not what you want).
+    /// Slice 3.5 livrable 4 + slice 3.6 hotfix -- assign a bitmap to a
+    /// single cell. The bitmap replaces the carton placeholder colour
+    /// for that cell ; the rest of the cell rendering (palette swatch,
+    /// shadow, sceau, alpha state) is unchanged.
     ///
     /// <para>
-    /// <b>Slice 3.6 — UV mapping.</b> When the texture is an
-    /// <see cref="AtlasTexture"/>, Godot 4 samples in coords
-    /// <c>[0..regionWidth] × [0..regionHeight]</c> (pixels of the region,
-    /// not the parent atlas). For a generic <see cref="Texture2D"/> the
-    /// sampler uses <c>[0..textureWidth] × [0..textureHeight]</c>. Either
-    /// way, leaving <see cref="Polygon2D.UV"/> empty makes Godot reuse
-    /// <see cref="Polygon2D.Polygon"/> directly as UV — which for our
-    /// iso-centered vertices (e.g. <c>(0, -halfH)</c>) produces negative
-    /// UVs and wrap/mirror artefacts. We assign UV explicitly to map
-    /// the four diamond vertices to the four edge-midpoints of the
-    /// texture region : top→(rW/2, 0), right→(rW, rH/2), bottom→(rW/2,
-    /// rH), left→(0, rH/2). Symmetric and visually centered.
+    /// <b>Two UV modes.</b>
+    /// <list type="bullet">
+    ///   <item><b><paramref name="sourceMapCellCenter"/> null</b> -- legacy
+    ///         slice 3.5 mode. Caller passes a per-cell texture (e.g. a
+    ///         future per-state Mira bitmap) ; UV is set to the four
+    ///         edge-midpoints of <paramref name="bitmap"/>'s
+    ///         <c>GetSize()</c>, mapping the diamond vertices onto the
+    ///         centered, axis-aligned slice of the texture. The polygon
+    ///         shape clips out-of-diamond pixels at render time.</item>
+    ///   <item><b><paramref name="sourceMapCellCenter"/> non-null</b> --
+    ///         slice 3.6 source-map atlas mode. Caller passes the full
+    ///         source map (same texture for every cell) plus this cell's
+    ///         center expressed in source-map pixel coords. UV is set to
+    ///         the four diamond vertices of the cell in <i>absolute
+    ///         source-map pixel coords</i>, so each cell samples its own
+    ///         slice of the source map. This is the path used by
+    ///         <see cref="EnableSourceMapAtlas"/> after the slice 3.6
+    ///         AtlasTexture-based first attempt was found to be broken
+    ///         (Polygon2D + AtlasTexture in Godot 4 ignores the region
+    ///         offset, so every cell ended up sampling the same absolute
+    ///         pixels around (0, 0)).</item>
+    /// </list>
     /// </para>
     ///
     /// <para>
@@ -289,10 +296,10 @@ public partial class FogTileLayer : Node2D
     /// second time on the same cell replaces the texture reference ; the
     /// prior texture is released by Godot's reference counting (Texture2D
     /// is RefCounted). Calling for an unknown cell is a silent warning
-    /// (logged) — the same tolerance as <see cref="PlayDrillBlockedFeedback"/>.
+    /// (logged) -- the same tolerance as <see cref="PlayDrillBlockedFeedback"/>.
     /// </para>
     /// </summary>
-    public void SetCellBitmap(GridCoord coord, Texture2D bitmap)
+    public void SetCellBitmap(GridCoord coord, Texture2D bitmap, Vector2? sourceMapCellCenter = null)
     {
         if (!_cells.TryGetValue(coord, out var visuals))
         {
@@ -302,7 +309,9 @@ public partial class FogTileLayer : Node2D
             return;
         }
         visuals.Carton.Texture = bitmap;
-        visuals.Carton.UV = ComputeIsoCartonUv(bitmap);
+        visuals.Carton.UV = sourceMapCellCenter is { } center
+            ? ComputeIsoCartonUvInSourceCoords(center)
+            : ComputeIsoCartonUv(bitmap);
     }
 
     /// <summary>
@@ -337,31 +346,47 @@ public partial class FogTileLayer : Node2D
     }
 
     /// <summary>
-    /// Slice 3.6 livrable 2 -- enable the iso atlas mode. For every cell
-    /// in the grid, build an <see cref="AtlasTexture"/> whose
-    /// <see cref="AtlasTexture.Atlas"/> is <paramref name="sourceMap"/>
-    /// and whose <see cref="AtlasTexture.Region"/> is the cell's iso
-    /// bounding-box in world coords (computed by
-    /// <see cref="FogTileGridLogic.ComputeCellBoundingBox"/>). Each cell's
-    /// Carton then displays a slice of the source map clipped to the
-    /// diamond shape — replacing the uniform carton beige with real
-    /// content underneath the knowledge-state alpha gradient.
+    /// Slice 3.6 livrable 2 + hotfix -- enable the source-map atlas mode.
+    /// For every cell in the grid, assign the full
+    /// <paramref name="sourceMap"/> texture as the cell's Carton texture
+    /// and set its UV to the four diamond vertices of the cell expressed
+    /// in absolute source-map pixel coords. Each cell then samples its
+    /// own slice of the source map, clipped to the diamond shape by the
+    /// Polygon2D primitive.
     ///
     /// <para>
-    /// Idempotent : calling twice rebuilds atlas textures from the latest
-    /// state (cheap, ~50 ms at 4761 cells on the canonical hardware).
-    /// Re-callable after a <c>DespawnAll</c> + <c>SpawnCells</c> cycle —
-    /// the source map reference is stored privately so a new
-    /// <see cref="Configure"/> can re-enable atlas without the consumer
-    /// holding the texture.
+    /// <b>Why this dropped AtlasTexture.</b> The first slice 3.6 attempt
+    /// gave each cell its own <c>AtlasTexture</c> with a per-cell
+    /// <c>Region</c> + UV in region-local pixel coords. At E2 smoke-test
+    /// every cell rendered the same green slice (~the top-left of the
+    /// source map). Root cause : Godot 4's <c>Polygon2D</c> +
+    /// <c>AtlasTexture</c> path does <i>not</i> honour the AtlasTexture's
+    /// region offset when computing texel coords from the UV array -- it
+    /// samples the parent atlas at the raw UV pixel value as if no region
+    /// were set. With identical UV per cell, every cell pulled the same
+    /// absolute pixels. Dropping AtlasTexture and computing UV in absolute
+    /// source-map coords fixes the seam without losing the "single
+    /// shared allocation" property : every cell's Carton.Texture is the
+    /// same <see cref="Texture2D"/> reference, no pixel duplication.
     /// </para>
     ///
     /// <para>
-    /// <b>VRAM cost is negligible.</b> An AtlasTexture is a thin pointer +
-    /// Region pair — no pixel duplication. The four-byte-stripe Mira
-    /// generated for E2 (3840×2160 RGBA = 33 MB) is loaded once by
-    /// <see cref="MapPan2DComponent.Configure"/> ; every cell shares
-    /// that allocation.
+    /// <b>Source-map coord frame.</b> The runtime invariant
+    /// <c>worldImageSize == sourceMap.GetSize()</c> is preserved by
+    /// <see cref="MapPan2DComponent.Configure"/> -- the world map sprite
+    /// IS the source for the atlas. World coords with the iso origin
+    /// shift applied therefore equal source-map pixel coords directly,
+    /// so we pass <c>ComputeCellCenter(coord) + ComputeIsoOriginShift</c>
+    /// as the cell center.
+    /// </para>
+    ///
+    /// <para>
+    /// Idempotent : calling twice rebuilds the UV arrays from the latest
+    /// state (cheap, ~5 ms at 4761 cells -- no AtlasTexture allocation).
+    /// Re-callable after a <c>DespawnAll</c> + <c>SpawnCells</c> cycle ;
+    /// the source map reference is stored privately so a new
+    /// <see cref="Configure"/> can re-enable atlas without the consumer
+    /// holding the texture.
     /// </para>
     /// </summary>
     public void EnableSourceMapAtlas(Texture2D sourceMap)
@@ -373,31 +398,31 @@ public partial class FogTileLayer : Node2D
         }
         _sourceMapTexture = sourceMap;
 
+        var isoShift = FogTileGridLogic.ComputeIsoOriginShift(_dimensions, CellSizePx, Projection);
+
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var assigned = 0;
         foreach (var (coord, _) in _cells)
         {
-            var bbox = FogTileGridLogic.ComputeCellBoundingBox(
-                coord, CellSizePx, _dimensions, Projection);
-            var atlas = new AtlasTexture
-            {
-                Atlas = sourceMap,
-                Region = new Rect2(bbox.MinX, bbox.MinY, bbox.Width, bbox.Height),
-                FilterClip = false,
-            };
-            SetCellBitmap(coord, atlas);
+            var center = FogTileGridLogic.ComputeCellCenter(coord, CellSizePx, Projection);
+            // Source-map coords = world coords with iso origin shift applied.
+            // Y has no FogYOffset here -- FogYOffset is a visual lift on the
+            // cell node's Position (rendering side), not a sampling shift.
+            var sourceCenter = new Vector2(center.X + isoShift.X, center.Y + isoShift.Y);
+            SetCellBitmap(coord, sourceMap, sourceCenter);
             assigned++;
         }
         sw.Stop();
         GD.Print(
-            $"[FogTileLayer] EnableSourceMapAtlas: assigned {assigned} AtlasTextures " +
+            $"[FogTileLayer] EnableSourceMapAtlas: assigned {assigned} cells with source-map UV " +
             $"in {sw.ElapsedMilliseconds} ms (source size = {sourceMap.GetSize()}, " +
-            $"projection = {Projection}, cellSize = {CellSizePx}px)");
+            $"projection = {Projection}, cellSize = {CellSizePx}px) -- single shared texture, " +
+            $"per-cell absolute UV");
     }
 
     /// <summary>
-    /// Slice 3.6 livrable 2 -- disable the iso atlas mode by clearing the
-    /// per-cell bitmap on every cell, falling back to the carton beige
+    /// Slice 3.6 livrable 2 -- disable the source-map atlas mode by clearing
+    /// the per-cell bitmap on every cell, falling back to the carton beige
     /// uniform. Idempotent : calling without a prior
     /// <see cref="EnableSourceMapAtlas"/> just runs <c>ClearCellBitmap</c>
     /// over cells that already have no bitmap (silent no-ops).
@@ -414,36 +439,61 @@ public partial class FogTileLayer : Node2D
 
     /// <summary>
     /// Slice 3.6 livrable 1 -- compute the UV array for an iso-diamond
-    /// Carton when textured by an <see cref="AtlasTexture"/> or a generic
-    /// <see cref="Texture2D"/>. Returns four UV points in pixel coords
-    /// matching the order of <see cref="BuildCellVertices"/> :
+    /// Carton when textured by a generic <see cref="Texture2D"/> (no
+    /// per-cell source-map mapping). Returns four UV points in pixel
+    /// coords matching the order of <see cref="BuildCellVertices"/> :
     /// top, right, bottom, left.
     ///
     /// <para>
-    /// For an <see cref="AtlasTexture"/>, the UV space spans
-    /// <c>[0..regionWidth] × [0..regionHeight]</c>. For a generic texture,
-    /// it spans the full texture size. Either way the four edge-midpoints
-    /// of the (region) rectangle map to the four diamond vertices, so the
-    /// diamond samples the centered, axis-aligned slice of the texture
-    /// — clipped at render time by the polygon shape.
+    /// UV space spans the full texture size <c>[0..textureWidth] x
+    /// [0..textureHeight]</c>. The four edge-midpoints of the texture
+    /// rectangle map to the four diamond vertices, so the diamond samples
+    /// the centered, axis-aligned slice of the texture -- clipped at
+    /// render time by the polygon shape. Used by callers that pass a
+    /// per-cell texture (e.g. future per-knowledge-state Mira bitmaps).
     /// </para>
     /// </summary>
     private static Vector2[] ComputeIsoCartonUv(Texture2D texture)
     {
-        // For AtlasTexture, GetSize() returns the region size, which is
-        // exactly what we want for UV space. For generic Texture2D, it
-        // returns the full texture size — also what we want. So a single
-        // GetSize() call covers both branches.
         var size = texture.GetSize();
         var rW = size.X;
         var rH = size.Y;
         // Order matches BuildCellVertices iso branch : top, right, bottom, left.
         return new[]
         {
-            new Vector2(rW * 0.5f, 0f),     // top vertex → top-middle of region
-            new Vector2(rW,        rH * 0.5f), // right vertex → right-middle of region
-            new Vector2(rW * 0.5f, rH),     // bottom vertex → bottom-middle of region
-            new Vector2(0f,        rH * 0.5f), // left vertex → left-middle of region
+            new Vector2(rW * 0.5f, 0f),     // top vertex -> top-middle of texture
+            new Vector2(rW,        rH * 0.5f), // right vertex -> right-middle of texture
+            new Vector2(rW * 0.5f, rH),     // bottom vertex -> bottom-middle of texture
+            new Vector2(0f,        rH * 0.5f), // left vertex -> left-middle of texture
+        };
+    }
+
+    /// <summary>
+    /// Slice 3.6 hotfix -- compute the UV array for an iso-diamond Carton
+    /// when textured by the shared source map and sampled at the cell's
+    /// absolute pixel coords. Returns four UV points in source-map pixel
+    /// coords (top, right, bottom, left vertices of the diamond).
+    ///
+    /// <para>
+    /// Thin wrapper over
+    /// <see cref="FogTileGridLogic.ComputeIsoCartonUvInSourceCoords"/> --
+    /// the math lives in the pure-C# seam, this method just translates
+    /// the <see cref="PanVec2"/> tuple to a Godot <see cref="Vector2"/>
+    /// array in the order Polygon2D expects.
+    /// </para>
+    /// </summary>
+    private Vector2[] ComputeIsoCartonUvInSourceCoords(Vector2 cellCenterInSourceCoords)
+    {
+        var (top, right, bottom, left) = FogTileGridLogic.ComputeIsoCartonUvInSourceCoords(
+            new PanVec2(cellCenterInSourceCoords.X, cellCenterInSourceCoords.Y),
+            CellSizePx,
+            Projection);
+        return new[]
+        {
+            new Vector2(top.X,    top.Y),
+            new Vector2(right.X,  right.Y),
+            new Vector2(bottom.X, bottom.Y),
+            new Vector2(left.X,   left.Y),
         };
     }
 

@@ -582,4 +582,138 @@ public sealed class FogTileGridLogicTests
         Assert.Equal(45f, rect.CenterY, precision: 4);
     }
 
+
+    // ====================================================================
+    // Slice 3.6 hotfix (M3 / Phase 9 / 2026-05-08) -- ComputeIsoCartonUvInSourceCoords.
+    // The UV math is the seam between FogTileLayer.EnableSourceMapAtlas
+    // and Polygon2D's texture sampling in absolute source-map pixel
+    // coords. The smoke-test bug ("every cell shows the same green
+    // diamond") was caused by per-cell UV identical across cells when
+    // the renderer was given AtlasTexture with region-local UV. The
+    // fix returns absolute source-map coords -- different per cell -- so
+    // each cell samples its own slice of the source texture.
+    // ====================================================================
+
+    [Fact]
+    public void IsoUv_in_source_coords_at_cell_5_7_returns_4_diamond_vertices()
+    {
+        // Use a representative non-corner cell. With dimensions 30x17 and
+        // cellSizePx 128, ComputeCellCenter(coord=(5,7)) returns world
+        // coords ~ ((5-7)*64, (5+7)*32 + 32) = (-128, 416). After iso
+        // origin shift (rows*halfW, 0) = (1088, 0), the source-map cell
+        // center is (960, 416). The four diamond vertices land at :
+        //   top    = (960, 416 - 32) = (960, 384)
+        //   right  = (960 + 64, 416) = (1024, 416)
+        //   bottom = (960, 416 + 32) = (960, 448)
+        //   left   = (960 - 64, 416) = (896, 416)
+        var dimensions = new GridDimensions(30, 17);
+        var coord = new GridCoord(5, 7);
+        var center = FogTileGridLogic.ComputeCellCenter(coord, 128, GridProjection.IsoDiamondDown);
+        var shift = FogTileGridLogic.ComputeIsoOriginShift(dimensions, 128, GridProjection.IsoDiamondDown);
+        var sourceCenter = new PanVec2(center.X + shift.X, center.Y + shift.Y);
+
+        var (top, right, bottom, left) = FogTileGridLogic.ComputeIsoCartonUvInSourceCoords(
+            sourceCenter, 128, GridProjection.IsoDiamondDown);
+
+        // Top vertex : same X as center, Y = center.Y - halfH (halfH = 32 for cellSize=128).
+        Assert.Equal(sourceCenter.X, top.X, precision: 4);
+        Assert.Equal(sourceCenter.Y - 32f, top.Y, precision: 4);
+
+        // Right vertex : X = center.X + halfW (halfW = 64), same Y as center.
+        Assert.Equal(sourceCenter.X + 64f, right.X, precision: 4);
+        Assert.Equal(sourceCenter.Y, right.Y, precision: 4);
+
+        // Bottom vertex.
+        Assert.Equal(sourceCenter.X, bottom.X, precision: 4);
+        Assert.Equal(sourceCenter.Y + 32f, bottom.Y, precision: 4);
+
+        // Left vertex.
+        Assert.Equal(sourceCenter.X - 64f, left.X, precision: 4);
+        Assert.Equal(sourceCenter.Y, left.Y, precision: 4);
+    }
+
+    [Fact]
+    public void IsoUv_in_source_coords_differs_across_cells_no_more_uniform_sampling()
+    {
+        // Regression test for the slice 3.6 first-attempt bug : if every
+        // cell received the same UV, every cell sampled the same slice of
+        // the source map. The fix guarantees the source-coord UV is
+        // distinct per (col, row), driven by ComputeCellCenter.
+        var dimensions = new GridDimensions(30, 17);
+        var c1 = new GridCoord(0, 0);
+        var c2 = new GridCoord(15, 8);
+        var c3 = new GridCoord(29, 16);
+
+        PanVec2 SourceCenterOf(GridCoord c)
+        {
+            var center = FogTileGridLogic.ComputeCellCenter(c, 128, GridProjection.IsoDiamondDown);
+            var shift = FogTileGridLogic.ComputeIsoOriginShift(dimensions, 128, GridProjection.IsoDiamondDown);
+            return new PanVec2(center.X + shift.X, center.Y + shift.Y);
+        }
+
+        var uv1 = FogTileGridLogic.ComputeIsoCartonUvInSourceCoords(
+            SourceCenterOf(c1), 128, GridProjection.IsoDiamondDown);
+        var uv2 = FogTileGridLogic.ComputeIsoCartonUvInSourceCoords(
+            SourceCenterOf(c2), 128, GridProjection.IsoDiamondDown);
+        var uv3 = FogTileGridLogic.ComputeIsoCartonUvInSourceCoords(
+            SourceCenterOf(c3), 128, GridProjection.IsoDiamondDown);
+
+        // All three top-vertex UVs must be pairwise distinct.
+        Assert.NotEqual(uv1.Top, uv2.Top);
+        Assert.NotEqual(uv1.Top, uv3.Top);
+        Assert.NotEqual(uv2.Top, uv3.Top);
+
+        // Same for right vertices (covers both X and Y axis variations).
+        Assert.NotEqual(uv1.Right, uv2.Right);
+        Assert.NotEqual(uv2.Right, uv3.Right);
+    }
+
+    [Fact]
+    public void IsoUv_in_source_coords_top_bottom_share_X_left_right_share_Y()
+    {
+        // The diamond shape invariant : top and bottom vertices share the
+        // cell center X axis ; left and right vertices share the center Y
+        // axis. If this breaks, the diamond degenerates to a non-rhombus
+        // and the texture sampling would skew.
+        var dimensions = new GridDimensions(30, 17);
+        var coord = new GridCoord(12, 4);
+        var center = FogTileGridLogic.ComputeCellCenter(coord, 128, GridProjection.IsoDiamondDown);
+        var shift = FogTileGridLogic.ComputeIsoOriginShift(dimensions, 128, GridProjection.IsoDiamondDown);
+        var sourceCenter = new PanVec2(center.X + shift.X, center.Y + shift.Y);
+
+        var (top, right, bottom, left) = FogTileGridLogic.ComputeIsoCartonUvInSourceCoords(
+            sourceCenter, 128, GridProjection.IsoDiamondDown);
+
+        Assert.Equal(top.X, bottom.X, precision: 4);
+        Assert.Equal(left.Y, right.Y, precision: 4);
+        // And the bbox of the four vertices spans cellSize x cellSize/2.
+        Assert.Equal(128f, right.X - left.X, precision: 4);
+        Assert.Equal(64f, bottom.Y - top.Y, precision: 4);
+    }
+
+    [Fact]
+    public void RectUv_in_source_coords_returns_4_square_corners()
+    {
+        // Rect mode emits the four square corners (top-left, top-right,
+        // bottom-right, bottom-left) in the same tuple positions named
+        // Top/Right/Bottom/Left for back-compat with the iso ordering.
+        var coord = new GridCoord(3, 2);
+        var center = FogTileGridLogic.ComputeCellCenter(coord, 100, GridProjection.Rect);
+        // Rect mode has no iso shift, source-map coords == center directly.
+        var sourceCenter = new PanVec2(center.X, center.Y);
+
+        var (tl, tr, br, bl) = FogTileGridLogic.ComputeIsoCartonUvInSourceCoords(
+            sourceCenter, 100, GridProjection.Rect);
+
+        // Center for rect cell (3, 2) at cellSize 100 = (350, 250). Half = 50.
+        Assert.Equal(300f, tl.X, precision: 4);
+        Assert.Equal(200f, tl.Y, precision: 4);
+        Assert.Equal(400f, tr.X, precision: 4);
+        Assert.Equal(200f, tr.Y, precision: 4);
+        Assert.Equal(400f, br.X, precision: 4);
+        Assert.Equal(300f, br.Y, precision: 4);
+        Assert.Equal(300f, bl.X, precision: 4);
+        Assert.Equal(300f, bl.Y, precision: 4);
+    }
+
 }

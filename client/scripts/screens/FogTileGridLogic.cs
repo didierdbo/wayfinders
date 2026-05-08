@@ -491,6 +491,84 @@ public static class FogTileGridLogic
             Width: cellSizePx,
             Height: cellSizePx);
     }
+
+    /// <summary>
+    /// Slice 3.6 hotfix (M3 / Phase 9 / 2026-05-08) -- compute the four UV
+    /// vertices of a cell's iso diamond in <b>absolute source-map pixel
+    /// coords</b>. Returned in the same order as
+    /// <see cref="IsoDiamondVerticesAroundCenter"/> :
+    /// top, right, bottom, left.
+    ///
+    /// <para>
+    /// <b>Why this exists.</b> The slice 3.6 first attempt used
+    /// <c>AtlasTexture</c> with per-cell <c>Region</c> + UV in region-local
+    /// pixel coords (top -> (rW/2, 0), right -> (rW, rH/2), ...). Smoke-test
+    /// at E2 revealed every cell sampled the same slice of the source map
+    /// (~the top-left corner) regardless of cell coord. Root cause :
+    /// <c>Godot.Polygon2D</c> + <c>AtlasTexture</c> in Godot 4 does not
+    /// honour the AtlasTexture's <c>Region</c> offset when computing texel
+    /// coords from the UV array -- it samples the parent atlas at the
+    /// raw UV pixel value as if no region were set. With identical UV per
+    /// cell (region-local), every cell pulled the same absolute pixels.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The fix.</b> Drop AtlasTexture entirely. Pass the full source
+    /// map to every cell, then assign UV in absolute source-map pixel
+    /// coords -- different per cell, derived from the cell center in
+    /// source-map coords. Godot 4 Polygon2D samples the whole texture at
+    /// those absolute UVs, the diamond shape clips to the diamond vertices,
+    /// and each cell shows its own slice of the source map.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Source-map coord frame.</b> Because the runtime invariant is
+    /// <c>worldImageSize == sourceMap.GetSize()</c> (the world map sprite's
+    /// texture <i>is</i> the source for the atlas), world coords with the
+    /// iso origin shift applied are exactly source-map pixel coords. The
+    /// cell-center input <paramref name="cellCenterInSourceCoords"/>
+    /// expects that value -- conventionally
+    /// <c>ComputeCellCenter(coord) + ComputeIsoOriginShift(dimensions)</c>.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Iso vs rect.</b> Iso emits 4 UV at the diamond vertices :
+    /// (cx, cy-halfH), (cx+halfW, cy), (cx, cy+halfH), (cx-halfW, cy).
+    /// Rect emits 4 UV at the square corners (top-left, top-right,
+    /// bottom-right, bottom-left) in absolute source coords. Both modes
+    /// match <see cref="FogTileLayer.BuildCellVertices"/> ordering so
+    /// <c>Polygon2D.UV[i]</c> aligns with <c>Polygon2D.Polygon[i]</c>.
+    /// </para>
+    /// </summary>
+    public static (PanVec2 Top, PanVec2 Right, PanVec2 Bottom, PanVec2 Left) ComputeIsoCartonUvInSourceCoords(
+        PanVec2 cellCenterInSourceCoords,
+        int cellSizePx,
+        GridProjection projection = GridProjection.IsoDiamondDown)
+    {
+        var cx = cellCenterInSourceCoords.X;
+        var cy = cellCenterInSourceCoords.Y;
+
+        if (projection == GridProjection.IsoDiamondDown)
+        {
+            var halfW = cellSizePx / 2f;
+            var halfH = cellSizePx / 4f;
+            return (
+                Top:    new PanVec2(cx,         cy - halfH),
+                Right:  new PanVec2(cx + halfW, cy),
+                Bottom: new PanVec2(cx,         cy + halfH),
+                Left:   new PanVec2(cx - halfW, cy));
+        }
+
+        // Rect mode : 4 UV at the square corners. Iso "Top/Right/Bottom/Left"
+        // names are kept to match the tuple's positional contract -- they
+        // map to top-left, top-right, bottom-right, bottom-left here.
+        var half = cellSizePx / 2f;
+        return (
+            Top:    new PanVec2(cx - half, cy - half), // top-left
+            Right:  new PanVec2(cx + half, cy - half), // top-right
+            Bottom: new PanVec2(cx + half, cy + half), // bottom-right
+            Left:   new PanVec2(cx - half, cy + half)); // bottom-left
+    }
 }
 
 /// <summary>
