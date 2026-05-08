@@ -228,6 +228,15 @@ public partial class E2WorldMap : Control, IScreen
         var paletteSource = new BakedFogPaletteSource(BakedPaletteResPath, expectedDimensions);
         _fogTileLayer.Configure(_panComponent.WorldImageSize, _knowledgeStore, fogPlaceholder, paletteSource);
 
+        // Slice 3.6 -- enable the iso atlas mode. Each fog cell now
+        // displays a slice of the source world map texture (clipped to
+        // its iso diamond shape via Polygon2D) instead of the uniform
+        // carton beige. Same texture as MapPan2DComponent.WorldMapSprite
+        // -- the AtlasTexture region coords are in the same world frame
+        // as the WorldRoot tree, so each cell's bbox indexes the
+        // correct slice of the source pixels.
+        _fogTileLayer.EnableSourceMapAtlas(_panComponent.WorldMapSprite.Texture);
+
         // Slice 3 -- wire the drill-target resolver. The pan component
         // calls this every time a wheel event reaches the cap-Push
         // branch ; we look up the cell the cursor is over via the fog

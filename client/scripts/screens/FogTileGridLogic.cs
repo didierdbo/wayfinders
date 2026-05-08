@@ -62,7 +62,7 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// same cell rectangles at editor time to quantify pixels, refactored
 /// at slice 3.5 livrable 5), the future drill-zoom predicate
 /// (Varn §1.4), and the per-tile bitmap API (slice 3.5 livrable 4).
-/// Putting the math here means all five consumers agree on cell
+/// Putting the math here means all six consumers agree on cell
 /// boundaries — and on iso vs rect mode — by construction.
 /// </para>
 /// </summary>
@@ -430,6 +430,67 @@ public static class FogTileGridLogic
         var dy = worldPoint.Y - (center.Y + shift.Y);
         return System.MathF.Abs(dx) / halfW + System.MathF.Abs(dy) / halfH <= 1.0f + IsoBoundaryEpsilon;
     }
+
+    /// <summary>
+    /// Slice 3.6 livrable 4 -- compute the axis-aligned bounding box of
+    /// a single cell's diamond (or square in rect mode), expressed in
+    /// world coordinates, with the iso origin shift already applied.
+    /// Used by <see cref="Wayfinders.Client.Components.FogTileLayer.EnableSourceMapAtlas"/>
+    /// to size a Godot <c>AtlasTexture.Region</c> per cell so each cell
+    /// samples the correct window of the source world map.
+    ///
+    /// <para>
+    /// <b>Iso mode</b> : center = <c>ComputeCellCenter + ComputeIsoOriginShift</c>,
+    /// width = <c>cellSizePx</c>, height = <c>cellSizePx / 2</c>.
+    /// The bbox is the bounding rectangle of the 2:1 diamond (vertices at
+    /// (±halfW, 0) and (0, ±halfH) around the center). Pixels at the
+    /// corners of the bbox sit outside the diamond — but the
+    /// <see cref="Godot.Polygon2D"/> shape clips them at render time, so
+    /// the visible result is just the diamond's worth of source pixels.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Rect mode</b> : center = <c>ComputeCellCenter</c> (no iso shift),
+    /// width = height = <c>cellSizePx</c>. Returned for completeness so
+    /// any future rect-grid consumer (E3+ overlay) can call this without
+    /// branching on projection.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Pure-C# seam.</b> Returns a <see cref="CellRect"/> (Godot-free),
+    /// the runtime translates to <c>Godot.Rect2</c> at the boundary.
+    /// Mirrors the existing <see cref="PanVec2"/> / <see cref="GridCoord"/>
+    /// pattern so xUnit can pin the math without an engine.
+    /// </para>
+    /// </summary>
+    public static CellRect ComputeCellBoundingBox(
+        GridCoord coord,
+        int cellSizePx,
+        GridDimensions dimensions,
+        GridProjection projection = GridProjection.IsoDiamondDown)
+    {
+        if (projection == GridProjection.IsoDiamondDown)
+        {
+            var center = ComputeCellCenter(coord, cellSizePx, GridProjection.IsoDiamondDown);
+            var shift = ComputeIsoOriginShift(dimensions, cellSizePx, GridProjection.IsoDiamondDown);
+            var halfW = cellSizePx / 2f;
+            var halfH = cellSizePx / 4f;
+            return new CellRect(
+                MinX: center.X + shift.X - halfW,
+                MinY: center.Y + shift.Y - halfH,
+                Width: cellSizePx,
+                Height: cellSizePx / 2f);
+        }
+
+        // Rect mode : centered cell.
+        var rectCenter = ComputeCellCenter(coord, cellSizePx, GridProjection.Rect);
+        var half = cellSizePx / 2f;
+        return new CellRect(
+            MinX: rectCenter.X - half,
+            MinY: rectCenter.Y - half,
+            Width: cellSizePx,
+            Height: cellSizePx);
+    }
 }
 
 /// <summary>
@@ -481,4 +542,30 @@ public readonly record struct GridDimensions(int Columns, int Rows)
 {
     /// <summary>Total cell count (columns × rows). Used by the fog renderer to size pools.</summary>
     public int TotalCells => Columns * Rows;
+}
+
+/// <summary>
+/// Slice 3.6 livrable 4 -- pure-C# axis-aligned rectangle in world
+/// coordinates, returned by <see cref="FogTileGridLogic.ComputeCellBoundingBox"/>.
+/// Godot-free stand-in for <c>Godot.Rect2</c>, mirrors the
+/// <see cref="PanVec2"/> seam pattern so the cell-bbox math is unit-testable
+/// without an engine.
+/// </summary>
+/// <param name="MinX">Top-left X (smallest X value of the rectangle).</param>
+/// <param name="MinY">Top-left Y (smallest Y value of the rectangle).</param>
+/// <param name="Width">Width in world units (always &gt;= 0).</param>
+/// <param name="Height">Height in world units (always &gt;= 0).</param>
+public readonly record struct CellRect(float MinX, float MinY, float Width, float Height)
+{
+    /// <summary>Right edge X coordinate.</summary>
+    public float MaxX => MinX + Width;
+
+    /// <summary>Bottom edge Y coordinate.</summary>
+    public float MaxY => MinY + Height;
+
+    /// <summary>Center X coordinate.</summary>
+    public float CenterX => MinX + Width / 2f;
+
+    /// <summary>Center Y coordinate.</summary>
+    public float CenterY => MinY + Height / 2f;
 }

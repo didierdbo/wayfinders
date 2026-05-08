@@ -459,4 +459,127 @@ public sealed class FogTileGridLogicTests
         Assert.Equal(350f, center.X);
         Assert.Equal(550f, center.Y);
     }
+
+    // ====================================================================
+    // Slice 3.6 (M3 / Phase 9 / 2026-05-08) -- ComputeCellBoundingBox.
+    // The bbox math is the seam between FogTileLayer.EnableSourceMapAtlas
+    // and the AtlasTexture region in pixels of the source map texture.
+    // If the bbox math drifts, every fog cell samples the wrong slice of
+    // the source map and the visual mapping looks scrambled.
+    // ====================================================================
+
+    [Fact]
+    public void Iso_bbox_at_origin_cell_centered_on_diamond_center()
+    {
+        var dimensions = new GridDimensions(20, 20);
+        var coord = new GridCoord(5, 5);
+        var bbox = FogTileGridLogic.ComputeCellBoundingBox(
+            coord, 128, dimensions, GridProjection.IsoDiamondDown);
+
+        // Width = cellSize, height = cellSize/2 (2:1 iso ratio).
+        Assert.Equal(128f, bbox.Width, precision: 4);
+        Assert.Equal(64f, bbox.Height, precision: 4);
+
+        // Center matches ComputeCellCenter + iso shift.
+        var center = FogTileGridLogic.ComputeCellCenter(coord, 128, GridProjection.IsoDiamondDown);
+        var shift = FogTileGridLogic.ComputeIsoOriginShift(dimensions, 128, GridProjection.IsoDiamondDown);
+        Assert.Equal(center.X + shift.X, bbox.CenterX, precision: 4);
+        Assert.Equal(center.Y + shift.Y, bbox.CenterY, precision: 4);
+    }
+
+    [Fact]
+    public void Iso_bbox_top_left_lands_at_diamond_left_top_extents()
+    {
+        // For an iso diamond with vertices (top, right, bottom, left) at
+        // offsets (0,-halfH), (halfW,0), (0,halfH), (-halfW,0) around the
+        // center : bbox MinX = center.X - halfW, MinY = center.Y - halfH.
+        var dimensions = new GridDimensions(20, 20);
+        var coord = new GridCoord(7, 3);
+        var bbox = FogTileGridLogic.ComputeCellBoundingBox(
+            coord, 128, dimensions, GridProjection.IsoDiamondDown);
+        var center = FogTileGridLogic.ComputeCellCenter(coord, 128, GridProjection.IsoDiamondDown);
+        var shift = FogTileGridLogic.ComputeIsoOriginShift(dimensions, 128, GridProjection.IsoDiamondDown);
+
+        Assert.Equal(center.X + shift.X - 64f, bbox.MinX, precision: 4);
+        Assert.Equal(center.Y + shift.Y - 32f, bbox.MinY, precision: 4);
+        Assert.Equal(center.X + shift.X + 64f, bbox.MaxX, precision: 4);
+        Assert.Equal(center.Y + shift.Y + 32f, bbox.MaxY, precision: 4);
+    }
+
+    [Fact]
+    public void Iso_bbox_widths_are_uniform_across_grid()
+    {
+        // Every iso cell has the same bbox dimensions (cellSize x cellSize/2).
+        // Only the position shifts. Verify with several cells.
+        var dimensions = new GridDimensions(20, 20);
+        var coords = new[]
+        {
+            new GridCoord(0, 0),
+            new GridCoord(5, 3),
+            new GridCoord(10, 10),
+            new GridCoord(19, 19),
+            new GridCoord(0, 19),
+            new GridCoord(19, 0),
+        };
+        foreach (var coord in coords)
+        {
+            var bbox = FogTileGridLogic.ComputeCellBoundingBox(
+                coord, 128, dimensions, GridProjection.IsoDiamondDown);
+            Assert.Equal(128f, bbox.Width, precision: 4);
+            Assert.Equal(64f, bbox.Height, precision: 4);
+        }
+    }
+
+    [Fact]
+    public void Rect_bbox_returns_full_cell_square()
+    {
+        // Rect mode : square cellSize x cellSize, centered on the cell.
+        var dimensions = new GridDimensions(10, 10);
+        var coord = new GridCoord(3, 5);
+        var bbox = FogTileGridLogic.ComputeCellBoundingBox(
+            coord, 100, dimensions, GridProjection.Rect);
+
+        Assert.Equal(100f, bbox.Width, precision: 4);
+        Assert.Equal(100f, bbox.Height, precision: 4);
+        Assert.Equal(300f, bbox.MinX, precision: 4); // col*cellSize
+        Assert.Equal(500f, bbox.MinY, precision: 4); // row*cellSize
+        Assert.Equal(400f, bbox.MaxX, precision: 4);
+        Assert.Equal(600f, bbox.MaxY, precision: 4);
+    }
+
+    [Fact]
+    public void Iso_bbox_spans_diamond_vertices_exactly()
+    {
+        // The bbox MUST contain all four diamond vertices on its edges :
+        // top vertex on top edge, bottom on bottom, left on left, right
+        // on right. This is the contract that lets AtlasTexture region +
+        // Polygon2D.uv mapping reproduce the diamond shape from the
+        // source pixels at edge-midpoints.
+        var dimensions = new GridDimensions(20, 20);
+        var coord = new GridCoord(5, 5);
+        var bbox = FogTileGridLogic.ComputeCellBoundingBox(
+            coord, 128, dimensions, GridProjection.IsoDiamondDown);
+        var center = FogTileGridLogic.ComputeCellCenter(coord, 128, GridProjection.IsoDiamondDown);
+        var shift = FogTileGridLogic.ComputeIsoOriginShift(dimensions, 128, GridProjection.IsoDiamondDown);
+
+        // Top vertex at (centerX, centerY - halfH) -> on bbox top edge.
+        Assert.Equal(bbox.MinY, center.Y + shift.Y - 32f, precision: 4);
+        // Right vertex at (centerX + halfW, centerY) -> on bbox right edge.
+        Assert.Equal(bbox.MaxX, center.X + shift.X + 64f, precision: 4);
+        // Bottom vertex at (centerX, centerY + halfH) -> on bbox bottom.
+        Assert.Equal(bbox.MaxY, center.Y + shift.Y + 32f, precision: 4);
+        // Left vertex at (centerX - halfW, centerY) -> on bbox left edge.
+        Assert.Equal(bbox.MinX, center.X + shift.X - 64f, precision: 4);
+    }
+
+    [Fact]
+    public void CellRect_helpers_compute_max_and_center_correctly()
+    {
+        var rect = new CellRect(MinX: 10f, MinY: 20f, Width: 100f, Height: 50f);
+        Assert.Equal(110f, rect.MaxX, precision: 4);
+        Assert.Equal(70f, rect.MaxY, precision: 4);
+        Assert.Equal(60f, rect.CenterX, precision: 4);
+        Assert.Equal(45f, rect.CenterY, precision: 4);
+    }
+
 }
