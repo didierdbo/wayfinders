@@ -152,10 +152,14 @@ public partial class MapPan2DComponent : Node2D
     [Export] public float ZoomOutThresholdRatio { get; set; } = 1.20f;
 
     /// <summary>Slice 3 -- amount of zoom delta applied per wheel tick.
-    /// 0.10 means each Push lifts Camera2D.Zoom by +0.10 toward
-    /// <see cref="ZoomMax"/> ; each Pull drops it by -0.10 toward
-    /// <see cref="ZoomMin"/>.</summary>
-    [Export] public float ZoomStepPerTick { get; set; } = 0.10f;
+    /// 0.15 means each Push lifts Camera2D.Zoom by +0.15 toward
+    /// <see cref="ZoomMax"/> ; each Pull drops it by -0.15 toward
+    /// <see cref="ZoomMin"/>. Slice 4 (2026-05-08) bumped the default
+    /// from 0.10 to 0.15 -- Didier playtest at slice 3 flagged the wheel
+    /// continuous zoom as too slow ; 0.15 is ~1.5x more progress per
+    /// gesture without losing the smoothness the 0.30 s tween provides.
+    /// Per-instance tuning still available via [Export].</summary>
+    [Export] public float ZoomStepPerTick { get; set; } = 0.15f;
 
     /// <summary>Slice 3 -- duration of the per-tick zoom tween, seconds.
     /// 0.30 s = brief slice 3 lock. Tween is killed and replaced if

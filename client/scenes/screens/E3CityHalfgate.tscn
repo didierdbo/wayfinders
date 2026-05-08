@@ -1,6 +1,7 @@
 [gd_scene load_steps=5 format=3 uid="uid://ce3hlfgt0001"]
 
 [ext_resource type="Script" path="res://scenes/screens/E3CityHalfgate.cs" id="1_e3hlf"]
+[ext_resource type="PackedScene" uid="uid://cwf_mappan2d0001" path="res://components/MapPan2DComponent.tscn" id="2_mappan"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panelE3"]
 bg_color = Color(0.91, 0.85, 0.72, 0.92)
@@ -44,30 +45,10 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+mouse_filter = 2
 script = ExtResource("1_e3hlf")
 
-[node name="BackgroundLayer" type="CanvasLayer" parent="."]
-layer = 0
-
-[node name="CityBackground" type="TextureRect" parent="BackgroundLayer"]
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-expand_mode = 1
-stretch_mode = 6
-
-[node name="PoiLayer" type="CanvasLayer" parent="."]
-layer = 1
-
-[node name="PoiContainer" type="Control" parent="PoiLayer"]
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-mouse_filter = 2
+[node name="MapPan2DComponent" parent="." instance=ExtResource("2_mappan")]
 
 [node name="DecorationLayer" type="CanvasLayer" parent="."]
 layer = 2
@@ -79,6 +60,7 @@ offset_bottom = 96.0
 grow_horizontal = 2
 expand_mode = 1
 stretch_mode = 6
+mouse_filter = 2
 
 [node name="BannerTitleLabel" type="Label" parent="DecorationLayer/BannerTop"]
 layout_mode = 1
@@ -118,6 +100,7 @@ anchor_right = 1.0
 offset_top = 100.0
 offset_bottom = 140.0
 grow_horizontal = 2
+mouse_filter = 2
 alignment = 1
 theme_override_constants/separation = 48
 
@@ -143,6 +126,7 @@ offset_top = 160.0
 offset_right = 320.0
 offset_bottom = -300.0
 grow_vertical = 2
+mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_panelE3")
 
 [node name="PanelLeftVBox" type="VBoxContainer" parent="DecorationLayer/PanelLeft"]
@@ -176,6 +160,7 @@ offset_right = -24.0
 offset_bottom = -300.0
 grow_horizontal = 0
 grow_vertical = 2
+mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_panelE3")
 
 [node name="PanelRightVBox" type="VBoxContainer" parent="DecorationLayer/PanelRight"]
@@ -229,6 +214,7 @@ offset_right = -24.0
 offset_bottom = -72.0
 grow_horizontal = 2
 grow_vertical = 0
+mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_panelBottom")
 
 [node name="PanelBottomVBox" type="VBoxContainer" parent="DecorationLayer/PanelBottom"]
