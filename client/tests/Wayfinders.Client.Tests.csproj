@@ -114,4 +114,18 @@
     <Compile Include="..\services\GameSettingsStore.cs" Link="src\GameSettingsStore.cs" />
   </ItemGroup>
 
+  <!-- Phase 9 slice 1 (M3 / L1 World fondations / 2026-05-08): tile
+       knowledge spectrum + fog grid math. Both helpers Godot-free by
+       design so xUnit pins the cell-to-world mapping (renderer + bake
+       must agree) and the five-level enum's persistence integers
+       (renumbering would silently corrupt save files). The Godot-bound
+       FogTileLayer renderer + TileKnowledgeStore autoload + Editor
+       PaletteQuantizerTool stay in the client csproj only — they are
+       validated through manual integration (debug F-key toggle for the
+       store, editor "Run Bake Now" toggle for the tool). -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\TileKnowledgeState.cs" Link="src\TileKnowledgeState.cs" />
+    <Compile Include="..\scripts\screens\FogTileGridLogic.cs" Link="src\FogTileGridLogic.cs" />
+  </ItemGroup>
+
 </Project>

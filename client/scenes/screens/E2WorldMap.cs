@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Godot;
+using Wayfinders.Client.Components;
 using Wayfinders.Client.Data;
 using Wayfinders.Client.Scripts.Screens;
 using Wayfinders.Client.Services;
@@ -10,257 +11,57 @@ using Wayfinders.Client.Services;
 namespace Wayfinders.Client.Scenes.Screens;
 
 /// <summary>
-/// E2 World Map -- the Cadastre's first feuillet. J3 promoted this from
-/// the J1 two-button stub to a proper screen ; P8.2 promotes it again
-/// from a screen-space TextureRect background to a Camera2D-driven
-/// world-space scrollable map.
-///
-/// <para>
-/// <b>P8.2 architecture (M3 / Arc 3 / Phase 8.2).</b>
-/// The screen hosts a true 2D world directly under the <c>Control</c> root:
+/// E2 World Map -- the Cadastre's first feuillet. Slice 1 of L1 World
+/// fondations (M3 / Arc 3 / Phase 9 slice 1, 2026-05-08) refactors this
+/// screen along three axes :
 /// <list type="bullet">
-///   <item><c>WorldRoot</c> (Node2D) -- the world container.</item>
-///   <item><c>WorldRoot/WorldMapSprite</c> (Sprite2D, centered=false)
-///         -- the 3840x2160 native E2.1 master asset, top-left at (0,0)
-///         in world coords.</item>
-///   <item><c>WorldRoot/WorldCamera</c> (Camera2D, current=true)
-///         -- viewport on the world. Limit{Left,Top,Right,Bottom} are set
-///         at <c>_Ready</c> from the texture size so the visible rect can
-///         never escape the image (no bord noir, ever).</item>
-///   <item><c>WorldRoot/PoiContainer</c> (Node2D) -- POI hotspots are
-///         world-space Node2D + Area2D + CollisionShape2D instead of
-///         screen-space Control + TextureButton (P7-J3 pattern). The
-///         migration is what lets pan + click coexist correctly: a hotspot
-///         rooted in the world tree follows the camera for free, no
-///         per-frame position rewriting.</item>
+///   <item>The pan stack moves out of inline <c>_Ready</c> / <c>_Input</c>
+///         / <c>_Process</c> code into a reusable
+///         <see cref="MapPan2DComponent"/>. Every Phase 8.x invariant is
+///         preserved verbatim (CanvasLayer trap, mouse_filter / _Input
+///         precedence, AZERTY physical_keycode, wheel-during-drag
+///         suppression with defense-in-depth, modal-owns-input,
+///         post-drag grace, RMB threshold) ; behaviour is unchanged,
+///         the code lives in a different file.</item>
+///   <item>A new <see cref="FogTileLayer"/> renders Sprite2D-per-cell
+///         fog placeholders above the iso ground (Varn 2026-05-08
+///         <c>Tiles as Cartography and Fog</c> §1.2 / §4.6 stack).</item>
+///   <item>A <see cref="TileKnowledgeStore"/> child node holds the
+///         <see cref="TileKnowledgeState"/> dictionary (livrable 3
+///         skeleton). Slice 1 wires only the binary
+///         <see cref="TileKnowledgeState.Inconnue"/> / <see cref="TileKnowledgeState.Levee"/>
+///         visuals — the three intermediate states are reserved in the
+///         enum but treated as Inconnue in the renderer until slice 2.</item>
 /// </list>
-/// The previous P7-J3 <c>BackgroundLayer/WorldMapBackground</c> TextureRect
-/// (stretch_mode KeepAspectCovered) and <c>PoiLayer</c> CanvasLayer were
-/// removed -- they are obsoleted by the world-space pattern (D-P8.2-11
-/// YAGNI: empty CanvasLayer 1 deleted). DecorationLayer (panneaux iso UI
-/// bord, banner, layer indicator) and ChromeLayer (back button, blocked
-/// indicator) are unchanged -- they sit above the world layer at
-/// CanvasLayer 2/3 and naturally do not pan with the camera, which is
-/// the right behaviour for HUD chrome.
-/// </para>
 ///
 /// <para>
-/// <b>P8.2-fix (commit 5a0b470) -- WorldRoot must NOT live under a CanvasLayer.</b>
-/// The original P8.2 commit parented <c>WorldRoot</c> under a
-/// <c>BackgroundLayer (CanvasLayer, layer=0)</c>. Symptom: drag and ZQSD
-/// updated <c>_worldCamera.Position</c> correctly (logic verified by 22
-/// xUnit pure-logic tests), but the rendered image did not move. Root
-/// cause: a <see cref="Camera2D"/> only affects the
-/// <c>canvas_transform</c> of the <see cref="Viewport"/> it belongs to
-/// via <c>World2D</c>. A <see cref="CanvasLayer"/> has its own independent
-/// <c>canvas_transform</c> that ignores any Camera2D nested inside it.
-/// </para>
-///
-/// <para>
-/// <b>P8.2-deep-fix (this commit) -- input + AZERTY + camera defense in depth.</b>
-/// The CanvasLayer fix unblocked the rendering pipeline but the bug was
-/// triple-headed and the other two heads were masked. The deep-fix lands
-/// three corrections in one pass:
+/// <b>What this screen still owns directly.</b>
 /// <list type="bullet">
-///   <item><b>Mouse events were swallowed by the Control root.</b>
-///         <c>Control</c> defaults to <c>MouseFilter.Stop</c> which means
-///         a <see cref="InputEventMouseButton"/> hitting the window
-///         consumes inside the Control tree before reaching
-///         <c>_UnhandledInput</c>. The middle-click drag never saw the
-///         press. Fix: <c>mouse_filter = 2</c> (Ignore) on the E2WorldMap
-///         Control root, plus on every decorative TextureRect and
-///         PanelContainer that overlaps the viewport area, so the events
-///         flow down to the underlying world. Defensive: input is now
-///         polled in <see cref="_Input"/> (priority before
-///         <c>_UnhandledInput</c>) so a future Control descendant cannot
-///         silently re-introduce the bug.</item>
-///   <item><b>InputMap was layout-mapped, not position-mapped.</b>
-///         The original P8.2 InputMap entries for <c>ui_pan_left/right/up/down</c>
-///         used <c>keycode</c> only, which Godot interprets through the
-///         OS keyboard layout. On AZERTY-FR (Didier's hardware) the W/A/S/D
-///         keycodes mapped to the wrong physical keys -- pressing 'Z'
-///         (top-left on AZERTY, where one expects forward-pan) did
-///         nothing because the binding wanted W (which is on the right
-///         row on AZERTY). Fix: bindings are now on <c>physical_keycode</c>
-///         (position-on-the-board, layout-agnostic). ZQSD on AZERTY = WASD
-///         on QWERTY = same physical keys = same actions.</item>
-///   <item><b>Camera2D current-flag race.</b> The original tscn did not
-///         set <c>current = true</c> in the scene file ; the runtime
-///         called <c>MakeCurrent()</c> in <c>_Ready</c> which is correct
-///         in isolation but races with any other Camera2D in the live
-///         tree (in particular, anything an autoload might own). Fix:
-///         <c>current = true</c> is now declarative on the WorldCamera
-///         node in the tscn, with the runtime <c>MakeCurrent()</c> call
-///         kept as belt-and-braces. A pre-flight self-check at <c>_Ready</c>
-///         logs the resolved input/camera state so a future regression
-///         is observable in the Godot console without a debugger.</item>
+///   <item>POI spawn + hover tooltip + click dispatch (Halfgate-only
+///         Varn §6.D6.10 lock). POIs are spawned as children of
+///         <see cref="MapPan2DComponent.PoiContainer"/> so they pan with
+///         the camera for free.</item>
+///   <item>Decorative chrome (banner, panels, layer indicator, back
+///         button, blocked indicator). All in CanvasLayer 2 / 3 above
+///         the world tree, unchanged from pre-extraction.</item>
+///   <item>The slice 1 debug toggle (F key) for the
+///         <see cref="TileKnowledgeStore"/> — flips the cell under
+///         the cursor between Inconnue (opaque fog) and Levée (hidden
+///         fog). Validation surface for livrable 3 ; will be retired
+///         when slice 2's actual zoom-driven drill ladders supply the
+///         real state mutations.</item>
 /// </list>
 /// </para>
 ///
 /// <para>
-/// <b>POI hotspot pattern (P8.2 D-P8.2-02 + D-P8.2-03 method b).</b>
-/// POI are <see cref="Node2D"/> instances spawned from
-/// <c>res://data/world_map_pois.tres</c> at <c>_Ready</c>, parented to
-/// <c>WorldRoot/PoiContainer</c>. Each hotspot owns a
-/// <see cref="Sprite2D"/> for the marker visual (centered=true so the
-/// authored <c>Position</c> is the marker center, intuitive for hand
-/// authoring) and an <see cref="Area2D"/> with a
-/// <see cref="CollisionShape2D"/> + <see cref="RectangleShape2D"/> for
-/// click + hover detection. Position + hit-box come from each
-/// <see cref="PoiDefinition"/> -- the data file <c>world_map_pois.tres</c>
-/// already authors world-space coordinates against the 3840x2160 image
-/// (D-P8.2-03 method b confirmed: existing positions like Halfgate
-/// (1820, 980), Veylant (960, 540), Caer-Mithren (2740, 700), Pelt
-/// (1280, 1500) all sit inside the world image, no <c>.tres</c> rewrite
-/// needed by P8.2). When Mira ships a final marker variant Didier
-/// adjusts the <c>Position</c> values in the inspector ; no recompile.
-/// </para>
-///
-/// <para>
-/// <b>Why Area2D not TextureButton (P7-J3 -> P8.2 reversal).</b>
-/// At J3 the rationale for <c>TextureButton</c> was "E2 lives in the
-/// Control tree, switching part of it to Node2D would be a mismatch."
-/// P8.2 changes the underlying screen architecture: the background is
-/// no longer a stretched TextureRect, it is a world-space Sprite2D
-/// under a Camera2D. POIs that need to follow that camera must live in
-/// the same world. <see cref="Area2D"/>'s <c>InputEvent</c> /
-/// <c>MouseEntered</c> / <c>MouseExited</c> signals are functional
-/// equivalents of TextureButton's <c>Pressed</c> / <c>MouseEntered</c>
-/// / <c>MouseExited</c> -- the dispatch logic upstream
-/// (<see cref="PoiDispatchLogic"/>) is unchanged, so the J3/J4 contract
-/// tests still pin the same outcomes.
-/// </para>
-///
-/// <para>
-/// <b>Lambda-capture trap pattern (Risk #1, backend-brain trap).</b>
-/// Same problem as P7-J3: connecting <c>area.InputEvent +=
-/// (_, evt, _) =&gt; OnPoiPressed(poi.PoiId)</c> captures a fresh closure
-/// per POI which cannot be disconnected by method-group at <c>_ExitTree</c>.
-/// Pattern preserved from J3: a dictionary mapping the spawned
-/// <see cref="Area2D"/> to the three handlers wired on it (InputEvent,
-/// MouseEntered, MouseExited), iterated at teardown for an exact
-/// reference-match disconnect. The <c>InputEvent</c> handler signature
-/// is <c>(Node viewport, InputEvent evt, long shapeIdx)</c> via a Godot
-/// signal delegate -- we keep the matching delegate type in the
-/// dictionary entry so the disconnect compiles. Without this discipline,
-/// freeing E2 leaves dangling subscriptions on orphan Area2Ds and the
-/// next hover or click on the autoloader's stale queue throws an
-/// "object disposed" exception. xUnit cannot catch this (no scene tree
-/// in tests).
-/// </para>
-///
-/// <para>
-/// <b>Pan input wiring (D-P8.2-04 + D-P8.2-05 + D-P8.2-06, deep-fix).</b>
-/// Two input surfaces, both on this screen (not on SceneManager):
-/// <list type="bullet">
-///   <item>Drag clic-milieu on <see cref="_Input"/> (was <c>_UnhandledInput</c>
-///         pre-deep-fix -- moved up the priority chain so a Control
-///         descendant cannot swallow the event). Pressing
-///         <see cref="MouseButton.Middle"/> starts a drag, motion
-///         translates the camera 1:1 inverse (drag right => camera
-///         pans left, image visually slides right under the cursor,
-///         RTS convention). Released middle ends the drag.</item>
-///   <item>ZQSD / WASD / arrows polled in <c>_Process(delta)</c> via
-///         <see cref="Input.IsActionPressed"/> against the four
-///         <c>ui_pan_left/right/up/down</c> InputMap actions defined
-///         in <c>project.godot</c> (D-P8.2-06) on
-///         <c>physical_keycode</c> bindings (deep-fix: AZERTY support).
-///         Constant <see cref="PanSpeedPxPerSec"/> = 800 px/s
-///         (D-P8.2-05). Diagonal motion is normalised by
-///         <see cref="CameraPanLogic.ResolvePanDirection"/> so two-key
-///         simultaneous press does not scroll sqrt(2) faster.</item>
-/// </list>
-/// Camera2D's native <c>LimitLeft/Top/Right/Bottom</c> apply the actual
-/// runtime clamp ; the pure-C# <see cref="CameraPanLogic"/> mirrors the
-/// invariant for xUnit pinning.
-/// </para>
-///
-/// <para>
-/// <b>Modal-owns-input convention (D-P8.2-12, mirrors P8.1).</b>
-/// When a modal is open (<see cref="SceneManager.ActiveModalId"/> not
-/// null), middle-click drag and ZQSD pan are silently ignored. Same
-/// rationale as P8.1 wheel-while-modal: the modal owns the input
-/// surface, the underlying screen is suspended. Esc closes the modal,
-/// pan resumes.
-/// </para>
-///
-/// <para>
-/// <b>P8.1+P8.2 triple-fix (Bug 2, 2026-05-07) -- drag and ladder wheel are mutually exclusive.</b>
-/// SceneManager handles <see cref="MouseButton.WheelUp"/> /
-/// <see cref="MouseButton.WheelDown"/> on <c>_UnhandledInput</c>.
-/// E2WorldMap handles <see cref="MouseButton.Middle"/> + ZQSD on
-/// <c>_Input</c>. The original P8.2 design considered them disjoint
-/// gestures and let wheel events propagate even during a drag. Manual
-/// testing surfaced the failure mode: while panning with middle-click
-/// held, the thumb resting on the wheel brushes it and triggers an
-/// unintended layer navigation.
-/// </para>
-///
-/// <para>
-/// The first attempt (commit <c>ad6a91f</c>) consumed wheel events at
-/// <c>_Input</c> when <c>_isDragging</c> is true (option (c) -- the
-/// screen owns its input contract during drag). It did not fully hold:
-/// on Didier's free-spin / MagSpeed-style hardware, microbrushes during
-/// a sustained drag still occasionally produced a layer change. The
-/// triple-fix adds defense-in-depth:
-/// <list type="bullet">
-///   <item>This screen still consumes wheel during <c>_isDragging</c>
-///         (architecturally clean primary path).</item>
-///   <item>The trigger is now the OR of <c>_isDragging</c> AND
-///         <c>Input.IsMouseButtonPressed(Middle)</c> -- catches the
-///         microsecond race where the middle-press event has not yet
-///         flipped <c>_isDragging</c> when a same-frame wheel arrives.</item>
-///   <item>SceneManager autoload also polls
-///         <c>Input.IsMouseButtonPressed(Middle)</c> as a belt to these
-///         braces (option (b) added as backstop). Either path alone is
-///         sufficient ; together they survive every observed timing
-///         shape.</item>
-///   <item>Wheel debounce on the autoload bumped from 200ms to 400ms
-///         to further reduce microbrush incidence.</item>
-/// </list>
-/// IScreen interface is still unchanged ; the per-screen drag knowledge
-/// stays per-screen, the autoload only does a stateless mouse-button
-/// poll (no awareness of which screen drags).
-/// </para>
-///
-/// <para>
-/// <b>P8 final-lock post-drag grace period (2026-05-07).</b>
-/// On middle-button release this screen calls
-/// <see cref="SceneManager.NotifyDragReleased"/> which arms a 250ms
-/// grace window in the autoload wheel handler. Wheel events arriving
-/// within that window are silently dropped. Symptom Didier reported
-/// post-1e89ad3: "when I exit the scroll, sometimes I do a wheel
-/// action by accident just after, it should be cancelled because it is
-/// likely an error" -- the lift-off thumb brush. The grace timer lives
-/// at the autoload (where the wheel dispatch lives), not on this screen,
-/// so a future drag-capable screen reuses the same hook.
-/// </para>
-///
-/// <para>
-/// <b>Halfgate-only navigation gate (Varn §6.D6.10 lock 1-cité MVP).</b>
-/// Click dispatch goes through pure-C# <see cref="PoiDispatchLogic"/>:
-/// clickable POI -&gt; SceneManager.NavigateTo ; non-clickable POI -&gt;
-/// flash the bottom-center BlockedIndicator label for 2.3s
-/// (100ms fade-in, 2000ms hold, 200ms fade-out). The flash matters --
-/// a silent <c>GD.Print</c> would leave the player wondering whether
-/// they hit a bug or a mechanic. Spec preserved verbatim from J3.
-/// </para>
-///
-/// <para>
-/// <b>Risk #3 mitigation (tooltip orphelin).</b>
-/// <see cref="HoverTooltipController.CancelTooltip"/> is called on
-/// <c>_ExitTree</c>. If the user hovered a POI then hit Esc / Refermer
-/// le feuillet within 600ms, the tooltip's pending timer would fire on
-/// the next screen if not cancelled here.
-/// </para>
-///
-/// <para>
-/// <b>Esc handling (D-J3-11).</b> Not bound here -- the SceneManager
-/// autoload already maps the engine-default <c>ui_cancel</c> action
-/// (Esc) to <see cref="SceneManager.NavigateBack"/>, so Esc on E2
-/// returns to E1 with no extra wiring. The "Refermer le feuillet"
-/// button calls <see cref="SceneManager.NavigateBack"/> too -- same
-/// intent, separate input surface.
+/// <b>Why POIs stay here, not in the component.</b> POI spawn is tied
+/// to <see cref="OpeningStrings"/> / <see cref="WorldMapPois"/> /
+/// <see cref="PoiDispatchLogic"/> -- screen-specific data and routing
+/// that does not belong inside a generic 2D pan component. The
+/// component exposes the world tree as a public API ; the screen owns
+/// what spawns into it. This keeps <see cref="MapPan2DComponent"/>
+/// reusable for future scenes (E3 cité, ex-E5 quartier) that have
+/// different POI grammars.
 /// </para>
 /// </summary>
 public partial class E2WorldMap : Control, IScreen
@@ -280,26 +81,13 @@ public partial class E2WorldMap : Control, IScreen
     private const float BlockedFadeOutSeconds = 0.2f;
 
     /// <summary>
-    /// ZQSD / WASD / arrow pan speed in world pixels per second
-    /// (D-P8.2-05). Sized so a sustained pan crosses the full 3840 px
-    /// width of the E2.1 image in ~4.8s -- snappy enough to feel
-    /// responsive, slow enough that a tap does not overshoot the
-    /// intended POI.
+    /// Slice 1 debug action name. Bound to the F key in
+    /// <c>project.godot</c> ; toggles the knowledge state of the cell
+    /// under the cursor between Inconnue and Levée (livrable 3 exit
+    /// criterion). Held in a constant so a future rename surfaces every
+    /// consumer at compile time.
     /// </summary>
-    private const float PanSpeedPxPerSec = 800f;
-
-    /// <summary>
-    /// Names of the four InputMap actions <see cref="_Process"/> polls.
-    /// Held in one place so the pre-flight self-check (<see cref="_Ready"/>)
-    /// can verify each one is registered against <see cref="InputMap"/>
-    /// and emit a console warning if not -- this is the exact regression
-    /// surface that motivated the deep-fix (a typo in project.godot or a
-    /// rogue editor save would silently break ZQSD pan).
-    /// </summary>
-    private static readonly string[] PanActionNames =
-    {
-        "ui_pan_left", "ui_pan_right", "ui_pan_up", "ui_pan_down",
-    };
+    private const string DebugToggleFogActionName = "debug_toggle_fog_cell";
 
     private TextureRect _bannerTop = null!;
     private Label _bannerTitleLabel = null!;
@@ -319,70 +107,33 @@ public partial class E2WorldMap : Control, IScreen
     private PanelContainer _blockedIndicator = null!;
     private Label _blockedIndicatorLabel = null!;
 
-    // P8.2 world-space hierarchy. WorldRoot is a direct child of the
-    // Control root (NOT under a CanvasLayer -- see class docstring P8.2-fix
-    // section: a Camera2D under a CanvasLayer affects nothing).
-    private Node2D _worldRoot = null!;
-    private Sprite2D _worldMapSprite = null!;
-    private Camera2D _worldCamera = null!;
-    private Node2D _poiContainer = null!;
+    private MapPan2DComponent _panComponent = null!;
+    private FogTileLayer _fogTileLayer = null!;
+    private TileKnowledgeStore _knowledgeStore = null!;
 
     private OpeningStrings _strings = null!;
     private WorldMapPois _poisResource = null!;
 
     /// <summary>
-    /// One entry per spawned POI Area2D. The three handler references
-    /// are stored so <c>_ExitTree</c> can disconnect with the exact
-    /// references used at wire time -- method-group disconnect would
-    /// not match a closure capturing the per-POI id (Risk #1 carried
-    /// over from P7-J3, restated for P8.2 because the migration to
-    /// Area2D changed the signal types).
+    /// Per-POI handler bag — same Risk #1 disconnect discipline as
+    /// pre-extraction. Spawn parents under
+    /// <see cref="MapPan2DComponent.PoiContainer"/>.
     /// </summary>
     private readonly Dictionary<Area2D, PoiAreaHandlers> _poiHandlers = new();
 
-    /// <summary>
-    /// Reverse lookup poi-id -&gt; hotspot Node2D root. Populated alongside
-    /// <see cref="_poiHandlers"/> at spawn. Used by the hover handler so
-    /// the tooltip can anchor at the POI's <c>GlobalPosition</c> without
-    /// scanning the scene tree. The hotspot's <c>GlobalPosition</c>
-    /// already accounts for camera pan because the hotspot is a child
-    /// of the world tree.
-    /// </summary>
+    /// <summary>Reverse lookup poi-id -&gt; hotspot Node2D root for hover tooltip anchor.</summary>
     private readonly Dictionary<string, Node2D> _poiHotspots = new();
 
     private Tween? _blockedTween;
-
-    // P8.2 drag state (Idle when _isDragging is false). Kept as a
-    // boolean proxy of MapPanInputLogic.State==Dragging so the P8
-    // final-lock wheel-suppress block (which guards on _isDragging)
-    // stays mot-pour-mot identical post-P8.3 -- see _Input below.
-    private bool _isDragging;
-    private Vector2 _dragStartMouseViewport;
-    private Vector2 _dragStartCameraWorld;
-
-    // P8.3 (M3 / Arc 3 / Phase 8.3) -- map pan config + drag threshold.
-    // The state machine routes both MMB-direct and RMB-with-threshold
-    // through one Godot-free helper. _activePanButton is cached at
-    // _Ready and refreshed via the GameSettings.SettingsChanged signal
-    // so a config flip in the Options modal takes effect on the next
-    // _Input event without a screen reload.
-    private readonly MapPanInputLogic _panLogic = new();
-    private MapPanButton _activePanButton = MapPanButton.Middle;
-    private GameSettings? _gameSettings;
 
     public override void _Ready()
     {
         _strings = ResourceLoader.Load<OpeningStrings>(OpeningStringsResPath) ?? new OpeningStrings();
         _poisResource = ResourceLoader.Load<WorldMapPois>(WorldMapPoisResPath) ?? new WorldMapPois();
 
-        // P8.2-fix: WorldRoot is now a direct child of the Control root.
-        // Previously it was nested under a BackgroundLayer (CanvasLayer)
-        // which silently broke the Camera2D's effect on rendering -- see
-        // class docstring P8.2-fix section.
-        _worldRoot = GetNode<Node2D>("WorldRoot");
-        _worldMapSprite = GetNode<Sprite2D>("WorldRoot/WorldMapSprite");
-        _worldCamera = GetNode<Camera2D>("WorldRoot/WorldCamera");
-        _poiContainer = GetNode<Node2D>("WorldRoot/PoiContainer");
+        _panComponent = GetNode<MapPan2DComponent>("MapPan2DComponent");
+        _fogTileLayer = GetNode<FogTileLayer>("MapPan2DComponent/WorldRoot/FogTileLayer");
+        _knowledgeStore = GetNode<TileKnowledgeStore>("TileKnowledgeStore");
 
         _bannerTop = GetNode<TextureRect>("DecorationLayer/BannerTop");
         _bannerTitleLabel = GetNode<Label>("DecorationLayer/BannerTop/BannerTitleLabel");
@@ -402,38 +153,21 @@ public partial class E2WorldMap : Control, IScreen
         _blockedIndicator = GetNode<PanelContainer>("ChromeLayer/BlockedIndicator");
         _blockedIndicatorLabel = GetNode<Label>("ChromeLayer/BlockedIndicator/BlockedIndicatorLabel");
 
-        // Background + decoration textures (AssetResolver returns a
-        // deterministic placeholder if the file is missing, so this never
-        // null-refs even on a fresh checkout).
         var assetResolver = GetNode<AssetResolver>("/root/AssetResolver");
-        _worldMapSprite.Texture = assetResolver.Resolve(WorldMapBackgroundAssetKey);
+        var worldTexture = assetResolver.Resolve(WorldMapBackgroundAssetKey);
         _bannerTop.Texture = assetResolver.Resolve(BannerTopAssetKey);
 
-        // Panel iso frames are decorative -- the StyleBoxFlat in the .tscn
-        // already gives us the parchment look. When Mira ships the real
-        // panneau iso PNGs, swap the StyleBoxFlat for a NinePatchRect or
-        // a TextureRect underneath each PanelContainer. J3 stub fixed-pos.
         _ = assetResolver.Resolve(PanelLeftAssetKey);   // pre-warm cache slot
         _ = assetResolver.Resolve(PanelRightAssetKey);  // pre-warm cache slot
 
-        // Configure the camera against the loaded image dimensions. Done
-        // after the texture set so GetSize() reads the real native size.
-        // Camera2D.Limit* clamps the visible rect inside the image, the
-        // canonical Godot pattern for "fenêtre sur un monde fini" (D-P8.2-07).
-        var imageSize = _worldMapSprite.Texture.GetSize();
-        _worldCamera.LimitLeft = 0;
-        _worldCamera.LimitTop = 0;
-        _worldCamera.LimitRight = (int)imageSize.X;
-        _worldCamera.LimitBottom = (int)imageSize.Y;
-        _worldCamera.MakeCurrent();
-
-        // Initial camera position: centered on Halfgate POI if found
-        // (D-P8.2-08, "tu commences là où l'action est"), else on image
-        // center. The clamp is a no-op for valid Halfgate -- defense-doc'd
-        // by CameraPanLogicTests.HalfgatePoiCenter_is_within_valid_camera_range.
+        // Configure the pan component with the world texture and an
+        // initial center on Halfgate (D-P8.2-08, "tu commences là où
+        // l'action est"). The component handles camera limits and
+        // initial-clamp internally.
         var halfgate = FindPoi(HalfgatePoiId);
+        var imageSize = worldTexture.GetSize();
         var initialCenter = halfgate?.Position ?? imageSize / 2f;
-        _worldCamera.Position = initialCenter;
+        _panComponent.Configure(worldTexture, initialCenter);
 
         // Strings -- single point of swap when Varn revises the .tres.
         _bannerTitleLabel.Text = _strings.E2Title;
@@ -448,112 +182,43 @@ public partial class E2WorldMap : Control, IScreen
 
         _backButton.Pressed += OnBackPressed;
 
-        // P8.3 -- read the persisted map-pan-button preference and
-        // subscribe to future flips. The autoload may be missing in a
-        // hypothetical scene-isolated test harness, in which case we
-        // stay at the default (Middle) and skip the subscription.
-        _gameSettings = GetNodeOrNull<GameSettings>("/root/GameSettings");
-        if (_gameSettings is not null)
-        {
-            _activePanButton = _gameSettings.MapPanButton;
-            _gameSettings.SettingsChanged += OnSettingsChanged;
-        }
-
         SpawnPois(assetResolver);
 
-        // P8.2-deep-fix pre-flight self-check. The triple-headed bug that
-        // motivated this commit was invisible without instrumentation --
-        // the camera silently failed to move, and we had no console
-        // signal that distinguished "wrong canvas" / "wrong InputMap" /
-        // "wrong mouse_filter". This dump fires once per E2 entry so a
-        // future regression surfaces in the editor console without a
-        // debugger session.
-        DumpInputAndCameraState();
-    }
+        // Configure the fog layer AFTER the pan component is configured
+        // (so the world image size is known) and AFTER POIs are spawned
+        // (so the z-index ordering on POIs is in place when the fog
+        // layer's own z-index sits above). The placeholder texture is a
+        // 1×1 white pixel — modulate-tinted to beige-écru carton inside
+        // the fog renderer, scaled to cell size at spawn.
+        var fogPlaceholder = MakePlaceholderCartonTexture();
+        _fogTileLayer.Configure(_panComponent.WorldImageSize, _knowledgeStore, fogPlaceholder);
 
-    /// <summary>
-    /// One-shot diagnostic at <c>_Ready</c> that prints every state
-    /// dimension known to interact with the P8.2 pan stack. Cheap (six
-    /// lines, four <c>InputMap.HasAction</c> queries, no allocation in
-    /// the hot path -- this only runs when E2 enters the tree).
-    ///
-    /// <para>
-    /// Output shape:
-    /// <code>
-    /// [E2WorldMap] preflight: WorldCamera Current=true Position=(1820, 980) Limits=[(0,0)-(3840,2160)]
-    /// [E2WorldMap] preflight: MouseFilter=Ignore (root) -- _Input wired (priority over _UnhandledInput)
-    /// [E2WorldMap] preflight: InputMap ui_pan_left=True ui_pan_right=True ui_pan_up=True ui_pan_down=True
-    /// [E2WorldMap] preflight: 4 POI spawned (handlers wired, hotspots indexed)
-    /// </code>
-    /// If any of those reads <c>False</c> for an InputMap action, the ZQSD
-    /// pan will silently no-op -- the line is the canary.
-    /// </para>
-    /// </summary>
-    private void DumpInputAndCameraState()
-    {
-        GD.Print(
-            $"[E2WorldMap] preflight: WorldCamera Current={_worldCamera.IsCurrent()} " +
-            $"Position={_worldCamera.Position} " +
-            $"Limits=[({_worldCamera.LimitLeft},{_worldCamera.LimitTop})-" +
-            $"({_worldCamera.LimitRight},{_worldCamera.LimitBottom})]");
-        GD.Print(
-            $"[E2WorldMap] preflight: MouseFilter={MouseFilter} (root) -- " +
-            "_Input wired (priority over _UnhandledInput)");
-        var hasLeft  = InputMap.HasAction(PanActionNames[0]);
-        var hasRight = InputMap.HasAction(PanActionNames[1]);
-        var hasUp    = InputMap.HasAction(PanActionNames[2]);
-        var hasDown  = InputMap.HasAction(PanActionNames[3]);
-        GD.Print(
-            $"[E2WorldMap] preflight: InputMap " +
-            $"{PanActionNames[0]}={hasLeft} " +
-            $"{PanActionNames[1]}={hasRight} " +
-            $"{PanActionNames[2]}={hasUp} " +
-            $"{PanActionNames[3]}={hasDown}");
-        if (!(hasLeft && hasRight && hasUp && hasDown))
+        // Pre-flight self-check on the slice 1 debug action. If the
+        // project.godot binding is missing the F key will silently no-op
+        // and livrable 3 cannot be demonstrated.
+        if (!InputMap.HasAction(DebugToggleFogActionName))
         {
             GD.PushWarning(
-                "[E2WorldMap] preflight: at least one ui_pan_* action is missing from InputMap. " +
-                "ZQSD pan will silently no-op until project.godot is fixed.");
+                $"[E2WorldMap] preflight: {DebugToggleFogActionName} action missing from InputMap. " +
+                "Slice 1 fog toggle (F key) will silently no-op.");
         }
-        GD.Print(
-            $"[E2WorldMap] preflight: {_poiHandlers.Count} POI spawned " +
-            "(handlers wired, hotspots indexed)");
     }
 
     public override void _ExitTree()
     {
-        // Disconnect chrome handlers first.
         if (_backButton is not null) _backButton.Pressed -= OnBackPressed;
 
-        // Disconnect every POI handler with the EXACT reference captured
-        // at wire time. Method-group disconnect would not match because
-        // each closure closed over a distinct PoiId (Risk #1).
         foreach (var (area, handlers) in _poiHandlers)
         {
             if (area is null) continue;
             area.InputEvent -= handlers.InputEvent;
             area.MouseEntered -= handlers.MouseEntered;
             area.MouseExited -= handlers.MouseExited;
-            // QueueFree the hotspot Node2D parent so the Sprite2D + Area2D
-            // + CollisionShape2D children are reaped together. The hotspot
-            // is the area's parent (see SpawnPois below).
             area.GetParent()?.QueueFree();
         }
         _poiHandlers.Clear();
         _poiHotspots.Clear();
 
-        // P8.3 -- unsubscribe from GameSettings.SettingsChanged with the
-        // exact handler reference used at wire time. Required even on
-        // app-exit because GameSettings is an autoload (lives longer
-        // than this screen) and a dangling subscription would call into
-        // a freed Node on the next preference flip.
-        if (_gameSettings is not null)
-        {
-            _gameSettings.SettingsChanged -= OnSettingsChanged;
-        }
-
-        // Risk #3: cancel any pending tooltip timer so the autoload
-        // does not surface a tooltip on the next screen mid-fade.
         var tooltipController = GetNodeOrNull<HoverTooltipController>("/root/HoverTooltipController");
         tooltipController?.CancelTooltip();
 
@@ -561,207 +226,48 @@ public partial class E2WorldMap : Control, IScreen
         _blockedTween = null;
     }
 
-    public override void _Process(double delta)
-    {
-        // ZQSD pan polling (D-P8.2-05 + D-P8.2-06). Done in _Process so
-        // sustained key-hold produces continuous motion at a frame-rate-
-        // independent speed. Skipped while a modal is open (D-P8.2-12).
-        if (IsModalOpen()) return;
-
-        var dir = CameraPanLogic.ResolvePanDirection(
-            left:  Input.IsActionPressed("ui_pan_left"),
-            right: Input.IsActionPressed("ui_pan_right"),
-            up:    Input.IsActionPressed("ui_pan_up"),
-            down:  Input.IsActionPressed("ui_pan_down"));
-
-        if (dir.X == 0f && dir.Y == 0f) return;
-
-        var current = ToPanVec2(_worldCamera.Position);
-        var imageSize = ToPanVec2(_worldMapSprite.Texture.GetSize());
-        var viewportSize = ToPanVec2(GetViewport().GetVisibleRect().Size);
-
-        var advanced = CameraPanLogic.AdvanceCameraCenter(
-            current, dir, PanSpeedPxPerSec, (float)delta, imageSize, viewportSize);
-
-        _worldCamera.Position = ToVector2(advanced);
-    }
-
     /// <summary>
-    /// Drag clic-milieu pan handler (D-P8.2-04, deep-fix moved from
-    /// <c>_UnhandledInput</c> to <c>_Input</c>).
+    /// Slice 1 debug command — F key toggles the knowledge state of the
+    /// cell under the cursor. Lives on <see cref="_UnhandledInput"/> so
+    /// the pan component (which uses <see cref="_Input"/>) cannot
+    /// accidentally swallow the keystroke, and so a future modal that
+    /// claims input via Control's mouse_filter still suppresses the
+    /// toggle when relevant.
     ///
     /// <para>
-    /// <b>Why <c>_Input</c> not <c>_UnhandledInput</c>.</b> The original
-    /// P8.2 commit used <c>_UnhandledInput</c> on the assumption that no
-    /// Control descendant would consume mouse events first. That
-    /// assumption was wrong: this scene's root is itself a
-    /// <see cref="Control"/>, which defaults to <c>MouseFilter.Stop</c>
-    /// and absorbs <see cref="InputEventMouseButton"/> before
-    /// <c>_UnhandledInput</c> ever sees it. The .tscn now sets
-    /// <c>mouse_filter = Ignore</c> on the root and on the decorative
-    /// Control descendants, but moving the handler up to <c>_Input</c>
-    /// is the belt to that braces -- a future Control descendant added
-    /// without an explicit Ignore filter will not silently break the
-    /// drag. <c>_Input</c> sees every event before the GUI/Control tree
-    /// gets a chance to consume it.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Why this does not break the P8.1 wheel ladder.</b>
-    /// SceneManager's wheel handler stays on <c>_UnhandledInput</c>. Our
-    /// <c>_Input</c> only marks middle-button + middle-drag motion as
-    /// handled (via <c>SetInputAsHandled</c>). Wheel events pass through
-    /// untouched and reach SceneManager normally. Manual checklist
-    /// step 9 still validates this end-to-end.
+    /// The cursor's world-space position is computed by feeding the
+    /// viewport-space mouse position through the WorldCamera's inverse
+    /// transform. Camera2D exposes <c>GetCanvasTransform()</c> which is
+    /// the same matrix Godot uses to project the world into the
+    /// viewport — inverting it maps a viewport coord back to world
+    /// coords correctly even when the camera is mid-pan.
     /// </para>
     /// </summary>
-    public override void _Input(InputEvent @event)
+    public override void _UnhandledInput(InputEvent @event)
     {
-        // P8.1+P8.2 triple-fix (Bug 2, 2026-05-07) -- suppress wheel
-        // events during an active drag.
-        //
-        // The first attempt (ad6a91f) gated only on _isDragging. That
-        // missed two timing shapes:
-        //   1. The same-frame race where the press event arrives but
-        //      _isDragging has not yet been set to true when a wheel
-        //      event arrives in the same _Input dispatch loop.
-        //   2. Microbrushes during a sustained drag on free-spin /
-        //      MagSpeed-style wheel hardware where the wheel detents are
-        //      so light that a stationary thumb can fire a tick.
-        //
-        // The triple-fix gates on (_isDragging || mouse_button_held).
-        // Either signal is sufficient to suppress the wheel. The OR is
-        // the primary fix for shape (1) ; the SceneManager-side poll
-        // (autoload-level same check) plus the 400ms debounce there are
-        // the backstops for shape (2). Defense-in-depth across both
-        // sites covers every observed timing of the bug while keeping
-        // each individual site honest about its own contract.
-        //
-        // Architectural justification (unchanged): option (c) is still
-        // the primary path -- the screen that owns the drag owns its
-        // suppression. The added Input.IsMouseButtonPressed poll is a
-        // local defensive check, not a delegation to the autoload ;
-        // IScreen interface is untouched.
-        //
-        // P8.3 (D-P8.3-10) -- the held-button OR now covers BOTH MMB and
-        // RMB. The active pan button is configurable at runtime (Options
-        // modal), so checking only Middle would leak wheel events through
-        // when the player has switched to RMB-pan and is mid-drag. Both
-        // buttons are checked unconditionally regardless of _activePanButton
-        // (defense-in-depth: a stale press of the inactive button is a
-        // benign suppression, never a false-negative on the active one).
-        // The existing 7 WheelDuringDragSuppressionTests stay green --
-        // they pin "MMB-held implies suppress", which this OR still
-        // honours ; the new clause is purely additive.
-        if ((_isDragging
-             || Input.IsMouseButtonPressed(MouseButton.Middle)
-             || Input.IsMouseButtonPressed(MouseButton.Right))
-            && @event is InputEventMouseButton wheel
-            && wheel.Pressed
-            && (wheel.ButtonIndex == MouseButton.WheelUp
-                || wheel.ButtonIndex == MouseButton.WheelDown))
+        if (@event is not InputEventKey key || !key.Pressed || key.Echo) return;
+        if (!InputMap.EventIsAction(@event, DebugToggleFogActionName, exactMatch: false)) return;
+        if (IsModalOpen()) return;
+
+        var viewport = GetViewport();
+        var mouseViewportPos = viewport.GetMousePosition();
+        var canvasTransform = viewport.GetCanvasTransform();
+        var worldPos = canvasTransform.AffineInverse() * mouseViewportPos;
+
+        var coord = _fogTileLayer.WorldPositionToCell(worldPos);
+        if (coord is null)
         {
-            GetViewport().SetInputAsHandled();
+            GD.Print($"[E2WorldMap] debug toggle: cursor at {worldPos} is outside grid bounds");
             return;
         }
 
-        // P8.3 -- map-pan dispatch via MapPanInputLogic. The active
-        // button (MMB or RMB) is read from _activePanButton, refreshed
-        // via the GameSettings.SettingsChanged signal. The state machine
-        // (Idle / Tracking / Dragging) lives in the pure-C# helper ; this
-        // method only translates Godot events into helper calls and
-        // applies the resulting outcomes. POI dispatch is unaffected --
-        // SpawnPois filters on MouseButton.Left only, so RMB on a POI
-        // is reserved for pan + the post-MVP context menu (Risk #2).
-        var activeButtonGodot = _activePanButton == MapPanButton.Middle
-            ? MouseButton.Middle
-            : MouseButton.Right;
-
-        if (@event is InputEventMouseButton mb && mb.ButtonIndex == activeButtonGodot)
-        {
-            // Modal-owns-input mirror of P8.1 (D-P8.2-12). When a modal
-            // is open we ignore the press entirely. Reset the state
-            // machine so a drag that was live when the modal opened
-            // does not carry across the modal session.
-            if (IsModalOpen())
-            {
-                _panLogic.Reset();
-                _isDragging = false;
-                return;
-            }
-
-            if (mb.Pressed)
-            {
-                var press = _panLogic.OnPress(
-                    _activePanButton,
-                    ToPanVec2(mb.Position),
-                    ToPanVec2(_worldCamera.Position));
-                _isDragging = press.EnteredDrag;
-                _dragStartMouseViewport = mb.Position;
-                _dragStartCameraWorld = _worldCamera.Position;
-                if (press.EnteredDrag)
-                {
-                    GD.Print(
-                        $"[E2WorldMap] {_activePanButton}-drag begin (no-threshold) " +
-                        $"at viewport {mb.Position}, camera {_worldCamera.Position}");
-                }
-                // RMB path: state is Tracking, no log until the threshold
-                // is crossed in OnMotion below (silent press is the slot
-                // for the post-MVP context menu, kept silent in MVP).
-            }
-            else
-            {
-                var release = _panLogic.OnRelease();
-                _isDragging = false;
-                if (release.WasDragging)
-                {
-                    // P8 final-lock post-drag grace period (2026-05-07).
-                    // Notify the autoload so it can silently drop wheel
-                    // events that arrive within PostDragGraceMs ms of
-                    // this release. Catches the thumb lift-off brush --
-                    // see SceneManager class doc "P8 final-lock post-drag
-                    // grace period" paragraph.
-                    var sceneManager = GetNodeOrNull<SceneManager>("/root/SceneManager");
-                    sceneManager?.NotifyDragReleased();
-                    GD.Print(
-                        $"[E2WorldMap] {_activePanButton}-drag end, " +
-                        $"camera now {_worldCamera.Position}");
-                }
-                // Tracking-only release (RMB no-cross-threshold) is a
-                // silent no-op MVP -- slot for the post-MVP context menu.
-            }
-            GetViewport().SetInputAsHandled();
-            return;
-        }
-
-        if (@event is InputEventMouseMotion mm)
-        {
-            var motion = _panLogic.OnMotion(ToPanVec2(mm.Position));
-            if (!motion.ShouldPan) return;
-
-            if (motion.JustPromoted)
-            {
-                _isDragging = true;
-                GD.Print(
-                    $"[E2WorldMap] {_activePanButton}-drag begin " +
-                    $"(cross threshold {MapPanInputLogic.DragThresholdPx}px) " +
-                    $"at viewport {mm.Position}, camera {_worldCamera.Position}");
-            }
-
-            // 1:1 inverse: full delta from press position (NOT from cross
-            // point) so a Tracking->Dragging promotion does not introduce
-            // a 6 px visual jump. Pattern Google Maps / Unity Editor / Figma.
-            var delta = mm.Position - ToVector2(motion.PressPosition);
-            var desired = ToVector2(motion.CameraStart) - delta;
-
-            var imageSize = ToPanVec2(_worldMapSprite.Texture.GetSize());
-            var viewportSize = ToPanVec2(GetViewport().GetVisibleRect().Size);
-            var clamped = CameraPanLogic.ClampCameraCenter(
-                ToPanVec2(desired), imageSize, viewportSize);
-
-            _worldCamera.Position = ToVector2(clamped);
-            GetViewport().SetInputAsHandled();
-        }
+        var before = _knowledgeStore.GetState(coord.Value);
+        _knowledgeStore.ToggleAtCell(coord.Value);
+        var after = _knowledgeStore.GetState(coord.Value);
+        GD.Print(
+            $"[E2WorldMap] debug toggle: cell ({coord.Value.Col},{coord.Value.Row}) " +
+            $"{before} -> {after}");
+        viewport.SetInputAsHandled();
     }
 
     private void SpawnPois(AssetResolver assetResolver)
@@ -770,30 +276,22 @@ public partial class E2WorldMap : Control, IScreen
         {
             if (poi is null) continue;
 
-            // Hotspot root -- the Area2D's parent. QueueFree on this
-            // node at _ExitTree reaps the sprite + area + shape together.
             var hotspot = new Node2D
             {
                 Name = $"Poi_{poi.PoiId}",
                 Position = poi.Position,
+                ZIndex = 5,
             };
 
             var sprite = new Sprite2D
             {
                 Texture = assetResolver.Resolve(poi.AssetKey),
                 Centered = true,
-                // Tone down the suspended sprite without disabling the
-                // node -- we still need the hover signal for the
-                // suspended-cadastre tooltip.
                 Modulate = poi.IsClickable
                     ? new Color(1, 1, 1, 1)
                     : new Color(0.85f, 0.78f, 0.68f, 0.85f),
             };
 
-            // Area2D for click + hover detection. InputPickable=true is
-            // the default but stated explicitly here so a future
-            // refactor that disables input picking globally surfaces
-            // this site as a known consumer.
             var area = new Area2D
             {
                 Name = "Hitbox",
@@ -807,18 +305,10 @@ public partial class E2WorldMap : Control, IScreen
 
             hotspot.AddChild(sprite);
             hotspot.AddChild(area);
-            _poiContainer.AddChild(hotspot);
+            _panComponent.PoiContainer.AddChild(hotspot);
 
-            // Capture the PoiId once per closure so the dispatch reads the
-            // right entry. The handlers are *kept* in _poiHandlers so the
-            // _ExitTree disconnect uses the same references (Risk #1).
             var poiId = poi.PoiId;
 
-            // Area2D.InputEvent signature: (Node viewport, InputEvent evt, long shapeIdx).
-            // Matches the InputEventEventHandler delegate Godot exposes
-            // on Area2D in C#. We only fire on the press edge of the
-            // left mouse button so a drag clic-milieu starting on a POI
-            // does not also click it.
             Area2D.InputEventEventHandler inputHandler = (_, evt, _) =>
             {
                 if (evt is InputEventMouseButton hit
@@ -882,10 +372,6 @@ public partial class E2WorldMap : Control, IScreen
         var text = ResolveTooltipText(poi);
         if (string.IsNullOrEmpty(text)) return;
 
-        // Anchor at the POI's world-space global position (which already
-        // accounts for camera pan because the hotspot is a child of the
-        // world tree). The tooltip controller adds its own offset so the
-        // panel floats above the marker.
         var anchor = _poiHotspots.TryGetValue(poiId, out var hotspot)
             ? hotspot.GlobalPosition
             : Vector2.Zero;
@@ -900,8 +386,6 @@ public partial class E2WorldMap : Control, IScreen
 
     private string ResolveTooltipText(PoiDefinition poi)
     {
-        // Halfgate uses its dedicated key (Varn E2.F instantiated).
-        // Other POIs use the §3.1 E2.G template with [Nom] interpolation.
         if (!string.IsNullOrEmpty(poi.TooltipKey))
         {
             return poi.TooltipKey switch
@@ -915,8 +399,6 @@ public partial class E2WorldMap : Control, IScreen
 
     private void ShowBlockedFlash()
     {
-        // Restart any in-flight flash so a rapid second click resets
-        // the tween rather than stacking labels.
         _blockedTween?.Kill();
 
         _blockedIndicator.Modulate = new Color(1, 1, 1, 0);
@@ -943,48 +425,26 @@ public partial class E2WorldMap : Control, IScreen
         return null;
     }
 
-    /// <summary>
-    /// P8.3 -- subscribed to <c>GameSettings.SettingsChanged</c> at
-    /// <see cref="_Ready"/>. Refreshes the cached pan-button preference
-    /// and resets the state machine so a mid-drag flip cuts the gesture
-    /// cleanly instead of carrying ambiguous state across the
-    /// preference change (D-P8.3-11).
-    ///
-    /// <para>
-    /// <b>Why we read through <c>_gameSettings</c> here</b> rather than
-    /// re-resolving the autoload: a one-line <c>GetNodeOrNull</c> would
-    /// also work, but caching the reference at <see cref="_Ready"/> is
-    /// what makes <see cref="_ExitTree"/> able to disconnect with the
-    /// exact same target (otherwise the disconnect would walk through a
-    /// fresh GetNode call, which is fine in steady state but a footgun
-    /// the day this method gets a debug assertion against null).
-    /// </para>
-    /// </summary>
-    private void OnSettingsChanged()
-    {
-        if (_gameSettings is null) return;
-        var newButton = _gameSettings.MapPanButton;
-        if (newButton == _activePanButton) return;
-        _activePanButton = newButton;
-        _panLogic.Reset();
-        _isDragging = false;
-        GD.Print($"[E2WorldMap] active pan button now {_activePanButton}, state machine reset");
-    }
-
-    /// <summary>
-    /// True when a modal (E4 character sheet) is currently open. Used
-    /// to gate pan input -- D-P8.2-12 mirrors P8.1's wheel-while-modal
-    /// rule. Reads the autoload directly because this state is only
-    /// authoritative on the SceneManager singleton.
-    /// </summary>
     private bool IsModalOpen()
     {
         var sceneManager = GetNodeOrNull<SceneManager>("/root/SceneManager");
         return sceneManager?.ActiveModalId is not null;
     }
 
-    private static PanVec2 ToPanVec2(Vector2 v) => new(v.X, v.Y);
-    private static Vector2 ToVector2(PanVec2 v) => new(v.X, v.Y);
+    /// <summary>
+    /// Build a 1×1 white <see cref="ImageTexture"/> for the slice 1 fog
+    /// placeholder. The fog renderer scales it to cell size and tints
+    /// it via Modulate to the carton beige-écru. When slice 2 ships
+    /// the real Mira parchment asset, swap this for an
+    /// <c>AssetResolver.Resolve("e2.fog_carton_placeholder")</c> and
+    /// drop a key in <c>asset_keys.json</c>.
+    /// </summary>
+    private static Texture2D MakePlaceholderCartonTexture()
+    {
+        var image = Image.CreateEmpty(1, 1, false, Image.Format.Rgba8);
+        image.SetPixel(0, 0, new Color(1, 1, 1, 1));
+        return ImageTexture.CreateFromImage(image);
+    }
 
     public Task OnEnter(ScreenContext context, CancellationToken ct) => Task.CompletedTask;
 
@@ -1002,14 +462,6 @@ public partial class E2WorldMap : Control, IScreen
         return Task.CompletedTask;
     }
 
-    /// <summary>
-    /// Keeps the three handler references wired on a POI Area2D so
-    /// <c>_ExitTree</c> disconnects them with the exact same references
-    /// used at wire time. See class doc Risk #1. The InputEvent handler
-    /// uses Godot's typed delegate <see cref="Area2D.InputEventEventHandler"/>
-    /// because the InputEvent signal carries a node + event + shape-idx
-    /// triple, not just a unit Action like Pressed/MouseEntered/MouseExited.
-    /// </summary>
     private readonly record struct PoiAreaHandlers(
         Area2D.InputEventEventHandler InputEvent,
         Action MouseEntered,
