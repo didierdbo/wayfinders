@@ -13,10 +13,13 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// <summary>
 /// E2 World Map -- the Cadastre's first feuillet. Slice 1 of L1 World
 /// fondations refactored the pan stack into <see cref="MapPan2DComponent"/>
-/// and added the fog scaffold ; slice 2 (this revision, 2026-05-08) wires
-/// the baked palette source, paints palette swatches behind translucent
-/// cartons, animates the pliure-soulèvement, and grows the debug surface
-/// to F / Shift+F / Ctrl+F / Alt+F.
+/// and added the fog scaffold ; slice 2 (2026-05-08) wired the baked
+/// palette source, painted palette swatches behind translucent cartons,
+/// animated the pliure-soulèvement, and grew the debug surface to F /
+/// Shift+F / Ctrl+F / Alt+F. Slice 3 (this revision) wires the zoom-driven
+/// drill/climb pipeline : the wheel now drives Camera2D zoom continuously,
+/// and at the limits dispatches drill (push at zoom max + tile >=
+/// Esquissée) or climb (pull at zoom min) navigations through SceneManager.
 ///
 /// <para>
 /// <b>What this screen owns directly.</b>
@@ -27,17 +30,29 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///   <item>Decorative chrome (banner, panels, layer indicator, back
 ///         button, blocked indicator). All in CanvasLayer 2 / 3 above
 ///         the world tree, unchanged.</item>
-///   <item>The slice 2 debug commands for the
+///   <item>Slice 2 debug commands for the
 ///         <see cref="TileKnowledgeStore"/> :
 ///         <c>F</c> cycle next state on the cell under the cursor,
 ///         <c>Shift+F</c> cycle previous, <c>Ctrl+F</c> reset all to
-///         Inconnue, <c>Alt+F</c> flip every cell to Levée. Validation
-///         surface for livrable 4. Will be retired once slice 3+'s
-///         zoom-driven drill ladders supply the real state mutations.</item>
+///         Inconnue, <c>Alt+F</c> flip every cell to Levée.</item>
 ///   <item>Construction of the <see cref="BakedFogPaletteSource"/> from
 ///         the editor-baked PNG (slice 2 livrable 1). Falls back to
-///         neutral-carton if the bake doesn't exist yet — the slice 2
-///         scaffold is observable on a fresh checkout pre-bake.</item>
+///         neutral-carton if the bake doesn't exist yet.</item>
+///   <item><b>Slice 3.</b> Wires the drill-target resolver into
+///         <see cref="MapPan2DComponent.SetDrillTargetResolver"/> so
+///         the component can ask "what cell is under the cursor and what
+///         is its knowledge state ?" without owning a fog-layer reference.
+///         Subscribes to the component's <see cref="MapPan2DComponent.DrillRequested"/>,
+///         <see cref="MapPan2DComponent.DrillBlocked"/>, and
+///         <see cref="MapPan2DComponent.ClimbRequested"/> signals and
+///         dispatches them to <see cref="SceneManager"/> /
+///         <see cref="FogTileLayer.PlayDrillBlockedFeedback"/>.</item>
+///   <item><b>Slice 3 livrable 5.</b> Debug HUD overlay toggled by the
+///         <c>G</c> key (action <c>debug_toggle_zoom_overlay</c>,
+///         physical_keycode 71 -- AZERTY-safe). Top-left CanvasLayer
+///         holding a Label refreshed in <see cref="_Process"/> with the
+///         current zoom, threshold deltas, cursor cell, knowledge state,
+///         last <see cref="ZoomNavLogic"/> action, and debounce state.</item>
 /// </list>
 /// </para>
 /// </summary>
@@ -75,6 +90,20 @@ public partial class E2WorldMap : Control, IScreen
     /// </summary>
     private const string DebugToggleFogActionName = "debug_toggle_fog_cell";
 
+    /// <summary>
+    /// Slice 3 livrable 5 debug action name. Bound to the G key in
+    /// <c>project.godot</c> (physical_keycode 71). Toggles the zoom
+    /// HUD overlay built in <see cref="BuildZoomOverlay"/>. AZERTY-safe
+    /// by physical_keycode binding -- same pattern as slice 1+2's F
+    /// binding.
+    /// </summary>
+    private const string DebugToggleZoomOverlayActionName = "debug_toggle_zoom_overlay";
+
+    /// <summary>HUD label refresh cadence -- once every <c>n</c> frames.
+    /// 6 frames at 60 fps = 10 Hz, fast enough to feel responsive,
+    /// slow enough to not allocate a fresh string every frame.</summary>
+    private const int ZoomOverlayRefreshEveryNFrames = 6;
+
     private TextureRect _bannerTop = null!;
     private Label _bannerTitleLabel = null!;
     private Label _bannerSubtitleLabel = null!;
@@ -111,6 +140,20 @@ public partial class E2WorldMap : Control, IScreen
     private readonly Dictionary<string, Node2D> _poiHotspots = new();
 
     private Tween? _blockedTween;
+
+    // Slice 3 -- captured handlers for the MapPan2DComponent zoom-nav
+    // signals. Captured-reference disconnect at _ExitTree (Rune Risk #1
+    // signal-leak discipline).
+    private MapPan2DComponent.DrillRequestedEventHandler? _drillRequestedHandler;
+    private MapPan2DComponent.DrillBlockedEventHandler? _drillBlockedHandler;
+    private MapPan2DComponent.ClimbRequestedEventHandler? _climbRequestedHandler;
+
+    // Slice 3 livrable 5 -- HUD overlay nodes. Built lazily on first G
+    // toggle, freed on _ExitTree.
+    private CanvasLayer? _zoomOverlayLayer;
+    private Label? _zoomOverlayLabel;
+    private bool _zoomOverlayVisible;
+    private int _zoomOverlayFrameCounter;
 
     public override void _Ready()
     {
@@ -184,20 +227,59 @@ public partial class E2WorldMap : Control, IScreen
         var paletteSource = new BakedFogPaletteSource(BakedPaletteResPath, expectedDimensions);
         _fogTileLayer.Configure(_panComponent.WorldImageSize, _knowledgeStore, fogPlaceholder, paletteSource);
 
-        // Pre-flight self-check on the slice 2 debug action. If the
-        // project.godot binding is missing, the F-key surface silently
-        // no-ops and livrable 4 cannot be demonstrated.
+        // Slice 3 -- wire the drill-target resolver. The pan component
+        // calls this every time a wheel event reaches the cap-Push
+        // branch ; we look up the cell the cursor is over via the fog
+        // layer's hit-test seam and read the knowledge store for its
+        // current state. This keeps the pan component decoupled from
+        // either system (single delegate, no node references).
+        _panComponent.SetDrillTargetResolver(ResolveDrillTarget);
+
+        // Slice 3 -- subscribe to the zoom-nav signals. Captured-reference
+        // discipline : store the handler in a field so _ExitTree can
+        // disconnect with the exact same delegate (Risk #1).
+        _drillRequestedHandler = OnDrillRequested;
+        _drillBlockedHandler = OnDrillBlocked;
+        _climbRequestedHandler = OnClimbRequested;
+        _panComponent.DrillRequested += _drillRequestedHandler;
+        _panComponent.DrillBlocked += _drillBlockedHandler;
+        _panComponent.ClimbRequested += _climbRequestedHandler;
+
+        // Pre-flight self-check on the slice 2 + 3 debug actions. If the
+        // project.godot bindings are missing, the F / G surfaces silently
+        // no-op and livrables 4 + 5 cannot be demonstrated.
         if (!InputMap.HasAction(DebugToggleFogActionName))
         {
             GD.PushWarning(
                 $"[E2WorldMap] preflight: {DebugToggleFogActionName} action missing from InputMap. " +
                 "Slice 2 fog cycle commands (F / Shift+F / Ctrl+F / Alt+F) will silently no-op.");
         }
+        if (!InputMap.HasAction(DebugToggleZoomOverlayActionName))
+        {
+            GD.PushWarning(
+                $"[E2WorldMap] preflight: {DebugToggleZoomOverlayActionName} action missing from InputMap. " +
+                "Slice 3 livrable 5 zoom overlay (G) will silently no-op.");
+        }
     }
 
     public override void _ExitTree()
     {
         if (_backButton is not null) _backButton.Pressed -= OnBackPressed;
+
+        // Slice 3 -- disconnect zoom-nav signals using the captured
+        // handler references. If the pan component is still alive
+        // (it should be, the screen owns it as a child and tree teardown
+        // is bottom-up), the disconnects no-op silently if it's not.
+        if (_panComponent is not null)
+        {
+            if (_drillRequestedHandler is not null) _panComponent.DrillRequested -= _drillRequestedHandler;
+            if (_drillBlockedHandler is not null) _panComponent.DrillBlocked -= _drillBlockedHandler;
+            if (_climbRequestedHandler is not null) _panComponent.ClimbRequested -= _climbRequestedHandler;
+            _panComponent.SetDrillTargetResolver(null);
+        }
+        _drillRequestedHandler = null;
+        _drillBlockedHandler = null;
+        _climbRequestedHandler = null;
 
         foreach (var (area, handlers) in _poiHandlers)
         {
@@ -215,61 +297,73 @@ public partial class E2WorldMap : Control, IScreen
 
         _blockedTween?.Kill();
         _blockedTween = null;
+
+        // Slice 3 livrable 5 -- HUD overlay teardown. CanvasLayer +
+        // Label children are tree-children of this screen so QueueFree
+        // would be redundant ; the references are nulled for safety.
+        _zoomOverlayLabel = null;
+        _zoomOverlayLayer = null;
+    }
+
+    public override void _Process(double delta)
+    {
+        // Slice 3 livrable 5 -- HUD overlay refresh. Cheap enough to
+        // run in _Process (one string allocation every 6 frames) ;
+        // skipped entirely when the overlay is hidden.
+        if (!_zoomOverlayVisible || _zoomOverlayLabel is null) return;
+
+        _zoomOverlayFrameCounter++;
+        if (_zoomOverlayFrameCounter < ZoomOverlayRefreshEveryNFrames) return;
+        _zoomOverlayFrameCounter = 0;
+
+        UpdateZoomOverlayText();
     }
 
     /// <summary>
-    /// Slice 2 debug surface (livrable 4). The F key dispatches based on
-    /// modifier state read off the <see cref="InputEventKey"/> :
-    /// <list type="bullet">
-    ///   <item><b>F (no modifier)</b> — cycle next state on the cell
-    ///         under the cursor (Inconnue → Pressentie → Esquissée → Levée
-    ///         → Scellée → Inconnue).</item>
-    ///   <item><b>Shift+F</b> — cycle previous state on the cell under
-    ///         the cursor.</item>
-    ///   <item><b>Ctrl+F</b> — reset every non-default cell to Inconnue
-    ///         (bulk wipe).</item>
-    ///   <item><b>Alt+F</b> — flip every cell of the grid to Levée
-    ///         (global event smoke test, brief slice 2 livrable 4).</item>
-    /// </list>
+    /// Slice 1+2 debug surface (F key) + slice 3 livrable 5 debug surface
+    /// (G key). The dispatcher checks the matched action first, then
+    /// branches.
+    ///
+    /// <para>
+    /// <b>F (slice 2)</b> — cell-cursor cycle / Shift+F prev / Ctrl+F
+    /// reset / Alt+F flip-all (see slice 2 doc).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>G (slice 3 livrable 5)</b> — toggle the zoom HUD overlay.
+    /// First press lazily builds the overlay nodes ; subsequent toggles
+    /// flip <see cref="CanvasLayer.Visible"/>.
+    /// </para>
     ///
     /// <para>
     /// <b>Why <see cref="_UnhandledInput"/>, not <see cref="_Input"/>.</b>
     /// The pan component's <c>_Input</c> handles MMB/RMB drag and
-    /// wheel-during-drag suppression — running there would force
+    /// wheel-during-drag suppression -- running there would force
     /// careful coordination to avoid the keystroke being swallowed by
     /// the pan component's <c>SetInputAsHandled</c> path. Running on
     /// <c>_UnhandledInput</c> means a future modal that claims input
     /// via Control's mouse_filter still suppresses the toggle, and the
     /// pan component's wheel-during-drag suppression cannot accidentally
-    /// catch a key event. Same precedence reasoning as slice 1.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Modifier order matters.</b> We check Alt before Ctrl before
-    /// Shift so that Ctrl+Alt+F (a future combined binding) does not
-    /// silently take the Ctrl branch. For slice 2 the modifiers are
-    /// mutually exclusive : the brief lists four discrete combos. The
-    /// dispatcher logs the chosen path so console output makes the
-    /// active modifier obvious during smoke tests.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>InputMap action match (AZERTY-safe).</b> The action
-    /// <c>debug_toggle_fog_cell</c> is bound on physical_keycode 70 (F)
-    /// per project.godot, so <see cref="InputMap.EventIsAction"/>
-    /// returns true regardless of modifier state on the action's
-    /// definition. The modifier check happens after the action match,
-    /// not as part of it — same pattern as slice 1, AZERTY-safe by
-    /// inheritance from the action binding.
+    /// catch a key event. Same precedence reasoning as slice 2.
     /// </para>
     /// </summary>
     public override void _UnhandledInput(InputEvent @event)
     {
         if (@event is not InputEventKey key || !key.Pressed || key.Echo) return;
-        if (!InputMap.EventIsAction(@event, DebugToggleFogActionName, exactMatch: false)) return;
         if (IsModalOpen()) return;
 
         var viewport = GetViewport();
+
+        // Slice 3 livrable 5 -- G toggle.
+        if (InputMap.EventIsAction(@event, DebugToggleZoomOverlayActionName, exactMatch: false))
+        {
+            ToggleZoomOverlay();
+            viewport.SetInputAsHandled();
+            return;
+        }
+
+        // Slice 1+2 debug action match.
+        if (!InputMap.EventIsAction(@event, DebugToggleFogActionName, exactMatch: false)) return;
 
         if (key.AltPressed)
         {
@@ -324,6 +418,90 @@ public partial class E2WorldMap : Control, IScreen
             $"[E2WorldMap] debug {direction}: cell ({coord.Value.Col},{coord.Value.Row}) " +
             $"{before2} -> {after}");
         viewport.SetInputAsHandled();
+    }
+
+    /// <summary>
+    /// Slice 3 -- delegate body wired into the pan component. Looks up
+    /// the cell under the cursor and pairs it with its current knowledge
+    /// state. Returns null when the cursor is outside the grid (the
+    /// pan component then suppresses the drill candidate silently).
+    /// </summary>
+    private (GridCoord coord, TileKnowledgeState state)? ResolveDrillTarget(Vector2 cursorWorldPosition)
+    {
+        var coord = _fogTileLayer.WorldPositionToCell(cursorWorldPosition);
+        if (coord is null) return null;
+        var state = _knowledgeStore.GetState(coord.Value);
+        return (coord.Value, state);
+    }
+
+    /// <summary>
+    /// Slice 3 -- DrillRequested handler. Translates the Vector2I coord
+    /// into a screen-context payload and routes through SceneManager
+    /// to E3 City Halfgate. The transition lock on the pan component
+    /// stays active until <see cref="MapPan2DComponent.NotifyTransitionEnded"/>
+    /// is called from the await continuation.
+    /// </summary>
+    private async void OnDrillRequested(Vector2I coord)
+    {
+        var sceneManager = GetNode<SceneManager>("/root/SceneManager");
+
+        // Pack the origin coord into the payload bag. Slice 4+ uses
+        // this for two purposes : (a) the climb-return logic to snap
+        // the L1 camera back to the originating cell, (b) the L2
+        // viewport entry point ("you came from this corner of the
+        // world map"). Today the slice doesn't read it back -- pre-
+        // staged for slice 4.
+        var payload = new ScreenContext
+        {
+            Payload = new Dictionary<string, object>
+            {
+                ["E2.OriginCoord"] = coord,
+            },
+        };
+
+        try
+        {
+            await sceneManager.NavigateTo("E3_CITY_HALFGATE", payload);
+        }
+        finally
+        {
+            // Release the transition lock on the pan component
+            // regardless of NavigateTo's outcome. If NavigateTo throws
+            // (registration missing, etc), we still want the player to
+            // recover input on the next interaction.
+            _panComponent.NotifyTransitionEnded();
+        }
+    }
+
+    /// <summary>
+    /// Slice 3 -- DrillBlocked handler. No navigation, just the visual
+    /// pulse on the cell the player tried to drill into. The fog layer
+    /// owns the tween (livrable 4 lock) so the screen just plumbs the
+    /// signal through.
+    /// </summary>
+    private void OnDrillBlocked(Vector2I coord)
+    {
+        _fogTileLayer.PlayDrillBlockedFeedback(new GridCoord(coord.X, coord.Y));
+    }
+
+    /// <summary>
+    /// Slice 3 -- ClimbRequested handler. Routes through
+    /// <see cref="SceneManager.NavigateBack"/> -- on L1 World, "climb
+    /// out" is "go back to whatever pushed us here", which for the
+    /// MVP scenario is E1 Title. The transition lock is released after
+    /// NavigateBack completes.
+    /// </summary>
+    private async void OnClimbRequested()
+    {
+        var sceneManager = GetNode<SceneManager>("/root/SceneManager");
+        try
+        {
+            await sceneManager.NavigateBack();
+        }
+        finally
+        {
+            _panComponent.NotifyTransitionEnded();
+        }
     }
 
     private void SpawnPois(AssetResolver assetResolver)
@@ -500,6 +678,138 @@ public partial class E2WorldMap : Control, IScreen
         var image = Image.CreateEmpty(1, 1, false, Image.Format.Rgba8);
         image.SetPixel(0, 0, new Color(1, 1, 1, 1));
         return ImageTexture.CreateFromImage(image);
+    }
+
+    /// <summary>
+    /// Slice 3 livrable 5 -- toggle the zoom HUD overlay. Lazily builds
+    /// the CanvasLayer + Label on first call ; subsequent calls flip
+    /// the layer's visibility.
+    /// </summary>
+    private void ToggleZoomOverlay()
+    {
+        if (_zoomOverlayLayer is null)
+        {
+            BuildZoomOverlay();
+        }
+        _zoomOverlayVisible = !_zoomOverlayVisible;
+        if (_zoomOverlayLayer is not null)
+        {
+            _zoomOverlayLayer.Visible = _zoomOverlayVisible;
+        }
+        if (_zoomOverlayVisible)
+        {
+            UpdateZoomOverlayText(); // immediate refresh so the first frame is populated
+        }
+        GD.Print($"[E2WorldMap] zoom overlay toggled -> {_zoomOverlayVisible}");
+    }
+
+    /// <summary>
+    /// Slice 3 livrable 5 -- build the zoom HUD overlay. CanvasLayer
+    /// at layer 5 (above the world tree at 0/5/10, below the modal
+    /// layer at 10 owned by SceneManager). Top-left anchored Label
+    /// with a translucent dark background panel for readability over
+    /// the parchment palette of the world image.
+    /// </summary>
+    private void BuildZoomOverlay()
+    {
+        _zoomOverlayLayer = new CanvasLayer
+        {
+            Name = "ZoomOverlayLayer",
+            Layer = 5,
+            Visible = false,
+        };
+        AddChild(_zoomOverlayLayer);
+
+        var panel = new PanelContainer
+        {
+            Name = "ZoomOverlayPanel",
+            Position = new Vector2(16, 16),
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            Modulate = new Color(1, 1, 1, 0.92f),
+        };
+        // Lightweight stylebox -- dark teal-grey to read against
+        // parchment cream. Inline to avoid a .tres file for a debug-only
+        // surface.
+        var styleBox = new StyleBoxFlat
+        {
+            BgColor = new Color(0.10f, 0.10f, 0.13f, 0.88f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            BorderColor = new Color(0.91f, 0.85f, 0.72f, 0.5f),
+            ContentMarginLeft = 12,
+            ContentMarginTop = 8,
+            ContentMarginRight = 12,
+            ContentMarginBottom = 8,
+        };
+        panel.AddThemeStyleboxOverride("panel", styleBox);
+        _zoomOverlayLayer.AddChild(panel);
+
+        _zoomOverlayLabel = new Label
+        {
+            Name = "ZoomOverlayLabel",
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            Text = "(zoom overlay)",
+        };
+        _zoomOverlayLabel.AddThemeColorOverride("font_color", new Color(0.95f, 0.92f, 0.85f, 1f));
+        panel.AddChild(_zoomOverlayLabel);
+    }
+
+    /// <summary>
+    /// Slice 3 livrable 5 -- compose the HUD label content. Pulls
+    /// every diagnostic surface off the pan component + the cursor's
+    /// current cell + knowledge state, formats into a 6-line block.
+    /// Allocation-friendly : a single string per refresh (every
+    /// <see cref="ZoomOverlayRefreshEveryNFrames"/> frames).
+    /// </summary>
+    private void UpdateZoomOverlayText()
+    {
+        if (_zoomOverlayLabel is null) return;
+
+        var zoom = _panComponent.CurrentZoom;
+        var zoomMin = _panComponent.ZoomMin;
+        var zoomMax = _panComponent.ZoomMax;
+        var inThreshold = zoomMax * _panComponent.ZoomInThresholdRatio;
+        var outThreshold = zoomMin * _panComponent.ZoomOutThresholdRatio;
+        var deltaIn = inThreshold - zoom;        // positive = how far below the drill-in line
+        var deltaOut = zoom - outThreshold;       // positive = how far above the climb-out line
+
+        // Cell + state under cursor. Reuse the same hit-test path the
+        // pan component uses, so the overlay can't drift from the
+        // resolver's view.
+        var viewport = GetViewport();
+        var mouseViewportPos = viewport.GetMousePosition();
+        var canvasTransform = viewport.GetCanvasTransform();
+        var worldPos = canvasTransform.AffineInverse() * mouseViewportPos;
+        var coord = _fogTileLayer.WorldPositionToCell(worldPos);
+        var coordText = coord is { } c ? $"({c.Col}, {c.Row})" : "(outside)";
+        var stateText = coord is { } cs
+            ? _knowledgeStore.GetState(cs).ToString()
+            : "—";
+
+        // Debounce surface : the pan component exposes IsDebouncing
+        // (live boolean) + LastTransitionTimeMs (timestamp). Compute
+        // the remaining ms for a more useful HUD readout.
+        string debounceText;
+        if (_panComponent.IsDebouncing)
+        {
+            var nowMs = Time.GetTicksMsec();
+            var remaining = _panComponent.ZoomPostTransitionDebounceMs - (nowMs - _panComponent.LastTransitionTimeMs);
+            debounceText = $"ON {remaining}ms";
+        }
+        else
+        {
+            debounceText = "OFF";
+        }
+
+        _zoomOverlayLabel.Text =
+            $"Zoom : {zoom:F2}x  (min {zoomMin:F2}, max {zoomMax:F2})\n" +
+            $"Δin   : {deltaIn:+0.00;-0.00;0.00}   Δout : {deltaOut:+0.00;-0.00;0.00}\n" +
+            $"Cell  : {coordText}\n" +
+            $"State : {stateText}\n" +
+            $"Action: {_panComponent.LastZoomAction}\n" +
+            $"Debounce: {debounceText}";
     }
 
     public Task OnEnter(ScreenContext context, CancellationToken ct) => Task.CompletedTask;

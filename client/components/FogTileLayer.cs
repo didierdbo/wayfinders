@@ -252,6 +252,80 @@ public partial class FogTileLayer : Node2D
     /// <summary>Current grid dimensions. Returns zero-zero before <see cref="Configure"/>.</summary>
     public GridDimensions Dimensions => _dimensions;
 
+    /// <summary>
+    /// Slice 3 livrable 4 — visual feedback for a drill that the player
+    /// attempted at a cell whose knowledge state is below
+    /// <see cref="TileKnowledgeState.Esquissee"/> (Varn §1.4 lock). Plays
+    /// a 200 ms scale pulse 1.0 → 1.05 → 1.0 (sin in/out) on the carton
+    /// sub-sprite of the addressed cell, communicating "the Cadastre
+    /// would like to look but cannot yet".
+    ///
+    /// <para>
+    /// <b>Tween discipline.</b> Reuses the per-cell tween bag — if a
+    /// transition tween (pliure / crossfade) is in flight on the same
+    /// cell, it is killed first. The pulse is short enough that
+    /// interrupting a transition is a fair trade : the user just signalled
+    /// strong intent on this cell, the visual must respond.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why on the carton, not on the cell root.</b> The cell root holds
+    /// the static FogYOffset placement ; tweening its scale would also
+    /// scale the shadow + sceau placeholder relative to the cell, which
+    /// would feel like the entire cell is "breathing". The carton is the
+    /// element the player conceptually points at ("the cardboard cover
+    /// shudders") — pulsing it alone reads as the right-sized affordance.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Idempotent + tolerant.</b> Calling for an unknown coord is a
+    /// silent no-op (logged warning). Calling while the same cell is
+    /// already pulsing : the prior tween is killed and the pulse restarts.
+    /// </para>
+    /// </summary>
+    public void PlayDrillBlockedFeedback(GridCoord coord)
+    {
+        if (!_cells.TryGetValue(coord, out var visuals))
+        {
+            GD.PushWarning(
+                $"[FogTileLayer] PlayDrillBlockedFeedback({coord.Col},{coord.Row}): " +
+                $"cell not in registry (Configure not called or coord out of range)");
+            return;
+        }
+
+        // Discipline tween : kill any transition currently animating
+        // this cell so the pulse is the only motion the user sees.
+        KillCellTween(coord);
+
+        var baseScale = SteadyScale();
+        var pulseScale = baseScale * 1.05f;
+
+        var tween = CreateTween();
+        // Sequential : up then down. SetParallel(false) explicit for
+        // readability ; CreateTween defaults to sequential anyway.
+        tween.SetParallel(false);
+        tween.TweenProperty(visuals.Carton, "scale", pulseScale, 0.10f)
+            .SetTrans(Tween.TransitionType.Sine)
+            .SetEase(Tween.EaseType.InOut);
+        tween.TweenProperty(visuals.Carton, "scale", baseScale, 0.10f)
+            .SetTrans(Tween.TransitionType.Sine)
+            .SetEase(Tween.EaseType.InOut);
+        tween.TweenCallback(Callable.From(() =>
+        {
+            // Restore steady-state in case the tween got cut short by a
+            // subsequent state change. The bag entry is removed so a
+            // future PlayDrillBlockedFeedback re-creates a fresh tween
+            // rather than re-using a finished one.
+            visuals.Carton.Scale = baseScale;
+            _activeCellTweens.Remove(coord);
+        }));
+
+        _activeCellTweens[coord] = tween;
+        GD.Print(
+            $"[FogTileLayer] DrillBlocked feedback at cell ({coord.Col},{coord.Row}), " +
+            $"current state={_knowledgeStore?.GetState(coord)}");
+    }
+
     public override void _ExitTree()
     {
         DespawnAll();

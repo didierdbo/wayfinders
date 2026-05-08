@@ -139,4 +139,16 @@
     <Compile Include="..\scripts\screens\IFogPaletteSource.cs" Link="src\IFogPaletteSource.cs" />
   </ItemGroup>
 
+  <!-- Phase 9 slice 3 (M3 / L1 World drill zoom-driven / 2026-05-08): zoom
+       navigation decision helper. ZoomNavLogic is Godot-free so xUnit pins
+       the threshold + hysteresis + debounce + tile-knowledge-gate contract
+       (six branches: continuous zoom, drill candidate, drill blocked,
+       climb candidate, debounced, none). The runtime MapPan2DComponent
+       slice 3 wiring (Camera2D.Zoom tween, cursor-centred zoom, signal
+       emit to E2WorldMap for SceneManager.NavigateTo) stays in the client
+       csproj only and is exercised through manual integration. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\ZoomNavLogic.cs" Link="src\ZoomNavLogic.cs" />
+  </ItemGroup>
+
 </Project>
