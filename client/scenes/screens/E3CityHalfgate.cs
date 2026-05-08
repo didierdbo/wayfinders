@@ -14,9 +14,13 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// E3 City Halfgate -- the Cadastre's Feuillet II for the unique MVP
 /// cité (Varn §6.D6.10 lock 1-cité). J4 promoted this from the J1
 /// three-button stub to a proper screen ; <b>Phase 9 slice 4</b>
-/// (2026-05-08) migrates the screen-space TextureRect + CanvasLayer
+/// (2026-05-08) migrated the screen-space TextureRect + CanvasLayer
 /// pattern (P7 J3) to a world-space <see cref="MapPan2DComponent"/>
-/// instance, mirroring E2's shape.
+/// instance, mirroring E2's shape. <b>Phase 9 slice 5</b> (same day)
+/// adds the L2→L3 drill wiring : a Push at <see cref="MapPan2DComponent.ZoomMax"/>
+/// over any cursor position fires <see cref="MapPan2DComponent.DrillRequested"/>,
+/// which routes to a <see cref="SceneManager.NavigateTo"/> push of the
+/// E5 District Map.
 ///
 /// <para>
 /// <b>Slice 4 changes (2026-05-08).</b>
@@ -51,59 +55,101 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// </para>
 ///
 /// <para>
-/// <b>Out of scope, slice 4.</b>
+/// <b>Slice 5 changes (2026-05-08).</b>
 /// <list type="bullet">
-///   <item>No <see cref="FogTileLayer"/> at L2 -- the cité is fully
-///         visible from arrival. A future slice 4.5 (Varn-validated)
-///         could add cascade fog per §5.1, but MVP keeps L2 plain.</item>
-///   <item>No L3 District drill from cap-Push at L2. With the resolver
-///         intentionally unwired (no fog), <see cref="ZoomNavLogic"/>
-///         silently no-ops on cap-Push at L2 (cellAtCursor is null,
-///         DrillBlocked has no feedback target). Cap-Pull at L2 fires
-///         <see cref="MapPan2DComponent.ClimbRequested"/> as expected.</item>
-///   <item>No L1↔L2 fade transition -- flagged as ongoing dette. The
-///         brief slice 4 marked it as triviality-gated ; SceneManager
-///         currently has no fade hook in <see cref="SceneManager.NavigateTo"/>
-///         and adding one would touch every IScreen consumer. Out of
-///         this slice's risk budget.</item>
+///   <item><b>Drill L2→L3 wiring.</b> The pan component's
+///         <see cref="MapPan2DComponent.DrillRequested"/> signal is now
+///         connected to <see cref="OnDrillRequested"/>, which calls
+///         <see cref="SceneManager.NavigateTo"/> with target id
+///         <c>E5_DISTRICT</c> and a payload carrying the cursor's
+///         world-space position under <see cref="OriginCoordPayloadKey"/>.</item>
+///   <item><b>Always-true drill resolver (Didier lock α).</b> The slice
+///         5 brief explicitly trades fog tiles for "drill libre" : at L2
+///         we install a resolver that returns a constant
+///         (<see cref="GridCoord"/>, <see cref="TileKnowledgeState.Levee"/>)
+///         pair so <see cref="ZoomNavLogic"/> always classifies the
+///         cap-Push as <see cref="ZoomNavAction.DrillCandidate"/>. The
+///         coord itself is a sentinel ((0,0)) and is NOT used by the
+///         drill payload -- E3 captures the actual cursor world-space
+///         position at the handler entry instead, so the payload
+///         carries useful drill-origin info even though the resolver
+///         coord is meaningless. Decision α locked, no fog gate at L2.</item>
+///   <item><b>Re-entry resilience (slice 5 livrable 4).</b> Because E3
+///         lives across the drill (Hide-not-Free), the <c>_Ready</c>
+///         path runs ONCE per E3 lifetime, and the resolver + signal
+///         subscription persist across L2↔L3 round trips. The transition
+///         lock is released by <see cref="OnDrillRequested"/>'s finally
+///         block once <c>NavigateTo</c> returns, so a subsequent climb
+///         from E5 lands on an E3 ready to accept input.</item>
 /// </list>
 /// </para>
 ///
 /// <para>
-/// <b>OriginCoord payload (slice 3 prep, slice 4 logged).</b> When E2
-/// drills into E3, the payload carries <c>"E2.OriginCoord" = Vector2I</c>
-/// (the L1 grid cell the drill fired on). Slice 4 logs it at <c>OnEnter</c>
-/// for traceability but does NOT translate it into an L2 camera focus
-/// -- the L1-grid-coord-to-L2-image-position mapping is undefined for
-/// the MVP single-cité and would be arbitrary (the cell coord is in L1
-/// grid space, not L2 city image space). E3 instead opens centered on
-/// the city image center via <see cref="MapPan2DComponent.Configure"/>
-/// with the texture's geometric center.
+/// <b>Out of scope, slice 5 (Didier locks).</b>
+/// <list type="bullet">
+///   <item><b>(a)</b> No <see cref="FogTileLayer"/> at L2 nor L3 -- the
+///         cité is fully visible from arrival. If Varn wants fog later,
+///         slice 5.5 dédiée. The slice 5 brief explicitly forbids tile
+///         systems this slice.</item>
+///   <item><b>(α)</b> No anchored drill on POIs -- any cursor position
+///         at zoom max + Push triggers the drill, not just over a
+///         specific district POI. POIs at L2 keep their existing click
+///         dispatch (NpcCandidate -&gt; E4 modal, KeyBuilding -&gt;
+///         blocked indicator) ; drill is a parallel input channel
+///         dispatched by zoom + wheel.</item>
+///   <item>No L2↔L3 fade transition -- flagged as ongoing dette,
+///         identical to L1↔L2 dette from slice 4. SceneManager has no
+///         fade hook in <see cref="SceneManager.NavigateTo"/> and
+///         adding one would touch every IScreen consumer. Out of slice
+///         risk budget.</item>
+/// </list>
 /// </para>
 ///
 /// <para>
-/// <b>Re-entry semantics (slice 4 livrable 3 + smoke #5/#6).</b> The
-/// SceneManager Hide-not-Free model preserves E2's <c>MapPan2DComponent</c>
-/// state (camera Position + Zoom) across drill+climb round trips --
-/// when the player climbs out of E3, E2's camera is exactly where it
-/// was at the moment of the drill (zoom=ZoomMax centered on the cell
-/// the player was inspecting). E3 itself is freed on each Pop, so a
-/// re-drill instantiates a fresh E3 with a fresh <c>MapPan2DComponent</c>
-/// at <c>ZoomDefault</c> centered on the city image (no per-session
-/// state). Acceptable MVP shape ; if Varn wants per-cité camera memory
-/// later, a snapshot in <c>ScreenContext.Payload</c> is the entry seam.
+/// <b>OriginCoord payload contract (slice 4 + slice 5).</b>
+/// <list type="bullet">
+///   <item><b>E2 -&gt; E3</b> (slice 4) : payload key
+///         <see cref="OriginCoordPayloadKey"/> = <c>"E2.OriginCoord"</c>,
+///         value <see cref="Vector2I"/> = the L1 grid cell coord the
+///         drill fired on. Logged in <see cref="OnEnter"/> for
+///         traceability ; not consumed visually.</item>
+///   <item><b>E3 -&gt; E5</b> (slice 5) : payload key
+///         <c>"E3.OriginCoord"</c>
+///         (<see cref="E5DistrictMap.OriginCoordPayloadKey"/>), value
+///         <see cref="Vector2"/> = the L2 image-space cursor position
+///         at drill time. Logged in <see cref="E5DistrictMap.OnEnter"/>
+///         for traceability ; not consumed visually for the same
+///         reason as the L1→L2 hop : the L2-image-position-to-L3-image-position
+///         mapping is undefined for the MVP single-quartier.</item>
+/// </list>
+/// </para>
+///
+/// <para>
+/// <b>Re-entry semantics (slice 4 livrable 3 + slice 5 livrable 4).</b>
+/// The SceneManager Hide-not-Free model preserves E2's
+/// <c>MapPan2DComponent</c> state across L1↔L2 drill+climb round trips
+/// AND now preserves E3's state across L2↔L3 drill+climb round trips
+/// (smoke #6/#7 of slice 5). When the player climbs out of E3 (slice 4
+/// path), E2's camera is exactly where it was at the moment of the
+/// drill ; when the player climbs out of E5 (slice 5 path), E3's
+/// camera is exactly where it was at the moment of the L3 drill --
+/// zoom=ZoomMax, position=cursor anchor at drill time. E3 / E5 are
+/// freed on Pop, so a re-drill instantiates a fresh component at
+/// <c>ZoomDefault</c> centered on the image (no per-session state).
+/// Acceptable MVP shape ; per-cité / per-quartier camera memory is a
+/// post-MVP extension via <c>ScreenContext.Payload</c>.
 /// </para>
 ///
 /// <para>
 /// <b>POI hotspot pattern (J3 D-J3-01 reused, slice 4 ported to
-/// world-space).</b> POIs are <see cref="Node2D"/> hotspots spawned from
-/// <c>res://data/city_halfgate_pois.tres</c> at <c>_Ready</c>, parented
-/// to <c>MapPan2DComponent.PoiContainer</c>. Position + hit-box come
-/// from each <see cref="PoiDefinition"/>. The Risk #1 lambda-capture
-/// dictionary (<c>_poiHandlers</c>) keeps the per-POI lambdas around
-/// so <c>_ExitTree</c> can disconnect them with the exact references
-/// used at wire time -- captured-reference signal-leak discipline,
-/// same shape as E2.
+/// world-space, slice 5 unchanged).</b> POIs are <see cref="Node2D"/>
+/// hotspots spawned from <c>res://data/city_halfgate_pois.tres</c> at
+/// <c>_Ready</c>, parented to <c>MapPan2DComponent.PoiContainer</c>.
+/// Position + hit-box come from each <see cref="PoiDefinition"/>. The
+/// Risk #1 lambda-capture dictionary (<c>_poiHandlers</c>) keeps the
+/// per-POI lambdas around so <c>_ExitTree</c> can disconnect them with
+/// the exact references used at wire time -- captured-reference
+/// signal-leak discipline, same shape as E2.
 /// </para>
 ///
 /// <para>
@@ -122,9 +168,9 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// </para>
 ///
 /// <para>
-/// <b>Modal invariant (J3-fix locked, unchanged by slice 4).</b> Opening
-/// E4 from a NpcCandidate click leaves E3 visible underneath -- the
-/// modal sits on <see cref="SceneManager"/>'s <c>_modalLayer</c>
+/// <b>Modal invariant (J3-fix locked, unchanged by slice 4 / 5).</b>
+/// Opening E4 from a NpcCandidate click leaves E3 visible underneath --
+/// the modal sits on <see cref="SceneManager"/>'s <c>_modalLayer</c>
 /// (CanvasLayer Layer=10). The <c>OnSuspend</c> implementation here
 /// only disables input (and dims the screen) -- it does NOT toggle
 /// visibility. Test
@@ -170,6 +216,14 @@ public partial class E3CityHalfgate : Control, IScreen
     /// inline string -- the same shape as <see cref="NpcIdPayloadKey"/>.
     /// </summary>
     public const string OriginCoordPayloadKey = "E2.OriginCoord";
+
+    /// <summary>
+    /// Slice 5 -- the screen id of the drill target when L2 cap-Pushes.
+    /// Stable string referenced by <see cref="OnDrillRequested"/> ; the
+    /// SceneManager registration of E5 lives in <c>OpeningBootstrap</c>
+    /// under the same id.
+    /// </summary>
+    private const string DrillTargetScreenId = "E5_DISTRICT";
 
     private const string OpeningStringsResPath = "res://data/opening_strings.tres";
     private const string CityPoisResPath = "res://data/city_halfgate_pois.tres";
@@ -231,9 +285,15 @@ public partial class E3CityHalfgate : Control, IScreen
 
     // Slice 4 -- captured handler reference for the climb signal so
     // _ExitTree can disconnect with the exact same delegate (Risk #1
-    // signal-leak discipline). DrillRequested / DrillBlocked are NOT
-    // wired at L2 -- there is no L3 drill in scope this slice.
+    // signal-leak discipline).
     private MapPan2DComponent.ClimbRequestedEventHandler? _climbRequestedHandler;
+
+    // Slice 5 -- captured handler reference for the drill signal so
+    // _ExitTree can disconnect with the exact same delegate. Mirrors
+    // E2's post-slice-3 wiring of DrillRequested ; we do NOT subscribe
+    // to DrillBlocked because the always-true resolver guarantees
+    // ZoomNavLogic returns DrillCandidate, never DrillBlocked.
+    private MapPan2DComponent.DrillRequestedEventHandler? _drillRequestedHandler;
 
     private Tween? _blockedTween;
 
@@ -327,24 +387,37 @@ public partial class E3CityHalfgate : Control, IScreen
         // Slice 4 -- subscribe to the climb signal. Captured-reference
         // discipline : store the handler in a field so _ExitTree can
         // disconnect with the exact same delegate (Risk #1, mirrors E2).
-        // No DrillRequested / DrillBlocked subscription : without a fog
-        // resolver wired (no L2 fog this slice), the component silently
-        // no-ops on cap-Push at L2 ; subscribing would dead-code. When
-        // L3 drill ships (slice 5+), wire DrillRequested then.
         _climbRequestedHandler = OnClimbRequested;
         _panComponent.ClimbRequested += _climbRequestedHandler;
 
-        // Slice 4 -- preflight self-check (Phase 8 trap "preflight
+        // Slice 5 -- install the always-true drill resolver and subscribe
+        // to DrillRequested. Decision α (Didier locked) : at L2 there is
+        // no fog gate -- ANY cap-Push triggers a drill into E5.
+        // Implementation : the resolver returns a constant
+        // (GridCoord(0,0), TileKnowledgeState.Levee) pair so
+        // ZoomNavLogic.EvaluateWheelInput classifies the cap-Push as
+        // DrillCandidate (Levee >= Esquissee). The coord (0,0) is a
+        // sentinel ; OnDrillRequested ignores it and instead captures
+        // the actual cursor world-space position from the viewport at
+        // handler entry, which is the meaningful "where did the drill
+        // fire" signal for E5's payload.
+        _panComponent.SetDrillTargetResolver(AlwaysTrueDrillResolver);
+        _drillRequestedHandler = OnDrillRequested;
+        _panComponent.DrillRequested += _drillRequestedHandler;
+
+        // Slice 4+5 -- preflight self-check (Phase 8 trap "preflight
         // GD.Print mandatory"). Surfaces the world-space migration's
-        // success at boot : if the pan component or the climb signal
-        // wiring is silently broken, the console line below is missing
-        // / shows wrong values, giving an immediate visible diagnostic
-        // before any user input.
+        // success at boot AND the slice 5 drill wiring : if the pan
+        // component, the climb signal, OR the drill signal wiring is
+        // silently broken, the console line below is missing / shows
+        // wrong values, giving an immediate visible diagnostic before
+        // any user input.
         GD.Print(
             $"[E3CityHalfgate] ready, {_poiHandlers.Count} POI spawned, " +
             $"world image={_panComponent.WorldImageSize}, " +
             $"camera initialCenter={initialCenter}, " +
-            $"climb wired={_climbRequestedHandler is not null}");
+            $"climb wired={_climbRequestedHandler is not null}, " +
+            $"drill wired={_drillRequestedHandler is not null} -> {DrillTargetScreenId}");
     }
 
     public override void _ExitTree()
@@ -352,15 +425,29 @@ public partial class E3CityHalfgate : Control, IScreen
         // Disconnect chrome handlers first.
         if (_backButton is not null) _backButton.Pressed -= OnBackPressed;
 
-        // Slice 4 -- disconnect the climb signal using the captured
-        // handler reference. If the pan component is still alive (it
-        // should be, the screen owns it as a child and tree teardown
-        // is bottom-up), the disconnect no-ops silently if it's not.
-        if (_panComponent is not null && _climbRequestedHandler is not null)
+        // Slice 4 + 5 -- disconnect the climb + drill signals using the
+        // captured handler references. If the pan component is still
+        // alive (it should be, the screen owns it as a child and tree
+        // teardown is bottom-up), the disconnects no-op silently if
+        // it's not. Also detach the drill resolver to break the closure
+        // reference (the resolver is a method group, no closure capture,
+        // but the SetDrillTargetResolver(null) call is the explicit
+        // teardown counterpart of the SetDrillTargetResolver call in
+        // _Ready -- mirrors E2's _ExitTree shape).
+        if (_panComponent is not null)
         {
-            _panComponent.ClimbRequested -= _climbRequestedHandler;
+            if (_climbRequestedHandler is not null)
+            {
+                _panComponent.ClimbRequested -= _climbRequestedHandler;
+            }
+            if (_drillRequestedHandler is not null)
+            {
+                _panComponent.DrillRequested -= _drillRequestedHandler;
+            }
+            _panComponent.SetDrillTargetResolver(null);
         }
         _climbRequestedHandler = null;
+        _drillRequestedHandler = null;
 
         // Disconnect every POI handler with the EXACT lambda reference
         // captured at wire time. Method-group disconnect would not match
@@ -503,6 +590,116 @@ public partial class E3CityHalfgate : Control, IScreen
             // needed.
             _panComponent?.NotifyTransitionEnded();
         }
+    }
+
+    /// <summary>
+    /// Slice 5 -- DrillRequested handler. The pan component fires this
+    /// when the player Pushes the wheel at <see cref="MapPan2DComponent.ZoomMax"/>
+    /// AND the always-true resolver returns a state &gt;= Esquissée
+    /// (which it always does, decision α). The signal carries a
+    /// <see cref="Vector2I"/> coord -- the sentinel (0,0) returned by
+    /// <see cref="AlwaysTrueDrillResolver"/> -- which we IGNORE here :
+    /// the meaningful drill-origin info is the cursor's actual
+    /// world-space position at the moment of the wheel event, which we
+    /// fetch from the viewport directly. This keeps the payload
+    /// contract honest (the position E5 logs is the position the
+    /// player was inspecting on the L2 image, not a sentinel).
+    ///
+    /// <para>
+    /// Routes through <see cref="SceneManager.NavigateTo"/> to E5
+    /// (Hide-not-Free push : E3 is hidden, E5 is shown above ; on
+    /// climb back, E3 is re-shown with its pan component state intact,
+    /// preserving the L2 zoom + position the player drilled from --
+    /// slice 5 livrable 4 verified by smoke #7).
+    /// </para>
+    ///
+    /// <para>
+    /// The transition lock on the pan component is released after
+    /// NavigateTo completes. Wrapped in try/finally against the rare
+    /// throw path. Same defensive shape as
+    /// <see cref="OnClimbRequested"/>.
+    /// </para>
+    /// </summary>
+    /// <param name="coord">Sentinel coord from the always-true resolver
+    /// -- intentionally ignored. The meaningful position is the
+    /// cursor's world-space coordinate at this exact frame.</param>
+    private async void OnDrillRequested(Vector2I coord)
+    {
+        // Capture the actual cursor world-space position, not the
+        // sentinel coord the always-true resolver returned. The pan
+        // component already does this math internally to feed the
+        // resolver, but does not expose it on the DrillRequested signal
+        // (the signal carries the resolved coord, by design -- a future
+        // fog-gated L2 would surface a meaningful Vector2I cell index).
+        // We replicate it here for the OriginCoord payload.
+        var viewport = GetViewport();
+        var canvasTransform = viewport.GetCanvasTransform();
+        var cursorWorld = canvasTransform.AffineInverse() * viewport.GetMousePosition();
+
+        var sceneManager = GetNode<SceneManager>("/root/SceneManager");
+
+        // Pack the L2 origin position into the payload bag. E5 reads it
+        // back at OnEnter for traceability (logged-but-not-applied,
+        // same shape as E3's E2.OriginCoord handling -- the
+        // L2-image-to-L3-image mapping is undefined for the MVP single-
+        // quartier).
+        var payload = new ScreenContext
+        {
+            Payload = new Dictionary<string, object>
+            {
+                [E5DistrictMap.OriginCoordPayloadKey] = cursorWorld,
+            },
+        };
+
+        try
+        {
+            GD.Print(
+                $"[E3CityHalfgate] DrillRequested -> {DrillTargetScreenId} " +
+                $"at L2 cursor world=({cursorWorld.X:F1}, {cursorWorld.Y:F1}) " +
+                $"(resolver sentinel coord={coord} ignored, decision α)");
+            await sceneManager.NavigateTo(DrillTargetScreenId, payload);
+        }
+        finally
+        {
+            // Release the transition lock regardless of NavigateTo
+            // outcome. E3 is hidden (not freed) by NavigateTo's
+            // Hide-not-Free model, so the pan component is still alive
+            // and this call lands cleanly.
+            _panComponent?.NotifyTransitionEnded();
+        }
+    }
+
+    /// <summary>
+    /// Slice 5 -- always-true drill resolver. Decision α (Didier locked
+    /// 2026-05-08) : at L2 there is no fog gate -- ANY cap-Push triggers
+    /// a drill into E5. We feed <see cref="ZoomNavLogic.EvaluateWheelInput"/>
+    /// a constant (GridCoord(0,0), TileKnowledgeState.Levee) pair so the
+    /// drill candidacy gate (state &gt;= Esquissee) always passes. The
+    /// coord (0,0) is a sentinel ; <see cref="OnDrillRequested"/>
+    /// ignores it and captures the actual cursor world-space position
+    /// instead.
+    ///
+    /// <para>
+    /// Why a sentinel coord and not the actual cursor cell : there is
+    /// NO L2 grid in this MVP (no fog tiles). Returning (0,0) is the
+    /// minimal "anything &gt;= Esquissee" answer that satisfies the
+    /// gate without inventing a fictional grid. If slice 5.5 later adds
+    /// L2 fog tiles (Varn decision), this resolver gets replaced with a
+    /// real fog-layer hit-test, exactly like E2's slice-3
+    /// <c>ResolveDrillTarget</c>.
+    /// </para>
+    /// </summary>
+    /// <param name="cursorWorldPosition">Cursor world position. Unused
+    /// here (the resolver is constant) but part of the signature so
+    /// the future fog-gated implementation drops in without an API
+    /// change.</param>
+    /// <returns>Always a non-null pair with state &gt;= Esquissee,
+    /// guaranteeing <see cref="ZoomNavLogic.EvaluateWheelInput"/>
+    /// returns <see cref="ZoomNavAction.DrillCandidate"/> at the cap.</returns>
+    private static (GridCoord coord, TileKnowledgeState state)? AlwaysTrueDrillResolver(
+        Vector2 cursorWorldPosition)
+    {
+        return (new GridCoord(0, 0), TileKnowledgeState.Levee);
     }
 
     private async void OnPoiPressed(string poiId)
