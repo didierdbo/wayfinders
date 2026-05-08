@@ -52,6 +52,7 @@
   <ItemGroup>
     <Compile Include="..\services\NavigationStack.cs" Link="src\NavigationStack.cs" />
     <Compile Include="..\services\AssetKeyMap.cs" Link="src\AssetKeyMap.cs" />
+    <Compile Include="..\services\AssetKeyResolverLogic.cs" Link="src\AssetKeyResolverLogic.cs" />
     <Compile Include="..\scripts\screens\IScreen.cs" Link="src\IScreen.cs" />
     <Compile Include="..\scripts\screens\IModalOverlay.cs" Link="src\IModalOverlay.cs" />
     <Compile Include="..\scripts\screens\ScreenContext.cs" Link="src\ScreenContext.cs" />
