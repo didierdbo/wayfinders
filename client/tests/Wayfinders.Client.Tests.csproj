@@ -52,6 +52,7 @@
   <ItemGroup>
     <Compile Include="..\services\NavigationStack.cs" Link="src\NavigationStack.cs" />
     <Compile Include="..\services\AssetKeyMap.cs" Link="src\AssetKeyMap.cs" />
+    <Compile Include="..\services\AssetKeyResolverLogic.cs" Link="src\AssetKeyResolverLogic.cs" />
     <Compile Include="..\scripts\screens\IScreen.cs" Link="src\IScreen.cs" />
     <Compile Include="..\scripts\screens\IModalOverlay.cs" Link="src\IModalOverlay.cs" />
     <Compile Include="..\scripts\screens\ScreenContext.cs" Link="src\ScreenContext.cs" />
@@ -75,6 +76,90 @@
        without a Godot runtime. -->
   <ItemGroup>
     <Compile Include="..\scripts\screens\NpcCatalog.cs" Link="src\NpcCatalog.cs" />
+  </ItemGroup>
+
+  <!-- Phase 8 P8.1 (M3): layer ladder resolution helper. Pure-C#, Godot-free
+       so xUnit pins the monde / cité / quartier ladder semantics. The
+       Godot-bound wheel input handler + NavigateLadderUp/Down verbs live
+       in SceneManager and are validated through the P8.1 manual checklist
+       and the LadderInputContractTests fake harness (same pattern as
+       E1NavigationContractTests). -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\LadderResolutionLogic.cs" Link="src\LadderResolutionLogic.cs" />
+  </ItemGroup>
+
+  <!-- Phase 8 P8.2 (M3): scroll/pan camera helper for E2 World Map.
+       Pure-C#, Godot-free so xUnit pins the clamp / diagonal-normalise /
+       advance-by-delta contract independent of Godot's runtime
+       Camera2D.LimitLeft/Top/Right/Bottom (which actually applies the
+       clamp at runtime). The Godot-bound drag-pan + ZQSD wiring lives
+       in E2WorldMap.cs and is validated via the P8.2 manual checklist
+       (10 steps). -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\CameraPanLogic.cs" Link="src\CameraPanLogic.cs" />
+  </ItemGroup>
+
+  <!-- Phase 8 P8.3 (M3): map pan config + drag threshold pure-C#
+       seam. MapPanInputLogic is the state machine (Idle / Tracking /
+       Dragging) wired by E2WorldMap ; MapPanButton is the typed enum
+       persisted via GameSettingsStore. The store + IConfigBackend
+       interface live in services/ but are Godot-free by design so
+       xUnit pins the persistence policy (load defaults, malformed
+       fallback, idempotent writes) without an engine. The Godot-bound
+       GameSettings autoload + GodotConfigFileBackend stay in the
+       client csproj only and are validated via the P8.3 manual
+       checklist (12 steps). -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\MapPanButton.cs" Link="src\MapPanButton.cs" />
+    <Compile Include="..\scripts\screens\MapPanInputLogic.cs" Link="src\MapPanInputLogic.cs" />
+    <Compile Include="..\services\GameSettingsStore.cs" Link="src\GameSettingsStore.cs" />
+  </ItemGroup>
+
+  <!-- Phase 9 slice 1 (M3 / L1 World fondations / 2026-05-08): tile
+       knowledge spectrum + fog grid math. Both helpers Godot-free by
+       design so xUnit pins the cell-to-world mapping (renderer + bake
+       must agree) and the five-level enum's persistence integers
+       (renumbering would silently corrupt save files). The Godot-bound
+       FogTileLayer renderer + TileKnowledgeStore autoload + Editor
+       PaletteQuantizerTool stay in the client csproj only — they are
+       validated through manual integration (debug F-key toggle for the
+       store, editor "Run Bake Now" toggle for the tool). -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\TileKnowledgeState.cs" Link="src\TileKnowledgeState.cs" />
+    <Compile Include="..\scripts\screens\FogTileGridLogic.cs" Link="src\FogTileGridLogic.cs" />
+  </ItemGroup>
+
+  <!-- Phase 9 slice 2 (M3 / L1 World fondations / 2026-05-08): palette
+       source contract. IFogPaletteSource + PaletteRgb are Godot-free
+       so xUnit pins the array-of-3 contract and the neutral-carton
+       fallback shape. The Godot-bound BakedFogPaletteSource (reads the
+       baked PNG via ResourceLoader) stays in the client csproj only —
+       fallback codepath validated through manual smoke (delete the
+       PNG, observe neutral-carton swatches). -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\IFogPaletteSource.cs" Link="src\IFogPaletteSource.cs" />
+  </ItemGroup>
+
+  <!-- Phase 9 slice 3 (M3 / L1 World drill zoom-driven / 2026-05-08): zoom
+       navigation decision helper. ZoomNavLogic is Godot-free so xUnit pins
+       the threshold + hysteresis + debounce + tile-knowledge-gate contract
+       (six branches: continuous zoom, drill candidate, drill blocked,
+       climb candidate, debounced, none). The runtime MapPan2DComponent
+       slice 3 wiring (Camera2D.Zoom tween, cursor-centred zoom, signal
+       emit to E2WorldMap for SceneManager.NavigateTo) stays in the client
+       csproj only and is exercised through manual integration. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\ZoomNavLogic.cs" Link="src\ZoomNavLogic.cs" />
+  </ItemGroup>
+
+  <!-- Phase 9 slice 3.5 (M3 / L1 World iso refactor / 2026-05-08): per-tile
+       bitmap registry. CellBitmapRegistry<T> is the pure-C# type that pins
+       the set/clear/replace/no-leak contract for the slice 3.5 livrable 4
+       per-tile bitmap API. The runtime FogTileLayer types it on Godot.Texture2D
+       and uses it (or rather mirrors the same semantics directly via
+       Polygon2D.Texture); the seam stays Godot-free for xUnit. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\CellBitmapRegistry.cs" Link="src\CellBitmapRegistry.cs" />
   </ItemGroup>
 
 </Project>

@@ -50,6 +50,61 @@ namespace Wayfinders.Client.Services;
 /// startup. Lookup-by-id keeps the manager loosely coupled to concrete
 /// screen types — adding E6 in a future jalon does not edit this file.
 /// </para>
+///
+/// <para>
+/// <b>P8.1 layer ladder (M3 / Arc 3 / Phase 8.1).</b>
+/// The mouse wheel triggers <see cref="NavigateLadderUp"/> /
+/// <see cref="NavigateLadderDown"/> which resolve a target screen id
+/// against the cadastral ladder <c>monde / cité / quartier</c>
+/// (<see cref="LadderResolutionLogic.DefaultLadder"/>) and delegate to
+/// <see cref="NavigateBack"/> (up) or <see cref="NavigateTo"/> (down).
+/// The ladder is data on this autoload, not a member of <see cref="IScreen"/> —
+/// individual screens stay agnostic of who is above or below them.
+/// Wheel events while a modal is open are ignored (modal owns input).
+/// A 400ms debounce on the wheel input mitigates trackpad continuous
+/// scroll firing five navigations in a single gesture (Risk #2) AND
+/// reduces the incidence of microbrushes during a middle-click drag
+/// (P8.1+P8.2 triple-fix Bug 2 belt-and-braces).
+/// </para>
+///
+/// <para>
+/// <b>P8 wheel-direction final lock (2026-05-07, post-1e89ad3).</b>
+/// After four iterations (<c>c0b6157</c> initial → <c>ad6a91f</c> swap →
+/// <c>1e89ad3</c> re-swap → this commit final-swap), the convention is
+/// locked by Didier physical-gesture re-test. Convention uses pull/push
+/// language exclusively — "wheel up/down" / "forward/backward" labels are
+/// banned in this file and the related tests because their ambiguity
+/// caused the swap loop:
+/// <list type="bullet">
+///   <item><b>PULL</b> the wheel toward the user (rolls finger toward you)
+///         → fires <c>MouseButton.WheelDown</c> event → dispatches
+///         <see cref="NavigateLadderUp"/> = <b>climb OUT</b> toward the
+///         less granular layer (e.g. E2 → E1, E3 → E2, E5 → E3).</item>
+///   <item><b>PUSH</b> the wheel away from the user (rolls finger away)
+///         → fires <c>MouseButton.WheelUp</c> event → dispatches
+///         <see cref="NavigateLadderDown"/> = <b>drill IN</b> toward the
+///         more granular layer (e.g. E1 → E2, E2 → E3, E3 → E5), gated by
+///         the "visited explicitly this session" set.</item>
+/// </list>
+/// <b>Do not swap again without explicit Didier physical-gesture
+/// re-validation.</b> If a future tester on different hardware reports
+/// the inverse, ship a per-user config option (preference setting) rather
+/// than re-flipping this site -- the swap loop showed that global flips
+/// without intermediate visual validation are fragile.
+/// </para>
+///
+/// <para>
+/// <b>P8 post-drag wheel grace period (2026-05-07, this commit).</b>
+/// After the player releases the middle-button drag, wheel events arriving
+/// within the next <see cref="PostDragGraceMs"/> ms are silently dropped.
+/// Rationale: when the hand lifts off after a sustained drag, the thumb
+/// often brushes the wheel as part of the lift gesture itself, producing
+/// an unintended ladder navigation a few frames after release. The grace
+/// period is short enough not to feel laggy on an intentional flick after
+/// drag (250ms = ~15 frames at 60fps), long enough to swallow the typical
+/// release-brush. Lives at the autoload alongside the in-drag suppression
+/// (defense-in-depth pattern, mirrors Bug 2 architecture).
+/// </para>
 /// </summary>
 public partial class SceneManager : Node
 {
@@ -72,6 +127,77 @@ public partial class SceneManager : Node
     // navigation so a previous in-flight OnEnter cannot race a new one.
     private CancellationTokenSource? _navCts;
 
+    // P8.1 layer ladder. Defaults to monde / cité / quartier (Varn §7.5)
+    // matching the MVP screen registration in OpeningBootstrap. Held as
+    // a settable list rather than a constant so a future jalon (or a test
+    // harness) can swap it without subclassing the autoload.
+    private IReadOnlyList<LayerRung> _ladder = LadderResolutionLogic.DefaultLadder;
+
+    // P8.1 wheel debounce. Trackpad continuous scroll fires events at
+    // ~60Hz on a single gesture. Without a debounce, one swipe = five
+    // ladder navigations in 80ms = E2 -> E3 -> E5 -> E5 -> E5 (the last
+    // three being silent no-ops but still spamming _navCts cancellations
+    // and animation frames).
+    //
+    // Bumped from 200ms to 400ms in the P8.1+P8.2 triple-fix (2026-05-07,
+    // Bug 2). 200ms still felt responsive on a discrete-detent wheel but
+    // was too tight on Didier's Logitech free-spin / MagSpeed-style hardware:
+    // microbrushes during a middle-click drag occasionally fired through.
+    // 400ms is the smallest gap that survives "thumb resting on the wheel
+    // during a sustained drag" without feeling sluggish on a deliberate
+    // single-flick navigation. Belt to the screen-level _isDragging
+    // suppression's braces (E2WorldMap._Input).
+    private const ulong WheelDebounceMs = 400;
+    private ulong _lastWheelTickMs;
+
+    // P8 final-lock post-drag grace period (2026-05-07). Once the
+    // middle-button drag ends, wheel events arriving within this window
+    // are ignored at the autoload backstop. The window is short enough to
+    // not feel laggy on an intentional flick after a drag (250ms = ~15
+    // frames at 60fps) and long enough to swallow the release-brush --
+    // the symptom Didier reported as Bug 2-affined: "when I exit the
+    // scroll, sometimes I do a wheel action by accident just after, it
+    // should be cancelled because it is likely an error".
+    //
+    // Triggered by E2WorldMap calling NotifyDragReleased() at the moment
+    // _isDragging flips false. Owned at the autoload (not on the screen)
+    // because the wheel handler that consumes the input lives here, and
+    // the grace timer is logically scoped to wheel input not to drag
+    // state. If a future screen also gains a drag gesture (E3, E5 with
+    // their own pannable surfaces), the same hook applies without
+    // touching this file.
+    private const ulong PostDragGraceMs = 250;
+    private ulong _lastDragEndTimeMs;
+
+    // P8.1+P8.2 triple-fix Bug 3 (2026-05-07). Tracks the set of screen
+    // ids the player has *explicitly* navigated to via NavigateTo (POI
+    // click, button) during this session. Wheel-down (drill in) only
+    // navigates into a target rung that is in this set ; otherwise no-op
+    // silently. Without this gate, wheel-down on E2 monde silently
+    // teleports the player into Halfgate even if they never clicked
+    // Halfgate -- a context-less drill that surfaced as confusing UX.
+    //
+    // <para>
+    // Why a set, not the navigation stack snapshot. The stack reflects
+    // the *current* spine ; a screen popped off then re-drilled-into still
+    // counts as "visited this session" for our purposes. The set is the
+    // monotonic union of every explicit NavigateTo target since boot.
+    // </para>
+    //
+    // <para>
+    // What populates this set. Every call to <see cref="NavigateTo"/>
+    // adds the target. Wheel-down does NOT add (it is the consumer of
+    // the gate, not a contributor). NavigateBack / NavigateLadderUp do
+    // not remove ; the set is monotonic for the session.
+    // </para>
+    //
+    // <para>
+    // Why on the autoload, not on a per-screen field. The set is
+    // session-scoped state (lives across screen pushes and pops), not
+    // per-screen state. The autoload is the natural owner.
+    // </para>
+    private readonly HashSet<string> _drillDownVisited = new();
+
     [Signal] public delegate void NavigationStartedEventHandler(string fromScreen, string toScreen);
     [Signal] public delegate void NavigationCompletedEventHandler(string toScreen);
     [Signal] public delegate void ModalOpenedEventHandler(string modalId);
@@ -85,6 +211,41 @@ public partial class SceneManager : Node
 
     /// <summary>Currently open modal id, or null if none.</summary>
     public string? ActiveModalId => _activeModal?.ModalId;
+
+    /// <summary>
+    /// Active layer ladder used by <see cref="NavigateLadderUp"/> /
+    /// <see cref="NavigateLadderDown"/>. P8.1 default is
+    /// <see cref="LadderResolutionLogic.DefaultLadder"/>.
+    /// </summary>
+    public IReadOnlyList<LayerRung> Ladder => _ladder;
+
+    /// <summary>
+    /// P8.1+P8.2 triple-fix Bug 3 -- read-only view of the
+    /// "explicitly visited via NavigateTo" set. Exposed for diagnostics
+    /// and for tests that drive the wheel-down gate without going through
+    /// the full Godot scene-tree round-trip.
+    /// </summary>
+    public IReadOnlyCollection<string> DrillDownVisited => _drillDownVisited;
+
+    /// <summary>
+    /// P8 final-lock post-drag grace period hook. A screen that owns a
+    /// drag gesture calls this at the moment the drag ends (middle-button
+    /// release). The autoload records the timestamp and silently drops
+    /// wheel events arriving within <see cref="PostDragGraceMs"/> ms of
+    /// that release. Idempotent and cheap (one ulong write).
+    ///
+    /// <para>
+    /// Why a method instead of a public property the screen writes to:
+    /// the autoload owns the timestamp ; the screen owns the gesture
+    /// event. Encapsulation lets a future jalon swap the underlying timer
+    /// (e.g. variable grace based on drag duration) without touching the
+    /// screen's drag-end branch.
+    /// </para>
+    /// </summary>
+    public void NotifyDragReleased()
+    {
+        _lastDragEndTimeMs = Time.GetTicksMsec();
+    }
 
     public override void _Ready()
     {
@@ -132,6 +293,18 @@ public partial class SceneManager : Node
     /// matters in J3+ on a long playthrough we revisit — for J1 it is the
     /// simpler shape and it preserves their state for free on Pop.
     /// </para>
+    ///
+    /// <para>
+    /// <b>P8.1+P8.2 triple-fix Bug 3.</b> Every successful NavigateTo
+    /// registers the target screen id in <see cref="_drillDownVisited"/>.
+    /// Wheel-down (<see cref="NavigateLadderDown"/>) reads from that set
+    /// to decide whether to drill in or no-op silently. Marking is done
+    /// here (not in <see cref="NavigateLadderDown"/>) because every
+    /// non-wheel navigation is by definition an explicit player path
+    /// -- POI click, button, modal opener -- and we want those to all
+    /// count as "visited" without each call site having to remember to
+    /// flag the visit.
+    /// </para>
     /// </summary>
     public async Task NavigateTo(string screenId, ScreenContext? context = null)
     {
@@ -168,6 +341,10 @@ public partial class SceneManager : Node
         AddChild(screenNode);
         _liveScreens[screenId] = screenNode;
         _stack.Push(new ScreenStackEntry(screenId, ctx));
+
+        // P8.1+P8.2 triple-fix Bug 3: every explicit NavigateTo counts as
+        // a player-driven visit. Wheel-down later checks against this set.
+        _drillDownVisited.Add(screenId);
 
         if (screenNode is IScreen screenImpl)
         {
@@ -224,6 +401,94 @@ public partial class SceneManager : Node
         }
 
         EmitSignal(SignalName.NavigationCompleted, newTop.ScreenId);
+    }
+
+    /// <summary>
+    /// P8.1 -- ladder climb-out (more granular layer to less granular).
+    /// Resolves the target via <see cref="LadderResolutionLogic.ResolveUpTarget"/>
+    /// and delegates to <see cref="NavigateBack"/> when there is a target.
+    /// Triggered at the dispatch site by a PULL gesture
+    /// (<c>MouseButton.WheelDown</c> event, post-final-lock).
+    ///
+    /// <para>
+    /// <b>Why NavigateBack and not NavigateTo on the resolved id.</b>
+    /// In MVP, every navigation between E2 / E3 / E5 either goes through
+    /// the ladder helpers or through the existing POI-click path, both
+    /// of which preserve the invariant `stack spine == ladder spine`.
+    /// So popping is correct and also has the right side-effect: the
+    /// leaving screen is freed, the previous top is shown again. If a
+    /// future jalon introduces a raccourci that violates the spine
+    /// alignment (e.g. "drill from E2 directly to E5 skipping E3"), this
+    /// method needs revisiting -- captured as Risk #1 in the P8.1 pre-brief.
+    /// </para>
+    ///
+    /// <para>
+    /// No-op (silent, debug-logged) when the current screen is the top
+    /// rung (E2 monde) or is not part of the ladder at all (E1 title).
+    /// </para>
+    /// </summary>
+    public async Task NavigateLadderUp()
+    {
+        var target = LadderResolutionLogic.ResolveUpTarget(CurrentScreenId, _ladder);
+        if (target is null)
+        {
+            GD.Print($"[SceneManager] Ladder up no-op (current={CurrentScreenId ?? "(none)"})");
+            return;
+        }
+
+        await NavigateBack();
+    }
+
+    /// <summary>
+    /// P8.1 -- ladder drill-in (less granular layer to more granular).
+    /// Resolves the target via <see cref="LadderResolutionLogic.ResolveDownTarget"/>
+    /// and delegates to <see cref="NavigateTo"/> when there is a target
+    /// AND that target has been visited explicitly during this session.
+    /// Triggered at the dispatch site by a PUSH gesture
+    /// (<c>MouseButton.WheelUp</c> event, post-final-lock).
+    ///
+    /// <para>
+    /// <b>P8.1+P8.2 triple-fix Bug 3 (2026-05-07) -- visited gate.</b>
+    /// Wheel drill-in silently no-ops when the resolved ladder target has
+    /// never been navigated-to via an explicit NavigateTo (POI click,
+    /// button) during this session. Rationale: drilling from E2 monde
+    /// into E3 via a wheel without ever having clicked Halfgate would
+    /// teleport the player into a layer they do not have a context for
+    /// (cité? quartier? which one?). The MVP gate is "you have to have
+    /// been there at least once explicitly to wheel back into it" --
+    /// option (β) of the triple-fix scoping doc. Forward-stack (option
+    /// (α)) was rejected for MVP as featureful complexity for a 1-cité /
+    /// 1-quartier shape.
+    /// </para>
+    ///
+    /// <para>
+    /// No-op (silent, debug-logged) cases:
+    /// <list type="bullet">
+    ///   <item>Current screen is the bottom rung (E5 quartier).</item>
+    ///   <item>Current screen is not part of the ladder at all (E1 title).</item>
+    ///   <item>Resolved target has not been visited explicitly this
+    ///         session (Bug 3 gate).</item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    public async Task NavigateLadderDown()
+    {
+        var target = LadderResolutionLogic.ResolveDownTarget(CurrentScreenId, _ladder);
+        if (target is null)
+        {
+            GD.Print($"[SceneManager] Ladder down no-op (current={CurrentScreenId ?? "(none)"})");
+            return;
+        }
+
+        // Bug 3 gate -- only drill into screens the player has explicitly
+        // visited at least once during this session.
+        if (!_drillDownVisited.Contains(target))
+        {
+            GD.Print($"[SceneManager] Ladder down no-op (target={target} not yet visited via explicit click path)");
+            return;
+        }
+
+        await NavigateTo(target);
     }
 
     /// <summary>
@@ -420,28 +685,171 @@ public partial class SceneManager : Node
     }
 
     /// <summary>
-    /// Esc key handler. Routes to CloseModal if a modal is open, else
-    /// NavigateBack if the stack has more than 1 entry. Esc on root is
-    /// a silent no-op (Title screen owns the Quit confirmation in J2).
+    /// Esc key handler + P8.1 mouse wheel ladder navigation. Routes Esc
+    /// to CloseModal if a modal is open, else NavigateBack if the stack
+    /// has more than 1 entry. Esc on root is a silent no-op (Title screen
+    /// owns the Quit confirmation in J2).
+    ///
+    /// <para>
+    /// <b>Wheel direction lock (validated Didier physical-gesture test, P8 final 2026-05-07):</b>
+    /// <list type="bullet">
+    ///   <item>PULL (toward user) -> WheelDown event -> NavigateLadderUp
+    ///         (climb out, e.g. E2 -> E1, E3 -> E2, E5 -> E3).</item>
+    ///   <item>PUSH (away from user) -> WheelUp event -> NavigateLadderDown
+    ///         (drill in, e.g. E1 -> E2, E2 -> E3, E3 -> E5), gated by the
+    ///         visited set (Bug 3).</item>
+    /// </list>
+    /// <b>DO NOT swap again without explicit Didier physical-gesture
+    /// re-validation.</b> See class XML doc "P8 wheel-direction final
+    /// lock" paragraph for the four-iteration swap-loop history and the
+    /// reason this convention is now expressed in pull/push terms only --
+    /// "wheel up/down" / "forward/backward" labels are banned because
+    /// their ambiguity was the root cause of the loop.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>P8.1+P8.2 triple-fix drag suppression (Bug 2, 2026-05-07).</b>
+    /// Defense-in-depth: this autoload checks
+    /// <see cref="Input.IsMouseButtonPressed"/> for
+    /// <see cref="MouseButton.Middle"/> at the wheel-event entry point,
+    /// in addition to the screen-level <c>SetInputAsHandled</c> in
+    /// <see cref="Wayfinders.Client.Scenes.Screens.E2WorldMap._Input"/>.
+    /// The screen-level suppress is the architecturally clean path
+    /// (option (c) per the P8.2-UX-fix closeout) ; this autoload-level
+    /// poll is the belt to the screen-level braces. Either alone should
+    /// suppress the conflict ; together they survive the rare race where
+    /// the screen-level <c>_isDragging</c> flag is in transit relative
+    /// to the wheel event arriving in the same frame as the middle-button
+    /// press.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>P8 final-lock post-drag grace period (this commit, 2026-05-07).</b>
+    /// In addition to the in-drag suppression, wheel events arriving within
+    /// <see cref="PostDragGraceMs"/> ms of the most recent drag release
+    /// (signalled by <see cref="NotifyDragReleased"/>) are silently
+    /// dropped. Catches the lift-off brush -- the thumb leaving the wheel
+    /// after a sustained drag often produces an unintended wheel tick a
+    /// few frames after middle-button release.
+    /// </para>
+    ///
+    /// <para>
+    /// 400ms debounce (bumped from 200ms in the triple-fix) further
+    /// reduces the incidence of microbrushes during a sustained drag on
+    /// free-spin / MagSpeed-style wheel hardware. Wheel events are
+    /// ignored entirely while a modal is open.
+    /// </para>
     /// </summary>
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (!@event.IsActionPressed("ui_cancel"))
-            return;
-
-        if (_activeModal is not null && _activeModal.CanCloseOnEsc)
+        if (@event.IsActionPressed("ui_cancel"))
         {
-            // Fire-and-forget intentional: input handlers are not async.
-            // Cancellation in CloseModal handles robustness if Esc is
-            // spammed (each call recycles _navCts).
-            _ = CloseModal();
-            GetViewport().SetInputAsHandled();
+            if (_activeModal is not null && _activeModal.CanCloseOnEsc)
+            {
+                // Fire-and-forget intentional: input handlers are not async.
+                // Cancellation in CloseModal handles robustness if Esc is
+                // spammed (each call recycles _navCts).
+                _ = CloseModal();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+
+            if (_stack.Count > 1)
+            {
+                _ = NavigateBack();
+                GetViewport().SetInputAsHandled();
+            }
             return;
         }
 
-        if (_stack.Count > 1)
+        // P8.1 -- molette ladder navigation. We only react on the press
+        // edge ; Godot fires WheelUp/WheelDown as InputEventMouseButton
+        // with Pressed = true, then a matching Released the same frame.
+        if (@event is InputEventMouseButton mb && mb.Pressed
+            && (mb.ButtonIndex == MouseButton.WheelUp || mb.ButtonIndex == MouseButton.WheelDown))
         {
-            _ = NavigateBack();
+            // Modal owns input -- wheel is silently ignored while a modal
+            // is open. Defense-doc'd by LadderInputContractTests.
+            if (_activeModal is not null)
+            {
+                return;
+            }
+
+            // Bug 2 belt-and-braces: if EITHER the middle OR the right
+            // mouse button is currently held down, the player is mid-drag
+            // on E2WorldMap. P8.2 only checked Middle ; P8.3 (D-P8.3-10)
+            // extends the OR to Right so a player who selected the RMB-pan
+            // option in the Options modal still benefits from the autoload
+            // backstop. Both buttons are checked unconditionally regardless
+            // of the active configuration -- a stale press of the inactive
+            // button is a benign suppression, never a false-negative on the
+            // active one. The 7 WheelDuringDragSuppressionTests stay green
+            // because the OR still honours the original "MMB-held implies
+            // suppress" contract ; the new clause is purely additive.
+            //
+            // E2WorldMap._Input also marks the wheel handled at the screen
+            // level, but a defensive poll on the autoload survives the
+            // edge case where this _UnhandledInput somehow runs first
+            // (frame-ordering race during the press of the pan button
+            // itself, before _isDragging flips). See class XML doc
+            // "P8.1+P8.2 triple-fix drag suppression".
+            if (Input.IsMouseButtonPressed(MouseButton.Middle)
+                || Input.IsMouseButtonPressed(MouseButton.Right))
+            {
+                return;
+            }
+
+            // P8 final-lock post-drag grace period. Catches the lift-off
+            // brush after the player releases the middle-button drag --
+            // see class XML doc "P8 final-lock post-drag grace period"
+            // paragraph for the symptom and rationale. NotifyDragReleased
+            // is the only writer of _lastDragEndTimeMs ; a fresh session
+            // initialises it to 0 so the first wheel event after boot
+            // passes the gate (nowMs - 0 >= 250ms is always true once
+            // the app is past its first quarter-second).
+            var nowMs = Time.GetTicksMsec();
+            if (nowMs - _lastDragEndTimeMs < PostDragGraceMs)
+            {
+                return;
+            }
+
+            // Trackpad continuous scroll mitigation (Risk #2). On a real
+            // mouse wheel, ticks are ~50ms apart on aggressive spinning,
+            // so 400ms only blocks the 2nd+3rd+4th+ ticks of a single
+            // flick -- intentional, the player gets exactly one navigation
+            // per discrete gesture.
+            if (nowMs - _lastWheelTickMs < WheelDebounceMs)
+            {
+                return;
+            }
+            _lastWheelTickMs = nowMs;
+
+            // Wheel direction lock (validated Didier physical-gesture test, P8 final 2026-05-07):
+            //   PULL (toward user) -> WheelDown event -> NavigateLadderUp (climb out, e.g. E2 -> E1)
+            //   PUSH (away from user) -> WheelUp event -> NavigateLadderDown (drill in, e.g. E1 -> E2)
+            // DO NOT swap again without explicit Didier physical-gesture re-validation.
+            //
+            // The semantic helper LadderResolutionLogic.Resolve{Up,Down}Target
+            // stays identity-named with the verbs (Up = walk toward ladder
+            // index 0 = top of ladder = monde = climb out). The mapping
+            // reversal (PULL = WheelDown event = climb-out verb) lives only
+            // at this dispatch site -- the resolver and the verbs themselves
+            // are intentionally unchanged by the four-iteration swap loop.
+            //
+            // If a future user reports the inverse mapping on different
+            // hardware, ship a per-user config option (preference setting)
+            // rather than re-flipping this site. The swap loop showed that
+            // global flips without intermediate visual validation are fragile.
+            // See feedback_godot_rendering_input_traps.md "Convention
+            // molette" section.
+            if (mb.ButtonIndex == MouseButton.WheelDown)
+            {
+                _ = NavigateLadderUp();
+            }
+            else
+            {
+                _ = NavigateLadderDown();
+            }
             GetViewport().SetInputAsHandled();
         }
     }

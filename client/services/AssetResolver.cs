@@ -40,6 +40,18 @@ namespace Wayfinders.Client.Services;
 /// <see cref="ImageTexture.CreateFromImage"/>, which decodes the file
 /// directly with no import pipeline.
 /// </para>
+///
+/// <para>
+/// <b>Phase 9 slice ménage refactor (2026-05-08).</b> Path construction
+/// is delegated to <see cref="AssetKeyResolverLogic.ResolvePathsForKey"/>
+/// — the same pure-C# helper consumed by
+/// <see cref="Wayfinders.Client.Tools.PaletteQuantizerTool"/> in the
+/// editor. The autoload owns I/O ; the helper owns policy. Surfaced from
+/// the slice 3.6 silent mismatch (tool resolved res:// while runtime
+/// resolved user://, neutral-carton fallback ensued). xUnit pins the
+/// policy ; the autoload's filesystem branch is exercised through manual
+/// integration.
+/// </para>
 /// </summary>
 public partial class AssetResolver : Node
 {
@@ -103,25 +115,25 @@ public partial class AssetResolver : Node
         if (_keyMap is null)
             return GeneratePlaceholder(assetKey, "no key map");
 
-        var relativePath = _keyMap.TryResolvePath(assetKey);
-        if (relativePath is null)
+        var resolved = AssetKeyResolverLogic.ResolvePathsForKey(
+            assetKey, UserAssetRoot, ResAssetRoot, _keyMap);
+        if (resolved is null)
         {
             GD.PushWarning($"[AssetResolver] unknown key '{assetKey}' — fallback");
             return GeneratePlaceholder(assetKey, "unknown key");
         }
 
-        var userPath = UserAssetRoot.TrimEnd('/') + "/" + relativePath;
-        if (TryLoadFromUser(userPath, out var userTex) && userTex is not null)
+        var paths = resolved.Value;
+        if (TryLoadFromUser(paths.UserPath, out var userTex) && userTex is not null)
         {
             GD.Print($"[AssetResolver] resolved '{assetKey}' from user:// override");
             return userTex;
         }
 
-        var resPath = ResAssetRoot.TrimEnd('/') + "/" + relativePath;
-        if (TryLoadFromRes(resPath, out var resTex) && resTex is not null)
+        if (TryLoadFromRes(paths.ResPath, out var resTex) && resTex is not null)
             return resTex;
 
-        GD.PushWarning($"[AssetResolver] missing file for key '{assetKey}' (tried {userPath}, {resPath}) — fallback");
+        GD.PushWarning($"[AssetResolver] missing file for key '{assetKey}' (tried {paths.UserPath}, {paths.ResPath}) — fallback");
         return GeneratePlaceholder(assetKey, "missing file");
     }
 

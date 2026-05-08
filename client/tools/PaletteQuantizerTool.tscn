@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://cwf_palettetool0001"]
+
+[ext_resource type="Script" path="res://tools/PaletteQuantizerTool.cs" id="1_palettetool"]
+
+[node name="PaletteQuantizerTool" type="Node"]
+script = ExtResource("1_palettetool")

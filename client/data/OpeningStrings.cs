@@ -134,6 +134,32 @@ public partial class OpeningStrings : Resource
     /// <summary>E1.AB -- bouton fermeture panneau (voix S). Locked Varn §2.4.</summary>
     [Export] public string OptionsClose { get; set; } = "Fermer";
 
+    /// <summary>
+    /// E1.AC -- libellé de la nouvelle ligne Options "Bouton de pan de la carte"
+    /// (P8.3, M3 / Arc 3 / Phase 8.3, voix S système). Premier vrai widget
+    /// Options avec un effet réel en MVP -- positionné en première ligne du
+    /// ContentSlot par convention industrie (Steam settings, CK3, XCOM 2 :
+    /// les controls viennent avant audio/display). Voix système cohérente
+    /// avec Volume / Plein écran / Langue (décision J2 D1).
+    /// </summary>
+    [Export] public string OptionsMapPanLabel { get; set; } = "Bouton de pan de la carte";
+
+    /// <summary>
+    /// E1.AD -- libellé de l'entrée dropdown "Bouton du milieu (défaut)"
+    /// (P8.3, voix S). La parenthèse "(défaut)" rend l'état par défaut
+    /// découvrable par le joueur sans avoir à le déduire de la position
+    /// dans la liste. Cohérent UX Steam / CK3 (le défaut est toujours
+    /// signalé dans les dropdowns à 2 entrées asymétriques).
+    /// </summary>
+    [Export] public string OptionsMapPanMiddle { get; set; } = "Bouton du milieu (défaut)";
+
+    /// <summary>
+    /// E1.AE -- libellé de l'entrée dropdown "Bouton droit" (P8.3, voix S).
+    /// Pas de "(défaut)" -- l'absence de marqueur sur cette entrée est ce
+    /// qui rend la parenthèse de l'autre entrée informative.
+    /// </summary>
+    [Export] public string OptionsMapPanRight { get; set; } = "Bouton droit";
+
     // ---------------- Modale Quitter (E1 -- voix mixte A+S) ----------------
     // Source: Varn §2.3.
 

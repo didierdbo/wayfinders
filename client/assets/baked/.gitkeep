@@ -1,0 +1,7 @@
+# Baked artifacts produced by client/tools/PaletteQuantizerTool.cs
+# (slice 1 livrable 4 — M3 / L1 World fondations / 2026-05-08).
+#
+# Generated PNGs (e.g. e2_world_palette_3teintes_128px.png) are
+# checked in : the bake is deterministic and the artifact is a real
+# input to the slice 2 runtime fog renderer. Re-run the bake when
+# the master image changes.
