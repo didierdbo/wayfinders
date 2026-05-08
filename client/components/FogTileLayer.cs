@@ -8,7 +8,8 @@ namespace Wayfinders.Client.Components;
 /// <summary>
 /// Polygon2D-per-cell fog renderer (slice 1 livrable 2 → slice 2 livrables
 /// 1+2+3 → slice 3.5 iso refactor → slice 3.6 iso bitmap atlas → slice 3.6
-/// design fix two-polygon carton — M3 / L1 World fondations / 2026-05-08).
+/// design fix two-polygon carton → slice 3.6.1 carton-back uniform texture
+/// hook — M3 / L1 World fondations / 2026-05-08).
 /// Sits as a child of <see cref="MapPan2DComponent"/>'s world tree, above
 /// the world map sprite and the POI container.
 ///
@@ -30,21 +31,26 @@ namespace Wayfinders.Client.Components;
 ///         <see cref="TileKnowledgeStateHelpers.ResolveCartonFaceAlpha"/>.
 ///         Rendered <i>below</i> the back so the back masks it when the
 ///         cell is fully Inconnue.</item>
-///   <item><b>CartonBack</b> (z 11) — Polygon2D <i>without</i> any texture,
-///         modulated by <see cref="CartonBaseTint"/> (beige opaque). Alpha
-///         resolved by
-///         <see cref="TileKnowledgeStateHelpers.ResolveCartonBackAlpha"/>.
-///         Acts as the "dos de carte" that hides everything below it
-///         (face + world map sprite) when the cell is Inconnue.</item>
+///   <item><b>CartonBack</b> (z 11) — Polygon2D, optionally textured by
+///         <see cref="CartonBackTexture"/> (slice 3.6.1). When the texture
+///         is null, modulated by <see cref="CartonBaseTint"/> (beige
+///         opaque) — the original "dos de carte" behaviour. When set, the
+///         same iso-losange bitmap is repeated identically on every
+///         cell's back, modulate RGB clamped to white so the bitmap is
+///         not tinted (alpha still resolved by
+///         <see cref="TileKnowledgeStateHelpers.ResolveCartonBackAlpha"/>).
+///         Acts as the visual blocker that hides face + world map below
+///         it when the cell is Inconnue.</item>
 /// </list>
 /// The five-state visual table is now :
 /// <list type="bullet">
 ///   <item><b>Inconnue</b> — back alpha 1.0, face alpha 0.0 → opaque beige
-///         losange, source map fully hidden.</item>
-///   <item><b>Pressentie</b> — back 0.7, face 0.3 → mostly beige with a
+///         losange (or opaque CartonBackTexture losange if set), source
+///         map fully hidden.</item>
+///   <item><b>Pressentie</b> — back 0.7, face 0.3 → mostly back with a
 ///         hint of the source-map slice surfacing.</item>
 ///   <item><b>Esquissée</b> — back 0.4, face 0.6 → source map dominates,
-///         beige residual. Drill autorisé.</item>
+///         back residual. Drill autorisé.</item>
 ///   <item><b>Levée</b> — back 0.0, face 0.0 → both polygons invisible,
 ///         the WorldMapSprite below shows the unclipped world map.</item>
 ///   <item><b>Scellée</b> — like Levée, plus a sceau placeholder.</item>
@@ -66,7 +72,8 @@ namespace Wayfinders.Client.Components;
 /// drawn-last is on top).</b>
 /// <list type="bullet">
 ///   <item>Sceau (z 12) — only Scellée.</item>
-///   <item>CartonBack (z 11) — beige opaque, the visual blocker.</item>
+///   <item>CartonBack (z 11) — beige opaque (or CartonBackTexture iso
+///         losange), the visual blocker.</item>
 ///   <item>CartonFace (z 10) — source-map slice, surfaces under the back.</item>
 ///   <item>PaletteSwatch (z -1) — hidden by default.</item>
 ///   <item>Shadow (z -2) — under everything.</item>
@@ -88,8 +95,21 @@ namespace Wayfinders.Client.Components;
 /// duplication) and sets <c>CartonFace.UV</c> to the four diamond
 /// vertices in absolute source-map pixel coords. Each cell samples its
 /// own slice ; the polygon shape clips out-of-diamond pixels.
-/// <c>CartonBack</c> is never assigned a texture — it stays a flat
-/// beige modulated quad.
+/// </para>
+///
+/// <para>
+/// <b>Slice 3.6.1 — CartonBack uniform texture (option A).</b> When
+/// <see cref="CartonBackTexture"/> is non-null, every cell's
+/// <c>CartonBack</c> shares the same <see cref="Texture2D"/> reference
+/// and its UV is set to the four edge-midpoints of the bitmap (the same
+/// iso-losange UV math as the legacy <c>SetCellBitmap</c> placeholder
+/// path). The bitmap is expected to be authored as an iso losange
+/// (width = 2 × height, e.g. 256×128 px) so the diamond vertices map
+/// onto a clean centered slice with no skew. Same texture, same UV on
+/// every cell — that is option A. UV in source coords (option B,
+/// per-cell sampling of a world-spanning mask) is intentionally not
+/// implemented here. Re-applying after an inspector change is one call
+/// to <see cref="RefreshCartonBackTexture"/>.
 /// </para>
 ///
 /// <para>
@@ -152,10 +172,28 @@ public partial class FogTileLayer : Node2D
 
     /// <summary>
     /// Carton beige-écru base modulate (Varn §4.2). Applied to
-    /// <c>CartonBack</c> only ; <c>CartonFace</c> stays at white modulate
-    /// (1, 1, 1, alpha) so the source-map pixels are not tinted.
+    /// <c>CartonBack</c> only when <see cref="CartonBackTexture"/> is null
+    /// ; <c>CartonFace</c> stays at white modulate (1, 1, 1, alpha) so the
+    /// source-map pixels are not tinted. When CartonBackTexture is set,
+    /// CartonBack RGB is forced to white so the iso-losange bitmap is
+    /// rendered untinted (alpha still drives visibility).
     /// </summary>
     [Export] public Color CartonBaseTint { get; set; } = new Color(0.91f, 0.85f, 0.72f, 1f);
+
+    /// <summary>
+    /// Slice 3.6.1 — option A "uniform mask per cell". When non-null, this
+    /// iso-losange bitmap (authored as 2:1 ratio, e.g. 256×128 px) is
+    /// repeated identically on every cell's <c>CartonBack</c>. UV is set
+    /// to the four edge-midpoints of <c>GetSize()</c> so the diamond
+    /// vertices map onto a centered, axis-aligned slice of the bitmap.
+    /// Same texture reference is shared across all cells — no pixel
+    /// duplication. When null, CartonBack falls back to a flat
+    /// <see cref="CartonBaseTint"/>-modulated quad (the original behaviour).
+    /// Read at <see cref="Configure"/> time ; call
+    /// <see cref="RefreshCartonBackTexture"/> to re-apply after an
+    /// inspector edit.
+    /// </summary>
+    [Export] public Texture2D? CartonBackTexture { get; set; }
 
     /// <summary>
     /// Sceau placeholder color — cire rouge stylisée (Varn §1.2).
@@ -225,11 +263,14 @@ public partial class FogTileLayer : Node2D
         var paletteSummary = paletteSource is null
             ? "no palette source (neutral fallback)"
             : $"palette source attached (fallback={(paletteSource is BakedFogPaletteSource b && b.IsFallback)})";
+        var backTextureSummary = CartonBackTexture is null
+            ? "CartonBackTexture=none (beige fallback)"
+            : $"CartonBackTexture={CartonBackTexture.GetSize()} px (uniform per cell)";
         GD.Print(
             $"[FogTileLayer] configured: projection={Projection} {_dimensions.Columns}×{_dimensions.Rows} " +
             $"= {_dimensions.TotalCells} cells, cellSize={CellSizePx}px, " +
             $"yOffset={FogYOffset}, store entries={knowledgeStore.NonDefaultEntryCount}, " +
-            $"{paletteSummary}");
+            $"{paletteSummary}, {backTextureSummary}");
     }
 
     /// <summary>
@@ -392,6 +433,39 @@ public partial class FogTileLayer : Node2D
     }
 
     /// <summary>
+    /// Slice 3.6.1 -- re-apply the current <see cref="CartonBackTexture"/>
+    /// (or clear it, if null) to every existing cell's CartonBack, then
+    /// resync each cell's modulate RGB + alpha for the current knowledge
+    /// state. Cheap helper for "Didier dropped a new PNG into the
+    /// inspector between two runs and wants it live without re-Configure".
+    /// Idempotent. No-op if Configure was never called.
+    /// </summary>
+    public void RefreshCartonBackTexture()
+    {
+        if (_cells.Count == 0)
+        {
+            GD.Print("[FogTileLayer] RefreshCartonBackTexture: no cells (Configure not called yet) — no-op");
+            return;
+        }
+
+        var applied = 0;
+        foreach (var (coord, visuals) in _cells)
+        {
+            ApplyCartonBackTextureBinding(visuals.CartonBack);
+            // Resync modulate (RGB depends on texture presence) for the
+            // current state ; skip animation since this is a static
+            // re-skin, not a state transition.
+            var state = _knowledgeStore?.GetState(coord) ?? TileKnowledgeState.Inconnue;
+            ApplyVisualState(coord, state, animate: false);
+            applied++;
+        }
+        var summary = CartonBackTexture is null
+            ? "cleared (beige fallback)"
+            : $"re-bound to {CartonBackTexture.GetSize()} px";
+        GD.Print($"[FogTileLayer] RefreshCartonBackTexture: {applied} cells {summary}");
+    }
+
+    /// <summary>
     /// Slice 3.6 livrable 1 -- compute the UV array for an iso-diamond
     /// CartonFace when textured by a generic <see cref="Texture2D"/> (no
     /// per-cell source-map mapping). Returns four UV points in pixel
@@ -434,7 +508,7 @@ public partial class FogTileLayer : Node2D
     }
 
     /// <summary>
-    /// Slice 3 livrable 4 — visual feedback for a drill that the player
+    /// Slice 3.6 livrable 4 — visual feedback for a drill that the player
     /// attempted at a cell whose knowledge state is below
     /// <see cref="TileKnowledgeState.Esquissee"/>. Plays a 200 ms scale
     /// pulse 1.0 → 1.05 → 1.0 on both CartonBack and CartonFace in
@@ -580,9 +654,11 @@ public partial class FogTileLayer : Node2D
                 ZIndex = 10,
             };
 
-            // CartonBack — Polygon2D with iso-diamond vertices, no texture
-            // ever. Modulate = CartonBaseTint (beige opaque RGB) ; alpha
-            // is resolved by ResolveCartonBackAlpha. z_index 11 — above
+            // CartonBack — Polygon2D with iso-diamond vertices. Slice
+            // 3.6.1 : optionally textured by CartonBackTexture (shared
+            // across all cells, iso-losange UV). When no texture, falls
+            // back to a flat CartonBaseTint-modulated quad. Alpha is
+            // resolved by ResolveCartonBackAlpha. z_index 11 — above
             // face so it masks face when fully opaque.
             var cartonBack = new Polygon2D
             {
@@ -591,6 +667,7 @@ public partial class FogTileLayer : Node2D
                 Color = CartonBaseTint,
                 ZIndex = 11,
             };
+            ApplyCartonBackTextureBinding(cartonBack);
 
             // Sceau placeholder — 12-gon disc, centered. z_index 12, above
             // both carton polygons. Visible only at Scellée.
@@ -614,6 +691,43 @@ public partial class FogTileLayer : Node2D
 
             ApplyVisualState(coord, _knowledgeStore.GetState(coord), animate: false);
         }
+    }
+
+    /// <summary>
+    /// Slice 3.6.1 — bind the current <see cref="CartonBackTexture"/> (or
+    /// clear it) on a single CartonBack Polygon2D. Same texture reference
+    /// is shared across all cells when set ; UV is the four edge-midpoints
+    /// of the bitmap (iso-losange, top/right/bottom/left), matching the
+    /// vertex order from <see cref="BuildCellVertices"/>. When the export
+    /// is null, the texture and UV are cleared so the polygon renders as
+    /// a flat modulated quad (legacy behaviour).
+    /// </summary>
+    private void ApplyCartonBackTextureBinding(Polygon2D cartonBack)
+    {
+        if (CartonBackTexture is { } texture)
+        {
+            cartonBack.Texture = texture;
+            cartonBack.UV = ComputeIsoCartonUv(texture);
+        }
+        else
+        {
+            cartonBack.Texture = null;
+            cartonBack.UV = System.Array.Empty<Vector2>();
+        }
+    }
+
+    /// <summary>
+    /// Slice 3.6.1 — resolve the modulate RGB applied to CartonBack. When
+    /// <see cref="CartonBackTexture"/> is set, RGB is forced to white so
+    /// the iso-losange bitmap is rendered untinted. When null, RGB is the
+    /// configured <see cref="CartonBaseTint"/> (beige). Alpha is owned by
+    /// the caller.
+    /// </summary>
+    private Color ResolveCartonBackTintRgb()
+    {
+        return CartonBackTexture is null
+            ? CartonBaseTint
+            : new Color(1f, 1f, 1f, 1f);
     }
 
     /// <summary>
@@ -747,10 +861,11 @@ public partial class FogTileLayer : Node2D
         var targetFaceAlpha = TileKnowledgeStateHelpers.ResolveCartonFaceAlpha(state);
         var showSwatch = TileKnowledgeStateHelpers.ShouldRenderPaletteSwatch(state);
         var showSceau = TileKnowledgeStateHelpers.ShouldRenderSceau(state);
+        var backRgb = ResolveCartonBackTintRgb();
 
         if (!animate)
         {
-            visuals.CartonBack.Color = WithAlpha(CartonBaseTint, targetBackAlpha);
+            visuals.CartonBack.Color = WithAlpha(backRgb, targetBackAlpha);
             visuals.CartonBack.RotationDegrees = 0f;
             visuals.CartonBack.Position = Vector2.Zero;
             visuals.CartonBack.Scale = Vector2.One;
@@ -908,8 +1023,9 @@ public partial class FogTileLayer : Node2D
     {
         var backAlpha = TileKnowledgeStateHelpers.ResolveCartonBackAlpha(state);
         var faceAlpha = TileKnowledgeStateHelpers.ResolveCartonFaceAlpha(state);
+        var backRgb = ResolveCartonBackTintRgb();
 
-        visuals.CartonBack.Color = WithAlpha(CartonBaseTint, backAlpha);
+        visuals.CartonBack.Color = WithAlpha(backRgb, backAlpha);
         visuals.CartonBack.Visible = backAlpha > 0f;
         visuals.CartonBack.RotationDegrees = 0f;
         visuals.CartonBack.Position = Vector2.Zero;
