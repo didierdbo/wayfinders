@@ -12,46 +12,91 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// arithmetic in here, xUnit pins the contract without an engine.
 ///
 /// <para>
-/// <b>Slice 1 placeholder cell size.</b> The cell size is a parameter,
-/// not a constant — Didier itère encore sur l'image MJ et la grille
-/// finale dépend du master final. The runtime currently calls
-/// <see cref="ComputeGridSize"/> with 128 px (E2.1 master 3840×2160
-/// produces 30×17 cells = 510 fog tiles), which sits in the same
-/// granularity ballpark as Varn §5.1 L1 World guidance (40-80 tuiles
-/// MVP, but for the slice 1 placeholder we don't need to hit final
-/// density — the visual scaffold validates the architecture, the
-/// design slicing arrives in slice 2 once Mira's master ships).
+/// <b>Slice 3.5 iso refactor (M3 / Phase 9 / 2026-05-08).</b> Adds a
+/// <see cref="GridProjection"/> parameter to every entry point. The slice
+/// 1+2+3 rect math is preserved as <see cref="GridProjection.Rect"/> ; the
+/// new <see cref="GridProjection.IsoDiamondDown"/> mode lays cells out as
+/// 2:1 diamonds (cellWidth × cellWidth/2) using the standard iso projection
+/// classic to RTS / tactical games (Red Blob Games "Hexagonal Grids" §6
+/// or Godot iso TileMap docs DiamondDown). The runtime L1 World defaults
+/// to iso ; tests pin both modes to keep the math reusable for any future
+/// rect grid (E3+ city interior overlays, E4 fiche cards).
+/// </para>
+///
+/// <para>
+/// <b>Iso projection convention (locked).</b>
+/// <list type="bullet">
+///   <item><b>Pivot</b> : center of the diamond. Symmetric with the existing
+///         <c>Sprite2D.Centered=true</c> pattern in <see cref="FogTileLayer"/>
+///         and simpler hit-test math (a single <c>|dx|/halfW + |dy|/halfH
+///         &lt;= 1</c> predicate against the cell center).</item>
+///   <item><b>Cell width</b> = <c>cellSizePx</c> (full diamond width along
+///         X axis at iso center). <b>Cell height</b> = <c>cellSizePx / 2</c>
+///         (2:1 ratio, classic Godot iso DiamondDown). Vertices of the
+///         diamond at world-space offsets (±halfW, 0) for E/W and
+///         (0, ±halfH) for N/S relative to the cell center.</item>
+///   <item><b>Cell→world</b> : center.X = (col − row) × halfW + originX,
+///         center.Y = (col + row) × halfH + originY. Origin chosen so the
+///         (0,0) cell's top vertex sits at (worldOriginX, 0) — i.e. the
+///         leftmost extent of the grid is at X=0, the topmost at Y=0,
+///         which keeps the slice 1/2/3 "world image starts at top-left
+///         (0,0)" invariant intact. Concretely : originX = (rows−1) ×
+///         halfW (push everything right so the leftmost cell's left
+///         vertex is at X=0), originY = halfH (push down by half the
+///         first row's height so the topmost cell's top vertex is at Y=0).</item>
+///   <item><b>World→cell</b> : invert the (col, row) ↔ (worldX, worldY)
+///         linear system, then floor to integer. The tile under a world
+///         point is the diamond whose iso-cell-coords are the floored
+///         continuous values — same trick as Red Blob's "pixel-to-hex"
+///         except for diamonds it's a plain 2×2 matrix invert, no
+///         rounding edge cases.</item>
+/// </list>
 /// </para>
 ///
 /// <para>
 /// <b>Why a separate grid logic file (rather than baking the math into
 /// the component).</b> The exact cell-to-world-position mapping is the
-/// load-bearing seam between four different concerns: the fog renderer
-/// (livrable 2), the knowledge store (livrable 3), the baking script
-/// (livrable 4 — needs to compute the same cell rectangles at editor
-/// time to quantify pixels), and the future drill-zoom predicate
-/// (Varn §1.4, slice 2+). Putting the math here means all four
-/// consumers agree on cell boundaries by construction.
+/// load-bearing seam between five different concerns: the fog renderer
+/// (livrable 2 of slice 1, refactored at slice 3.5), the knowledge store
+/// (livrable 3), the baking script (livrable 4 — needs to compute the
+/// same cell rectangles at editor time to quantify pixels, refactored
+/// at slice 3.5 livrable 5), the future drill-zoom predicate
+/// (Varn §1.4), and the per-tile bitmap API (slice 3.5 livrable 4).
+/// Putting the math here means all five consumers agree on cell
+/// boundaries — and on iso vs rect mode — by construction.
 /// </para>
 /// </summary>
 public static class FogTileGridLogic
 {
     /// <summary>
     /// Compute the grid dimensions (number of cells along each axis)
-    /// for an image of given size and a given cell size. Uses ceiling
-    /// division so the right and bottom edges are covered even if
-    /// <paramref name="imageSize"/> is not an exact multiple of
-    /// <paramref name="cellSizePx"/> — the last column / row of cells
-    /// extends past the image edge on its outer side. The fog renderer
-    /// can either clip them at draw time or accept the slight overhang
-    /// (visually invisible because the carton sits above the world
-    /// image and any overhang lands in the dead zone outside the
-    /// camera limits).
+    /// for an image of given size and a given cell size.
+    ///
+    /// <para>
+    /// <b>Rect mode</b> uses ceiling division so the right and bottom edges
+    /// are covered even if <paramref name="imageSize"/> is not an exact
+    /// multiple of <paramref name="cellSizePx"/> — the last column / row
+    /// of cells extends past the image edge on its outer side.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Iso mode</b> tessellates the image with 2:1 diamonds. The number
+    /// of columns × rows is computed so the diamond bounding-box covers
+    /// the whole image : <c>cols = ceil(imageW / halfW) + 1</c>,
+    /// <c>rows = ceil(imageH / halfH) + 1</c>. The +1 absorbs the iso
+    /// "staircase" effect at the four corners (a half-row at top and
+    /// bottom is needed for full coverage). Cells outside the image
+    /// rectangle are tessellated as well — cheap to spawn (transparent
+    /// bitmap or hidden Carton at runtime), simple to reason about,
+    /// avoids edge-case logic at the corners. The runtime can drop them
+    /// post-hoc if memory becomes a concern, but at MVP scale (510-cell
+    /// rect → ~600-cell iso) the cost is invisible.
+    /// </para>
     /// </summary>
-    /// <param name="imageSize">World-image dimensions in pixels.</param>
-    /// <param name="cellSizePx">Side length of a single cell, pixels.</param>
-    /// <returns>(columns, rows) count, both &gt;= 1 for any positive image.</returns>
-    public static GridDimensions ComputeGridSize(PanVec2 imageSize, int cellSizePx)
+    public static GridDimensions ComputeGridSize(
+        PanVec2 imageSize,
+        int cellSizePx,
+        GridProjection projection = GridProjection.Rect)
     {
         if (cellSizePx <= 0)
         {
@@ -63,41 +108,94 @@ public static class FogTileGridLogic
             return new GridDimensions(1, 1);
         }
 
-        var cols = (int)System.MathF.Ceiling(imageSize.X / cellSizePx);
-        var rows = (int)System.MathF.Ceiling(imageSize.Y / cellSizePx);
-        if (cols < 1) cols = 1;
-        if (rows < 1) rows = 1;
-        return new GridDimensions(cols, rows);
+        if (projection == GridProjection.IsoDiamondDown)
+        {
+            var halfW = cellSizePx / 2f;
+            var halfH = cellSizePx / 4f; // 2:1 ratio: full height is cellSizePx/2, half-height = cellSizePx/4
+            // +1 in each direction to absorb the iso "staircase" corners.
+            var cols = (int)System.MathF.Ceiling(imageSize.X / halfW) + 1;
+            var rows = (int)System.MathF.Ceiling(imageSize.Y / halfH) + 1;
+            if (cols < 1) cols = 1;
+            if (rows < 1) rows = 1;
+            return new GridDimensions(cols, rows);
+        }
+
+        var rectCols = (int)System.MathF.Ceiling(imageSize.X / cellSizePx);
+        var rectRows = (int)System.MathF.Ceiling(imageSize.Y / cellSizePx);
+        if (rectCols < 1) rectCols = 1;
+        if (rectRows < 1) rectRows = 1;
+        return new GridDimensions(rectCols, rectRows);
     }
 
     /// <summary>
     /// Compute the world-space top-left position of a given cell.
-    /// The cell origin is at <c>(col * cellSizePx, row * cellSizePx)</c>
-    /// in the same coordinate frame as the world map sprite (top-left
-    /// at (0, 0), Y down, see <see cref="CameraPanLogic"/> coordinate
-    /// convention).
     ///
     /// <para>
-    /// Used by the fog renderer to position each Sprite2D-per-cell at
-    /// spawn, and by the baking script to compute which pixel
-    /// rectangle of the master image contributes to each cell's
-    /// quantified palette.
+    /// <b>Rect mode</b> : <c>(col × cellSizePx, row × cellSizePx)</c> in
+    /// the same coordinate frame as the world map sprite (top-left at
+    /// (0, 0), Y down).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Iso mode</b> : the bounding-box top-left of the diamond at
+    /// <c>(col, row)</c>. Used by the per-tile bitmap API (slice 3.5
+    /// livrable 4) to position a cell-bound texture so its centre
+    /// aligns with the diamond centre.
     /// </para>
     /// </summary>
-    public static PanVec2 ComputeCellTopLeft(GridCoord coord, int cellSizePx)
+    public static PanVec2 ComputeCellTopLeft(
+        GridCoord coord,
+        int cellSizePx,
+        GridProjection projection = GridProjection.Rect)
     {
+        if (projection == GridProjection.IsoDiamondDown)
+        {
+            var center = ComputeCellCenter(coord, cellSizePx, GridProjection.IsoDiamondDown);
+            var halfW = cellSizePx / 2f;
+            var halfH = cellSizePx / 4f;
+            return new PanVec2(center.X - halfW, center.Y - halfH);
+        }
         return new PanVec2(coord.Col * cellSizePx, coord.Row * cellSizePx);
     }
 
     /// <summary>
     /// Compute the world-space center position of a given cell. The
-    /// runtime fog renderer uses a Sprite2D with <c>centered=true</c>
-    /// so this is the value to assign to <c>Sprite2D.Position</c>.
-    /// Centered sprites are easier to author by hand and easier to
-    /// flip / scale in place than top-left-anchored ones.
+    /// runtime fog renderer uses a Sprite2D / Polygon2D with
+    /// <c>centered=true</c> semantics so this is the value to assign to
+    /// <c>position</c>. Centered nodes are easier to author by hand and
+    /// easier to flip / scale in place than top-left-anchored ones.
+    ///
+    /// <para>
+    /// <b>Iso mode</b> uses the standard DiamondDown projection :
+    /// <c>centerX = (col − row) × halfW + originX</c>,
+    /// <c>centerY = (col + row) × halfH + originY</c>. The origin is
+    /// chosen so the leftmost cell's leftmost vertex is at X=0, the
+    /// topmost cell's topmost vertex at Y=0 — keeps the world-coordinate
+    /// frame the same as rect mode (top-left at origin) so the
+    /// MapPan2DComponent's camera limits don't need a special case.
+    /// </para>
     /// </summary>
-    public static PanVec2 ComputeCellCenter(GridCoord coord, int cellSizePx)
+    public static PanVec2 ComputeCellCenter(
+        GridCoord coord,
+        int cellSizePx,
+        GridProjection projection = GridProjection.Rect)
     {
+        if (projection == GridProjection.IsoDiamondDown)
+        {
+            var halfW = cellSizePx / 2f;
+            var halfH = cellSizePx / 4f;
+            // We don't know the row count here, so we take a self-similar
+            // origin : the (0,0) diamond's top vertex sits at (0, 0).
+            // That puts (0,0) center at (0, halfH) and means cells with
+            // (col − row) < 0 land at negative X. For the runtime, this
+            // is fine because Configure passes the dimensions and we can
+            // post-shift the layer ; for the math here we keep the
+            // anchor self-similar so tests are clean. The runtime
+            // applies the world-shift in <see cref="ComputeIsoOriginShift"/>.
+            return new PanVec2(
+                (coord.Col - coord.Row) * halfW,
+                (coord.Col + coord.Row) * halfH + halfH);
+        }
         var halfCell = cellSizePx / 2f;
         return new PanVec2(
             coord.Col * cellSizePx + halfCell,
@@ -105,36 +203,179 @@ public static class FogTileGridLogic
     }
 
     /// <summary>
+    /// Iso-mode origin shift to apply after <see cref="ComputeCellCenter"/>
+    /// so the world frame stays "top-left at (0, 0), Y down" like rect
+    /// mode. Returns <c>(rows × halfW, 0)</c> — push every cell right by
+    /// the rows count so the leftmost iso cell's left vertex is at X=0.
+    /// Rect mode returns <c>(0, 0)</c>.
+    ///
+    /// <para>
+    /// The runtime fog renderer adds this shift to every iso cell's
+    /// world position (or, equivalently, sets the FogContainer's
+    /// position to this shift and keeps cells at their self-similar
+    /// coords). Tests cover both forms.
+    /// </para>
+    /// </summary>
+    public static PanVec2 ComputeIsoOriginShift(
+        GridDimensions dimensions,
+        int cellSizePx,
+        GridProjection projection)
+    {
+        if (projection != GridProjection.IsoDiamondDown) return new PanVec2(0f, 0f);
+        var halfW = cellSizePx / 2f;
+        // The minimum (col − row) in the grid is at coord (0, rows-1), value -(rows-1).
+        // To push everything to X >= 0, shift by +(rows-1) × halfW.
+        // We err on the side of (rows × halfW) for one-pixel safety on the leftmost
+        // diamond's leftmost vertex (vertex sits at center.X - halfW).
+        return new PanVec2(dimensions.Rows * halfW, 0f);
+    }
+
+    /// <summary>
     /// Hit-test : map a world-space position back to its containing
-    /// grid cell. Used by the slice 1 debug command (livrable 3) to
-    /// resolve the tile under the cursor. Returns null if the position
-    /// falls outside the grid bounds — caller decides whether to clamp
-    /// or ignore.
+    /// grid cell. The runtime fog renderer uses this to resolve "cell
+    /// under cursor" for the F debug command and the slice 3 drill
+    /// candidate seam.
+    ///
+    /// <para>
+    /// <b>Rect mode</b> : floor (worldX/cellSize, worldY/cellSize), bounds
+    /// check, return null if outside.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Iso mode</b> : invert the iso projection. Given a world point
+    /// <c>(wx, wy)</c> after subtracting the iso origin shift, the
+    /// continuous iso coords are <c>continuousCol = wx/(2·halfW) +
+    /// (wy − halfH)/(2·halfH)</c> and <c>continuousRow = (wy − halfH)
+    /// /(2·halfH) − wx/(2·halfW)</c>. Floor to get integer cell coords ;
+    /// then verify the point is actually inside the diamond (not in the
+    /// empty triangles between four cells' bounding boxes) by the
+    /// canonical predicate <c>|dx|/halfW + |dy|/halfH ≤ 1</c> on the
+    /// candidate cell's center.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>"Between four diamonds" disambiguation.</b> When the floor lands
+    /// in the empty triangle between four neighbouring diamonds, the
+    /// hit-test returns the diamond whose center is closest to the
+    /// world point. This matches what a player would expect ("I clicked
+    /// near that cell, it should win") and avoids a null hole between
+    /// cells. The closest-center fallback is bounded — only the four
+    /// diamonds whose bounding boxes contain the point are candidates.
+    /// </para>
     /// </summary>
     public static GridCoord? WorldPositionToCell(
         PanVec2 worldPosition,
         int cellSizePx,
-        GridDimensions dimensions)
+        GridDimensions dimensions,
+        GridProjection projection = GridProjection.Rect)
     {
         if (cellSizePx <= 0) return null;
-        if (worldPosition.X < 0 || worldPosition.Y < 0) return null;
 
+        if (projection == GridProjection.IsoDiamondDown)
+        {
+            return WorldPositionToCellIso(worldPosition, cellSizePx, dimensions);
+        }
+
+        if (worldPosition.X < 0 || worldPosition.Y < 0) return null;
         var col = (int)(worldPosition.X / cellSizePx);
         var row = (int)(worldPosition.Y / cellSizePx);
-
         if (col < 0 || col >= dimensions.Columns) return null;
         if (row < 0 || row >= dimensions.Rows) return null;
-
         return new GridCoord(col, row);
     }
 
+    private static GridCoord? WorldPositionToCellIso(
+        PanVec2 worldPosition,
+        int cellSizePx,
+        GridDimensions dimensions)
+    {
+        var halfW = cellSizePx / 2f;
+        var halfH = cellSizePx / 4f;
+
+        // Subtract the iso origin shift to get back to the self-similar
+        // frame where ComputeCellCenter is defined.
+        var shift = ComputeIsoOriginShift(dimensions, cellSizePx, GridProjection.IsoDiamondDown);
+        var localX = worldPosition.X - shift.X;
+        var localY = worldPosition.Y - shift.Y - halfH; // ComputeCellCenter adds +halfH on Y
+
+        // Invert the iso projection :
+        //   localX = (col − row) × halfW
+        //   localY = (col + row) × halfH
+        // → col = localX/(2·halfW) + localY/(2·halfH)
+        // → row = localY/(2·halfH) − localX/(2·halfW)
+        var continuousCol = localX / (2f * halfW) + localY / (2f * halfH);
+        var continuousRow = localY / (2f * halfH) - localX / (2f * halfW);
+
+        var col = (int)System.MathF.Floor(continuousCol);
+        var row = (int)System.MathF.Floor(continuousRow);
+
+        // The flooring may put us in the empty triangle between four
+        // diamonds. Test the four candidates (col,row), (col+1,row),
+        // (col,row+1), (col+1,row+1) and pick the one whose center is
+        // closest to the world point AND whose diamond actually contains
+        // it (predicate |dx|/halfW + |dy|/halfH ≤ 1).
+        var candidates = new[]
+        {
+            new GridCoord(col, row),
+            new GridCoord(col + 1, row),
+            new GridCoord(col, row + 1),
+            new GridCoord(col + 1, row + 1),
+        };
+
+        GridCoord? best = null;
+        var bestDistSq = float.MaxValue;
+        foreach (var c in candidates)
+        {
+            if (c.Col < 0 || c.Col >= dimensions.Columns) continue;
+            if (c.Row < 0 || c.Row >= dimensions.Rows) continue;
+
+            var center = ComputeCellCenter(c, cellSizePx, GridProjection.IsoDiamondDown);
+            // Apply origin shift to compare with worldPosition directly.
+            var centerX = center.X + shift.X;
+            var centerY = center.Y + shift.Y;
+            var dx = worldPosition.X - centerX;
+            var dy = worldPosition.Y - centerY;
+
+            // Diamond inclusion predicate. Equality on the boundary counts
+            // as "inside" (top-left convention, matches rect mode's
+            // boundary inclusion).
+            if (System.MathF.Abs(dx) / halfW + System.MathF.Abs(dy) / halfH > 1.0f + IsoBoundaryEpsilon)
+            {
+                continue; // not in this diamond
+            }
+
+            var distSq = dx * dx + dy * dy;
+            if (distSq < bestDistSq)
+            {
+                bestDistSq = distSq;
+                best = c;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// Boundary fudge for the iso diamond inclusion predicate. Without
+    /// this, a world point exactly on the diamond edge could fail the
+    /// strict <c>≤ 1</c> comparison due to float imprecision. Same role
+    /// as <c>ZoomNavLogic.ZoomEpsilon</c>.
+    /// </summary>
+    public const float IsoBoundaryEpsilon = 1e-4f;
+
     /// <summary>
     /// Enumerate every cell of the grid in row-major order. Used by the
-    /// fog renderer at spawn (one Sprite2D per yielded coord) and by
-    /// the baking script (one palette quantification per cell). The
+    /// fog renderer at spawn (one node per yielded coord) and by the
+    /// baking script (one palette quantification per cell). The
     /// row-major order keeps spatial locality in the persistence
-    /// dictionary, which matters when slice 2 starts iterating
-    /// neighbours for the Varn §3.3 chevauchement de carton ~5%.
+    /// dictionary.
+    ///
+    /// <para>
+    /// Iso mode emits the same row-major sweep — the (col, row) tuple is
+    /// the iso grid index, not a screen-space rectangle position. The
+    /// renderer translates each tuple to world coords via
+    /// <see cref="ComputeCellCenter"/>.
+    /// </para>
     /// </summary>
     public static IEnumerable<GridCoord> EnumerateCells(GridDimensions dimensions)
     {
@@ -146,6 +387,75 @@ public static class FogTileGridLogic
             }
         }
     }
+
+    /// <summary>
+    /// Diamond vertex offsets relative to the cell center, in world units,
+    /// for an iso DiamondDown cell of side <paramref name="cellSizePx"/>.
+    /// Order : <b>top, right, bottom, left</b> (clockwise starting from
+    /// the top vertex). Used by the runtime to build a Polygon2D with the
+    /// correct iso shape, and by the per-tile bitmap API to clip an
+    /// arbitrary texture to the diamond.
+    /// </summary>
+    public static (PanVec2 Top, PanVec2 Right, PanVec2 Bottom, PanVec2 Left) IsoDiamondVerticesAroundCenter(
+        int cellSizePx)
+    {
+        var halfW = cellSizePx / 2f;
+        var halfH = cellSizePx / 4f;
+        return (
+            Top:    new PanVec2(0f, -halfH),
+            Right:  new PanVec2(halfW, 0f),
+            Bottom: new PanVec2(0f, halfH),
+            Left:   new PanVec2(-halfW, 0f));
+    }
+
+    /// <summary>
+    /// True iff a world-space point is inside the diamond of the cell at
+    /// <paramref name="coord"/>, using the canonical iso predicate
+    /// <c>|dx|/halfW + |dy|/halfH ≤ 1</c>. Used by the
+    /// <see cref="Wayfinders.Client.Tools.PaletteQuantizerTool"/> at
+    /// editor time to sample only the pixels that fall inside each
+    /// diamond, not the bounding box (slice 3.5 livrable 5).
+    /// </summary>
+    public static bool IsoCellContainsWorldPoint(
+        GridCoord coord,
+        PanVec2 worldPoint,
+        int cellSizePx,
+        GridDimensions dimensions)
+    {
+        var halfW = cellSizePx / 2f;
+        var halfH = cellSizePx / 4f;
+        var center = ComputeCellCenter(coord, cellSizePx, GridProjection.IsoDiamondDown);
+        var shift = ComputeIsoOriginShift(dimensions, cellSizePx, GridProjection.IsoDiamondDown);
+        var dx = worldPoint.X - (center.X + shift.X);
+        var dy = worldPoint.Y - (center.Y + shift.Y);
+        return System.MathF.Abs(dx) / halfW + System.MathF.Abs(dy) / halfH <= 1.0f + IsoBoundaryEpsilon;
+    }
+}
+
+/// <summary>
+/// Grid projection mode, slice 3.5 (M3 / Phase 9 / 2026-05-08).
+/// <list type="bullet">
+///   <item><see cref="Rect"/> -- slice 1+2+3 default. Cells are square
+///         <c>cellSizePx × cellSizePx</c> in world space, laid out in a
+///         straight rect grid. Hit-test is simple bounded floor division.</item>
+///   <item><see cref="IsoDiamondDown"/> -- slice 3.5 default for L1 World.
+///         Cells are 2:1 diamonds (<c>cellSizePx</c> wide, <c>cellSizePx/2</c>
+///         tall) laid out in a DiamondDown projection. Hit-test inverts
+///         the iso transform with a closest-center fallback for the
+///         empty triangles between four neighbours.</item>
+/// </list>
+/// </summary>
+public enum GridProjection
+{
+    /// <summary>Square cells, rect grid. Slice 1+2+3 mode, retained for
+    /// E3+ city interiors / E4 fiches / any future overlay that doesn't
+    /// need iso projection.</summary>
+    Rect,
+
+    /// <summary>2:1 diamond cells, DiamondDown projection. Slice 3.5
+    /// default for L1 World fog tiles, matches the iso visual treatment
+    /// the player perceives on the master 3840×2160.</summary>
+    IsoDiamondDown,
 }
 
 /// <summary>

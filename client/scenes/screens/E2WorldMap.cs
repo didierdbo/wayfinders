@@ -223,7 +223,8 @@ public partial class E2WorldMap : Control, IScreen
         var fogPlaceholder = MakePlaceholderCartonTexture();
         var expectedDimensions = FogTileGridLogic.ComputeGridSize(
             new PanVec2(_panComponent.WorldImageSize.X, _panComponent.WorldImageSize.Y),
-            _fogTileLayer.CellSizePx);
+            _fogTileLayer.CellSizePx,
+            _fogTileLayer.Projection);
         var paletteSource = new BakedFogPaletteSource(BakedPaletteResPath, expectedDimensions);
         _fogTileLayer.Configure(_panComponent.WorldImageSize, _knowledgeStore, fogPlaceholder, paletteSource);
 

@@ -151,4 +151,14 @@
     <Compile Include="..\scripts\screens\ZoomNavLogic.cs" Link="src\ZoomNavLogic.cs" />
   </ItemGroup>
 
+  <!-- Phase 9 slice 3.5 (M3 / L1 World iso refactor / 2026-05-08): per-tile
+       bitmap registry. CellBitmapRegistry<T> is the pure-C# type that pins
+       the set/clear/replace/no-leak contract for the slice 3.5 livrable 4
+       per-tile bitmap API. The runtime FogTileLayer types it on Godot.Texture2D
+       and uses it (or rather mirrors the same semantics directly via
+       Polygon2D.Texture); the seam stays Godot-free for xUnit. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\CellBitmapRegistry.cs" Link="src\CellBitmapRegistry.cs" />
+  </ItemGroup>
+
 </Project>

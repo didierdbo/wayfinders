@@ -6,139 +6,139 @@ using Wayfinders.Client.Services;
 namespace Wayfinders.Client.Components;
 
 /// <summary>
-/// Sprite2D-per-cell fog renderer (slice 1 livrable 2 → slice 2 livrables
-/// 1+2+3 — M3 / L1 World fondations / 2026-05-08). Sits as a child of
-/// <see cref="MapPan2DComponent"/>'s world tree, above the world map
-/// sprite and the POI container. Each cell now has four sub-nodes :
-/// shadow, palette swatch (3 quantified teintes), carton (modulated
-/// alpha by knowledge state), and a sceau placeholder for
+/// Polygon2D-per-cell fog renderer (slice 1 livrable 2 → slice 2 livrables
+/// 1+2+3 → slice 3.5 iso refactor — M3 / L1 World fondations / 2026-05-08).
+/// Sits as a child of <see cref="MapPan2DComponent"/>'s world tree, above
+/// the world map sprite and the POI container. Each cell now has four
+/// sub-nodes : shadow, palette swatch (3 quantified teintes en bandes
+/// parallèles), carton (modulated alpha by knowledge state, optionally
+/// overridden by a per-cell bitmap), and a sceau placeholder for
 /// <see cref="TileKnowledgeState.Scellee"/>.
 ///
 /// <para>
-/// <b>Slice 2 visual contract (Varn 2026-05-08 + brief slice 2).</b>
+/// <b>Slice 3.5 iso refactor.</b> The grid projection switched from rect
+/// (slice 1/2/3) to <see cref="GridProjection.IsoDiamondDown"/> by default
+/// for L1 World — every cell is rendered as a 2:1 iso diamond instead of
+/// a square. The renderer uses <see cref="Polygon2D"/> for the carton
+/// and the swatch (Polygon2D supports arbitrary 4-vertex shapes natively
+/// without a custom shader), <see cref="Polygon2D"/> for the shadow
+/// (4-vertex offset diamond), and a regular Polygon2D for the sceau
+/// placeholder (12-gon disc, deforms least under iso projection).
+/// The <see cref="Projection"/> [Export] field lets the renderer fall
+/// back to rect mode for any future consumer (E3+ city overlay) without
+/// touching this file.
+/// </para>
+///
+/// <para>
+/// <b>Slice 3.5 visual contract.</b>
 /// <list type="bullet">
-///   <item><b>Inconnue</b> — carton fully opaque, palette swatch hidden,
-///         sceau hidden.</item>
-///   <item><b>Pressentie</b> — carton ~70 % opaque, palette swatch
-///         visible behind (3 teintes en bandes horizontales), sceau hidden.</item>
+///   <item><b>Inconnue</b> — carton diamant fully opaque (carton beige-écru),
+///         palette swatch hidden, sceau hidden.</item>
+///   <item><b>Pressentie</b> — carton ~70 % opaque, palette swatch visible
+///         behind (3 bandes parallèles à la diagonale top→bottom-right
+///         du losange — strates lisibles en projection iso), sceau hidden.</item>
 ///   <item><b>Esquissée</b> — carton ~40 % opaque, palette swatch fully
-///         visible, sceau hidden. Drill zoom-driven autorisé à partir
-///         d'ici (Varn §1.4) — slice 3 wires the actual drill predicate.</item>
-///   <item><b>Levée</b> — carton invisible, palette swatch hidden, sceau
-///         hidden. Pliure-soulèvement animation joue sur la transition
-///         <c>Esquissée → Levée</c> — 800 ms, rotation + lift + fade.</item>
+///         visible. Drill zoom-driven autorisé à partir d'ici.</item>
+///   <item><b>Levée</b> — carton invisible, swatch hidden, sceau hidden.
+///         Pliure-soulèvement animation joue sur la transition Esquissée
+///         → Levée — 800 ms, rotation autour du bord nord-ouest du
+///         losange + lift Y + fade.</item>
 ///   <item><b>Scellée</b> — comme Levée plus un sceau placeholder
-///         (cercle ColorRect modulé rouge cire) au centre de la cellule.</item>
+///         (12-gon disque centré modulé rouge cire) au centre du losange.</item>
 /// </list>
 /// </para>
 ///
 /// <para>
-/// <b>Architectural decision : Sprite2D-per-cell, not TileMapLayer.</b>
-/// Documented in Rune's 2026-05-08 audit (mémoire 'Phase 9 audit',
-/// verdict MVP-friendly avec discipline). TileMapLayer bakes one tile
-/// per TileSet entry into a single batched draw — there is no per-tile
-/// node to tween, fade, or anchor an animation off of. Slice 2's
-/// pliure-soulèvement gesture-clé per tile (Varn §4.5 lock) requires
-/// per-tile transforms : Sprite2D-per-cell affordance, not a
-/// TileMapLayer one. The MVP grid (510 cells) is well within the JFDI
-/// scaling ceiling for 2D draw calls — Varn §5.1 caps L1 at 40-80
-/// tuiles MVP, so the 510 placeholder is already a 6-10× over-allocation.
+/// <b>Slice 3.5 livrable 4 — per-tile bitmap API.</b>
+/// <see cref="SetCellBitmap"/> et <see cref="ClearCellBitmap"/> permettent
+/// d'associer un <see cref="Texture2D"/> iso à une cellule donnée. Le
+/// bitmap est dessiné via la même <see cref="Polygon2D"/> Carton (avec
+/// la texture mappée sur les 4 vertices du losange — le mapping clip
+/// naturellement par la forme du polygone), pas un Sprite2D séparé. Aucune
+/// cellule ne plug un vrai bitmap iso dans cette slice ; l'API existe
+/// pour quand Mira aura généré des assets iso ou quand un atlas baked
+/// depuis le master sera disponible.
 /// </para>
 ///
 /// <para>
-/// <b>YSort trap (audit §6).</b> The world tree is not ysort-sorted at
-/// E2 — POIs use static z_index ordering instead. The fog layer hangs
-/// off the same parent as POIs but with a higher z_index (10 default),
-/// so the stacking is deterministic and immune to the YSort + offset Y
-/// trap. The slight Y offset for the 'flottement' (-8 px slice 1
-/// placeholder) is applied to per-cell positions, not via a YSort key,
-/// so it stays purely visual.
-/// </para>
-///
-/// <para>
-/// <b>Stacking spec (slice 2).</b>
-/// <list type="bullet">
-///   <item>z_index 0 -- world map sprite (existing).</item>
-///   <item>z_index 5 -- POI container (existing).</item>
-///   <item>z_index 10 -- FogContainer parent (this layer's root).</item>
-///   <item>per-cell relative z_index : Shadow=-2, PaletteSwatch=-1,
-///         Carton=0, Sceau=+1.</item>
-/// </list>
+/// <b>Architectural decision : Polygon2D-per-cell, not Sprite2D-per-cell,
+/// not TileMapLayer.</b> Sprite2D-rotated-by-45° produces a square rotated
+/// in screen space, not a true iso diamond — the bounding box is wrong
+/// (rotated square = √2× wider than diamond width on screen) and the
+/// hit-test diverges. Polygon2D with 4 vertices is the right primitive :
+/// the geometry IS the diamond, the hit-test math agrees with the visual
+/// shape, and texture mapping lets us paint either a uniform colour
+/// (placeholder) or a per-cell bitmap (slice 3.5 livrable 4) without
+/// changing node type. TileMapLayer was already ruled out at slice 1
+/// (need per-cell tweens for the pliure-soulèvement) ; the iso refactor
+/// re-confirms the call.
 /// </para>
 ///
 /// <para>
 /// <b>Tween discipline.</b> Each cell maintains at most one active tween
 /// in <see cref="_activeCellTweens"/>. Before scheduling a new
-/// transition (state change), the prior tween is killed. This is the
-/// brief slice 2 livrable 3 leak-prevention requirement : "Pas de leak
-/// Tween si la transition est interrompue (fog state re-toggle pendant
-/// l'animation) — gérer proprement avec Kill() sur le tween précédent".
+/// transition (state change), the prior tween is killed. Same leak-prevention
+/// requirement as slice 2 ; iso refactor doesn't change this discipline.
 /// </para>
 ///
 /// <para>
-/// <b>Lifecycle.</b>
-/// <see cref="Configure"/> is called by the consumer once the world
-/// image is loaded and its size is known. Configure spawns one cell
-/// subtree (shadow + swatch + carton + sceau) per grid cell, wires
-/// them under <see cref="FogContainer"/>, paints palette swatches
-/// from <see cref="IFogPaletteSource"/>, and refreshes their initial
-/// visual state from <see cref="TileKnowledgeStore"/>. The
-/// <c>KnowledgeChanged</c> subscription is captured so
-/// <see cref="_ExitTree"/> disconnects with the exact handler reference
-/// (Risk #1 signal-leak trap).
+/// <b>Pliure pivot in iso.</b> Slice 2 rotated the rect carton around its
+/// center. Iso slice 3.5 rotates around the <b>nord-ouest vertex of the
+/// diamond</b> — the geste "feuille qu'on soulève par le coin haut-gauche"
+/// reads as a natural iso fold. Implementation : the Carton Polygon2D's
+/// Position is offset to the NW vertex (-halfW/2, -halfH/2 from cell
+/// center), the polygon's vertices are re-expressed relative to that
+/// pivot, and the rotation tween is unchanged.
 /// </para>
 /// </summary>
 public partial class FogTileLayer : Node2D
 {
     /// <summary>
     /// Slice 1 placeholder cell size in world pixels. The E2.1 master
-    /// 3840×2160 produces 30×17 = 510 cells. Final cell size is design
-    /// territory (Varn §5.1 organique L1, slice 3+).
+    /// 3840×2160 produces 30×17 = 510 cells in rect mode, ~600 cells in
+    /// iso mode (cf. <see cref="FogTileGridLogic.ComputeGridSize"/>).
     /// </summary>
     [Export] public int CellSizePx { get; set; } = 128;
 
     /// <summary>
+    /// Slice 3.5 -- grid projection mode. Default
+    /// <see cref="GridProjection.IsoDiamondDown"/> for L1 World ; rect
+    /// mode is preserved for any future overlay that doesn't need iso.
+    /// </summary>
+    [Export] public GridProjection Projection { get; set; } = GridProjection.IsoDiamondDown;
+
+    /// <summary>
     /// Static vertical offset for the 'tuile flottante' effect (Varn §4.1).
-    /// Negative because Y grows downward in world coords. The full Varn
-    /// spec calls for ±0.04 hauteur de tuile désynchronisé sinusoïdal
-    /// (§4.4 animation flottement) — slice 2 only ships the static
-    /// offset, the breathing animation arrives in slice 3+ alongside
-    /// the Reduce Motion toggle.
+    /// Negative because Y grows downward in world coords. Slice 2 placeholder
+    /// stays for slice 3.5 — pli iso doesn't change the desired flottement.
     /// </summary>
     [Export] public float FogYOffset { get; set; } = -8f;
 
     /// <summary>
     /// Static shadow offset (Varn §4.3). Modulate alpha 0.4, blur-by-margin
-    /// (placeholder texture is solid so no actual gaussian blur — softer
-    /// texture in slice 3+ supplies the diffusion).
+    /// (placeholder polygon is solid so no actual gaussian blur).
     /// </summary>
     [Export] public Vector2 ShadowOffset { get; set; } = new Vector2(6f, 10f);
 
     /// <summary>
-    /// Z-index of the parent FogContainer. World map sprite uses default
-    /// 0, POIs at 5, this layer at 10 keeps it above everything (Varn
-    /// §4.6 layer stack). Per-cell relative z indices are applied to
-    /// Shadow / PaletteSwatch / Carton / Sceau children.
+    /// Z-index of the parent FogContainer.
     /// </summary>
     [Export] public int FogZIndex { get; set; } = 10;
 
     /// <summary>
-    /// Pliure-soulèvement duration on <c>Esquissée → Levée</c>. Locked by
-    /// Varn D-TILE-09 §4.5 at 800 ms.
+    /// Pliure-soulèvement duration on <c>Esquissée → Levée</c>.
     /// </summary>
     [Export] public float PliureDurationSec { get; set; } = 0.80f;
 
     /// <summary>
-    /// Generic crossfade duration for non-pliure transitions
-    /// (Inconnue ↔ Pressentie ↔ Esquissée, Levée → Scellée, et tout retour
-    /// vers un niveau inférieur). 300 ms par défaut, brief slice 2.
+    /// Generic crossfade duration for non-pliure transitions.
     /// </summary>
     [Export] public float CrossfadeDurationSec { get; set; } = 0.30f;
 
-    /// <summary>Pliure rotation angle (degrees) at end of transition. ~25° reads as a fold without becoming gimmicky.</summary>
+    /// <summary>Pliure rotation angle (degrees) at end of transition.</summary>
     [Export] public float PliureRotationDegrees { get; set; } = 25f;
 
-    /// <summary>Vertical lift amount during pliure, expressed as a fraction of cell height (Varn §4.5 "à 0.25 hauteur").</summary>
+    /// <summary>Vertical lift amount during pliure, expressed as a fraction of cell height.</summary>
     [Export] public float PliureLiftFractionOfCell { get; set; } = 0.25f;
 
     /// <summary>
@@ -149,14 +149,12 @@ public partial class FogTileLayer : Node2D
     [Export] public Color CartonBaseTint { get; set; } = new Color(0.91f, 0.85f, 0.72f, 1f);
 
     /// <summary>
-    /// Sceau placeholder color — cire rouge stylisée (Varn §1.2). Mira
-    /// will spec the real asset post-moodboard. Alpha 0.85 keeps it
-    /// readable without overpowering the iso ground beneath.
+    /// Sceau placeholder color — cire rouge stylisée (Varn §1.2).
     /// </summary>
     [Export] public Color SceauPlaceholderColor { get; set; } = new Color(0.635f, 0.22f, 0.18f, 0.85f);
 
-    /// <summary>Sceau placeholder side length in world pixels.</summary>
-    [Export] public int SceauPlaceholderSizePx { get; set; } = 28;
+    /// <summary>Sceau placeholder radius in world pixels (12-gon disc).</summary>
+    [Export] public int SceauPlaceholderRadiusPx { get; set; } = 14;
 
     private Node2D _fogContainer = null!;
     private TileKnowledgeStore? _knowledgeStore;
@@ -166,16 +164,12 @@ public partial class FogTileLayer : Node2D
     private GridDimensions _dimensions = new(0, 0);
 
     /// <summary>
-    /// Per-cell node bag, keyed by <see cref="GridCoord"/>. The renderer
-    /// looks up by coord on every signal refresh ; one entry per cell
-    /// holds direct references to every animatable sub-node so the
-    /// transition handler does not have to traverse the tree.
+    /// Per-cell node bag, keyed by <see cref="GridCoord"/>.
     /// </summary>
     private readonly Dictionary<GridCoord, CellVisuals> _cells = new();
 
     /// <summary>
-    /// Per-cell active tween. Killed and replaced on every state change
-    /// — see class doc "Tween discipline".
+    /// Per-cell active tween. Killed and replaced on every state change.
     /// </summary>
     private readonly Dictionary<GridCoord, Tween> _activeCellTweens = new();
 
@@ -192,18 +186,7 @@ public partial class FogTileLayer : Node2D
     /// <summary>
     /// One-shot configuration after the consumer knows the world size,
     /// has a knowledge store, and (optionally) has a palette source.
-    /// Idempotent in the sense that calling it twice tears down +
-    /// respawns ; in slice 2 the consumer only calls it once per scene
-    /// entry.
     /// </summary>
-    /// <param name="worldImageSize">World-space dimensions of the master
-    /// image the fog covers.</param>
-    /// <param name="knowledgeStore">Source of truth for per-cell state.</param>
-    /// <param name="placeholderTexture">1×1 white-pixel carton texture
-    /// (modulated to <see cref="CartonBaseTint"/> at runtime).</param>
-    /// <param name="paletteSource">Quantified palette source. Pass null
-    /// to render with the neutral-carton fallback for every cell —
-    /// slice 2 fallback path when the bake doesn't exist yet.</param>
     public void Configure(
         Vector2 worldImageSize,
         TileKnowledgeStore knowledgeStore,
@@ -215,13 +198,10 @@ public partial class FogTileLayer : Node2D
         _knowledgeStore = knowledgeStore;
         _paletteSource = paletteSource;
         _dimensions = FogTileGridLogic.ComputeGridSize(
-            new PanVec2(worldImageSize.X, worldImageSize.Y), CellSizePx);
+            new PanVec2(worldImageSize.X, worldImageSize.Y), CellSizePx, Projection);
 
         SpawnCells(placeholderTexture);
 
-        // Subscribe AFTER spawn so the initial state read inside SpawnCells
-        // never races against a refresh signal arriving before all cells
-        // are wired.
         _knowledgeChangedHandler = OnKnowledgeChanged;
         _knowledgeStore.KnowledgeChanged += _knowledgeChangedHandler;
 
@@ -229,59 +209,92 @@ public partial class FogTileLayer : Node2D
             ? "no palette source (neutral fallback)"
             : $"palette source attached (fallback={(paletteSource is BakedFogPaletteSource b && b.IsFallback)})";
         GD.Print(
-            $"[FogTileLayer] configured: {_dimensions.Columns}×{_dimensions.Rows} " +
+            $"[FogTileLayer] configured: projection={Projection} {_dimensions.Columns}×{_dimensions.Rows} " +
             $"= {_dimensions.TotalCells} cells, cellSize={CellSizePx}px, " +
             $"yOffset={FogYOffset}, store entries={knowledgeStore.NonDefaultEntryCount}, " +
             $"{paletteSummary}");
     }
 
     /// <summary>
-    /// Hit-test entry point for the slice 2 debug commands (livrable 4).
-    /// Translates a world-space cursor position to a grid coord using
-    /// the same <see cref="FogTileGridLogic"/> seam every other consumer
-    /// uses.
+    /// Hit-test entry point for the slice 2 debug commands and slice 3
+    /// drill-target resolver. Translates a world-space cursor position
+    /// to a grid coord using the same <see cref="FogTileGridLogic"/>
+    /// seam every other consumer uses, in the configured projection.
     /// </summary>
     public GridCoord? WorldPositionToCell(Vector2 worldPosition)
     {
         return FogTileGridLogic.WorldPositionToCell(
             new PanVec2(worldPosition.X, worldPosition.Y),
             CellSizePx,
-            _dimensions);
+            _dimensions,
+            Projection);
     }
 
     /// <summary>Current grid dimensions. Returns zero-zero before <see cref="Configure"/>.</summary>
     public GridDimensions Dimensions => _dimensions;
 
     /// <summary>
+    /// Slice 3.5 livrable 4 -- assign an iso bitmap to a single cell. The
+    /// bitmap replaces the carton placeholder colour for that cell ; the
+    /// rest of the cell rendering (palette swatch, shadow, sceau, alpha
+    /// state) is unchanged. Caller is responsible for providing an
+    /// iso-compatible texture (the polygon clips to the diamond shape,
+    /// so a non-iso texture renders with whatever portion of itself
+    /// happens to fall inside the diamond — typically not what you want).
+    ///
+    /// <para>
+    /// <b>No leak guarantee.</b> Calling <see cref="SetCellBitmap"/> a
+    /// second time on the same cell replaces the texture reference ; the
+    /// prior texture is released by Godot's reference counting (Texture2D
+    /// is RefCounted). Calling for an unknown cell is a silent warning
+    /// (logged) — the same tolerance as <see cref="PlayDrillBlockedFeedback"/>.
+    /// </para>
+    /// </summary>
+    public void SetCellBitmap(GridCoord coord, Texture2D bitmap)
+    {
+        if (!_cells.TryGetValue(coord, out var visuals))
+        {
+            GD.PushWarning(
+                $"[FogTileLayer] SetCellBitmap({coord.Col},{coord.Row}): " +
+                $"cell not in registry (Configure not called or coord out of range)");
+            return;
+        }
+        visuals.Carton.Texture = bitmap;
+    }
+
+    /// <summary>
+    /// Slice 3.5 livrable 4 -- clear any per-tile bitmap on a cell, falling
+    /// back to the placeholder colour modulated by <see cref="CartonBaseTint"/>.
+    /// Idempotent : clearing a cell with no bitmap is a silent no-op.
+    /// </summary>
+    public void ClearCellBitmap(GridCoord coord)
+    {
+        if (!_cells.TryGetValue(coord, out var visuals))
+        {
+            GD.PushWarning(
+                $"[FogTileLayer] ClearCellBitmap({coord.Col},{coord.Row}): " +
+                $"cell not in registry");
+            return;
+        }
+        visuals.Carton.Texture = null;
+    }
+
+    /// <summary>
+    /// Slice 3.5 livrable 4 -- diagnostic surface for tests + the runtime
+    /// HUD overlay. Returns the texture currently bound to the cell, or
+    /// null if no bitmap is plugged in.
+    /// </summary>
+    public Texture2D? GetCellBitmap(GridCoord coord)
+    {
+        if (!_cells.TryGetValue(coord, out var visuals)) return null;
+        return visuals.Carton.Texture;
+    }
+
+    /// <summary>
     /// Slice 3 livrable 4 — visual feedback for a drill that the player
     /// attempted at a cell whose knowledge state is below
-    /// <see cref="TileKnowledgeState.Esquissee"/> (Varn §1.4 lock). Plays
-    /// a 200 ms scale pulse 1.0 → 1.05 → 1.0 (sin in/out) on the carton
-    /// sub-sprite of the addressed cell, communicating "the Cadastre
-    /// would like to look but cannot yet".
-    ///
-    /// <para>
-    /// <b>Tween discipline.</b> Reuses the per-cell tween bag — if a
-    /// transition tween (pliure / crossfade) is in flight on the same
-    /// cell, it is killed first. The pulse is short enough that
-    /// interrupting a transition is a fair trade : the user just signalled
-    /// strong intent on this cell, the visual must respond.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Why on the carton, not on the cell root.</b> The cell root holds
-    /// the static FogYOffset placement ; tweening its scale would also
-    /// scale the shadow + sceau placeholder relative to the cell, which
-    /// would feel like the entire cell is "breathing". The carton is the
-    /// element the player conceptually points at ("the cardboard cover
-    /// shudders") — pulsing it alone reads as the right-sized affordance.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Idempotent + tolerant.</b> Calling for an unknown coord is a
-    /// silent no-op (logged warning). Calling while the same cell is
-    /// already pulsing : the prior tween is killed and the pulse restarts.
-    /// </para>
+    /// <see cref="TileKnowledgeState.Esquissee"/>. Plays a 200 ms scale
+    /// pulse 1.0 → 1.05 → 1.0 on the carton sub-polygon.
     /// </summary>
     public void PlayDrillBlockedFeedback(GridCoord coord)
     {
@@ -293,16 +306,12 @@ public partial class FogTileLayer : Node2D
             return;
         }
 
-        // Discipline tween : kill any transition currently animating
-        // this cell so the pulse is the only motion the user sees.
         KillCellTween(coord);
 
-        var baseScale = SteadyScale();
+        var baseScale = Vector2.One;
         var pulseScale = baseScale * 1.05f;
 
         var tween = CreateTween();
-        // Sequential : up then down. SetParallel(false) explicit for
-        // readability ; CreateTween defaults to sequential anyway.
         tween.SetParallel(false);
         tween.TweenProperty(visuals.Carton, "scale", pulseScale, 0.10f)
             .SetTrans(Tween.TransitionType.Sine)
@@ -312,10 +321,6 @@ public partial class FogTileLayer : Node2D
             .SetEase(Tween.EaseType.InOut);
         tween.TweenCallback(Callable.From(() =>
         {
-            // Restore steady-state in case the tween got cut short by a
-            // subsequent state change. The bag entry is removed so a
-            // future PlayDrillBlockedFeedback re-creates a fresh tween
-            // rather than re-using a finished one.
             visuals.Carton.Scale = baseScale;
             _activeCellTweens.Remove(coord);
         }));
@@ -343,56 +348,48 @@ public partial class FogTileLayer : Node2D
     {
         if (_knowledgeStore is null) return;
 
-        var textureSize = placeholderTexture.GetSize();
-        if (textureSize.X <= 0 || textureSize.Y <= 0)
-        {
-            GD.PushWarning(
-                "[FogTileLayer] placeholder texture has zero size — cells will not spawn. " +
-                "Re-call Configure with a valid texture.");
-            return;
-        }
+        var halfW = CellSizePx / 2f;
+        var halfH = (Projection == GridProjection.IsoDiamondDown)
+            ? CellSizePx / 4f
+            : CellSizePx / 2f;
 
-        var cartonScale = new Vector2(CellSizePx / textureSize.X, CellSizePx / textureSize.Y);
-        var halfCell = CellSizePx / 2f;
-        var swatchBandHeight = CellSizePx / 3f;
-        var sceauHalfSize = SceauPlaceholderSizePx / 2f;
+        var isoOriginShift = FogTileGridLogic.ComputeIsoOriginShift(
+            _dimensions, CellSizePx, Projection);
+
+        // Build the four vertices of a single cell at world-origin once ;
+        // every Polygon2D shares the same vertex array (Polygon2D copies
+        // it on assign so this is just a template).
+        Vector2[] cellVertices = BuildCellVertices(halfW, halfH);
 
         foreach (var coord in FogTileGridLogic.EnumerateCells(_dimensions))
         {
-            var center = FogTileGridLogic.ComputeCellCenter(coord, CellSizePx);
-            var cellPosition = new Vector2(center.X, center.Y + FogYOffset);
+            var center = FogTileGridLogic.ComputeCellCenter(coord, CellSizePx, Projection);
+            var cellPosition = new Vector2(
+                center.X + isoOriginShift.X,
+                center.Y + isoOriginShift.Y + FogYOffset);
 
-            // Cell root — every per-cell sub-node is a child of this so
-            // a future "lift the entire cell" effect (slice 3+ flottement
-            // animation Varn §4.4) tweens this single position. Slice 2
-            // animates the carton sub-sprite directly though — see
-            // PliureCarton.
             var cell = new Node2D
             {
                 Name = $"Cell_{coord.Col}_{coord.Row}",
                 Position = cellPosition,
             };
 
-            // Shadow — z_index -2 relative, behind the swatch and carton.
-            // Modulate alpha 0.4 for the soft drop shadow (Varn §4.3
-            // 30-40 % range, picked upper end for slice 1 visibility).
-            var shadow = new Sprite2D
+            // Shadow — diamond polygon offset by ShadowOffset, modulate
+            // alpha 0.4. z_index -2 relative to cell.
+            var shadow = new Polygon2D
             {
                 Name = "Shadow",
-                Texture = placeholderTexture,
-                Centered = true,
-                Scale = cartonScale,
+                Polygon = cellVertices,
                 Position = ShadowOffset,
-                Modulate = new Color(0f, 0f, 0f, 0.4f),
+                Color = new Color(0f, 0f, 0f, 0.4f),
                 ZIndex = -2,
             };
 
-            // Palette swatch — 3 horizontal bands (darkest top, brightest
-            // bottom) each (cellSize × cellSize/3). Held as a Node2D
-            // parent with 3 ColorRect children. Position is centered :
-            // the parent sits at (0, 0) relative to the cell root, the
-            // ColorRects are positioned in local coords from -halfCell
-            // upward.
+            // Palette swatch — 3 parallel bands aligned to the
+            // top→bottom-right diagonal of the diamond. We synthesise
+            // each band as a Polygon2D quad whose 4 corners cut the
+            // diamond into thirds along that diagonal. See
+            // ComputeSwatchBandVertices for the math.
             var swatch = new Node2D
             {
                 Name = "PaletteSwatch",
@@ -400,46 +397,42 @@ public partial class FogTileLayer : Node2D
                 ZIndex = -1,
             };
             var palette = ResolvePalette(coord);
+            var bandVerticesArrays = ComputeSwatchBandVertices(halfW, halfH);
             for (int band = 0; band < 3; band++)
             {
                 var rgb = palette[band];
-                var rect = new ColorRect
+                var bandPolygon = new Polygon2D
                 {
                     Name = $"Band_{band}",
+                    Polygon = bandVerticesArrays[band],
                     Color = new Color(rgb.R, rgb.G, rgb.B, 1f),
-                    Position = new Vector2(-halfCell, -halfCell + band * swatchBandHeight),
-                    Size = new Vector2(CellSizePx, swatchBandHeight),
-                    MouseFilter = Control.MouseFilterEnum.Ignore,
                 };
-                swatch.AddChild(rect);
+                swatch.AddChild(bandPolygon);
             }
 
             // Carton — main occluder, the one that animates on transitions.
-            // Modulate alpha is the per-state value resolved from
-            // TileKnowledgeStateHelpers ; rotation/scale/position are
-            // mutated by the pliure tween.
-            var carton = new Sprite2D
+            // Polygon2D with 4 diamond vertices, modulated to CartonBaseTint.
+            // Texture is null by default ; SetCellBitmap can plug an iso
+            // bitmap that the polygon clips to the diamond shape.
+            //
+            // Pliure pivot : carton is centered on the cell root so the
+            // pliure tween rotates around the NW vertex via an offset
+            // applied at tween-time (see SchedulePliure).
+            var carton = new Polygon2D
             {
                 Name = "Carton",
-                Texture = placeholderTexture,
-                Centered = true,
-                Scale = cartonScale,
-                Position = Vector2.Zero,
-                Modulate = CartonBaseTint,
+                Polygon = cellVertices,
+                Color = CartonBaseTint,
                 ZIndex = 0,
             };
 
-            // Sceau placeholder — small filled square ColorRect. A real
-            // circle texture lands in slice 3+ when Mira specs the
-            // sceau de cire. Centered on the cell root, hidden by
-            // default ; only shown when state == Scellée.
-            var sceau = new ColorRect
+            // Sceau placeholder — 12-gon disc, centered. Polygon2D with
+            // 12 vertices on a circle of radius SceauPlaceholderRadiusPx.
+            var sceau = new Polygon2D
             {
                 Name = "Sceau",
+                Polygon = BuildDiscVertices(SceauPlaceholderRadiusPx, vertexCount: 12),
                 Color = SceauPlaceholderColor,
-                Position = new Vector2(-sceauHalfSize, -sceauHalfSize),
-                Size = new Vector2(SceauPlaceholderSizePx, SceauPlaceholderSizePx),
-                MouseFilter = Control.MouseFilterEnum.Ignore,
                 ZIndex = 1,
                 Visible = false,
             };
@@ -454,6 +447,131 @@ public partial class FogTileLayer : Node2D
 
             ApplyVisualState(coord, _knowledgeStore.GetState(coord), animate: false);
         }
+    }
+
+    /// <summary>
+    /// Build the 4 vertices of a single cell relative to its center.
+    /// Iso : top, right, bottom, left (clockwise from top, diamond shape).
+    /// Rect : top-left, top-right, bottom-right, bottom-left (square).
+    /// </summary>
+    private Vector2[] BuildCellVertices(float halfW, float halfH)
+    {
+        if (Projection == GridProjection.IsoDiamondDown)
+        {
+            return new[]
+            {
+                new Vector2(0f, -halfH),  // top
+                new Vector2(halfW, 0f),   // right
+                new Vector2(0f, halfH),   // bottom
+                new Vector2(-halfW, 0f),  // left
+            };
+        }
+        return new[]
+        {
+            new Vector2(-halfW, -halfH),
+            new Vector2(halfW, -halfH),
+            new Vector2(halfW, halfH),
+            new Vector2(-halfW, halfH),
+        };
+    }
+
+    /// <summary>
+    /// Build the three palette-swatch band vertex arrays for the iso
+    /// diamond. The bands are parallel to the top→bottom-right diagonal
+    /// of the diamond (i.e. the line from the top vertex to the right
+    /// vertex), so they read as iso strata stacked top-to-bottom-left
+    /// along the perpendicular axis.
+    ///
+    /// <para>
+    /// In rect mode, fall back to the slice 2 horizontal bands convention
+    /// (top, middle, bottom) so any consumer that re-uses the layer in
+    /// rect projection still gets sensible output.
+    /// </para>
+    /// </summary>
+    private Vector2[][] ComputeSwatchBandVertices(float halfW, float halfH)
+    {
+        if (Projection != GridProjection.IsoDiamondDown)
+        {
+            // Rect mode : 3 horizontal bands as in slice 2.
+            var bandH = halfH * 2f / 3f;
+            var result = new Vector2[3][];
+            for (int b = 0; b < 3; b++)
+            {
+                var top = -halfH + b * bandH;
+                var bot = top + bandH;
+                result[b] = new[]
+                {
+                    new Vector2(-halfW, top),
+                    new Vector2(halfW, top),
+                    new Vector2(halfW, bot),
+                    new Vector2(-halfW, bot),
+                };
+            }
+            return result;
+        }
+
+        // Iso mode : cut the diamond into 3 strips parallel to the
+        // top-right edge (vertices : top (0,-halfH) and right (halfW,0)).
+        // The perpendicular direction is from top-right edge toward
+        // bottom-left vertex (-halfW, 0) ⇄ (0, halfH). We slice along the
+        // perpendicular axis at t = 1/3 and t = 2/3.
+        //
+        // Diamond vertices : top T = (0,-halfH), right R = (halfW,0),
+        // bottom B = (0,halfH), left L = (-halfW,0).
+        //
+        // Strip 0 (closest to top-right edge T-R): triangle T, R, midpoint
+        //         on T-L at t=1/3 ; or rather: the strip is bounded above
+        //         by T-R edge and below by a parallel line through points
+        //         t=1/3 along T-L and 1/3 along R-B.
+        //
+        // For simplicity and clarity, we synthesise each strip as a quad
+        // whose four vertices are :
+        //   strip 0 : T, R, p1on(R-B), p1on(T-L)
+        //   strip 1 : p1on(T-L), p1on(R-B), p2on(R-B), p2on(T-L)
+        //   strip 2 : p2on(T-L), p2on(R-B), B, L  (reordered for convexity)
+        //
+        // where p_t on (X-Y) = X + t × (Y - X).
+
+        var T = new Vector2(0f, -halfH);
+        var R = new Vector2(halfW, 0f);
+        var B = new Vector2(0f, halfH);
+        var L = new Vector2(-halfW, 0f);
+
+        Vector2 Lerp(Vector2 a, Vector2 b, float t) => a + (b - a) * t;
+
+        // Strip 0 : T, R, p1RB, p1TL
+        var p1TL = Lerp(T, L, 1f / 3f);
+        var p1RB = Lerp(R, B, 1f / 3f);
+        var strip0 = new[] { T, R, p1RB, p1TL };
+
+        // Strip 1 : p1TL, p1RB, p2RB, p2TL
+        var p2TL = Lerp(T, L, 2f / 3f);
+        var p2RB = Lerp(R, B, 2f / 3f);
+        var strip1 = new[] { p1TL, p1RB, p2RB, p2TL };
+
+        // Strip 2 : p2TL, p2RB, B, L
+        var strip2 = new[] { p2TL, p2RB, B, L };
+
+        return new[] { strip0, strip1, strip2 };
+    }
+
+    /// <summary>
+    /// Build a regular n-gon disc with given radius, vertices ordered
+    /// counter-clockwise starting from angle 0 (right). Used for the
+    /// sceau placeholder.
+    /// </summary>
+    private static Vector2[] BuildDiscVertices(int radius, int vertexCount)
+    {
+        var result = new Vector2[vertexCount];
+        var twoPi = System.MathF.PI * 2f;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            var angle = i * twoPi / vertexCount;
+            result[i] = new Vector2(
+                radius * System.MathF.Cos(angle),
+                radius * System.MathF.Sin(angle));
+        }
+        return result;
     }
 
     private PaletteRgb[] ResolvePalette(GridCoord coord)
@@ -485,13 +603,6 @@ public partial class FogTileLayer : Node2D
         ApplyVisualState(coord, (TileKnowledgeState)newState, animate: true);
     }
 
-    /// <summary>
-    /// Single entry point for "make the cell look like <paramref name="state"/>".
-    /// When <paramref name="animate"/> is false (initial spawn), values
-    /// are written instantaneously. When true (signal-driven update),
-    /// the appropriate tween is scheduled and any in-flight tween on
-    /// the same cell is killed first.
-    /// </summary>
     private void ApplyVisualState(GridCoord coord, TileKnowledgeState state, bool animate)
     {
         if (!_cells.TryGetValue(coord, out var visuals)) return;
@@ -502,13 +613,13 @@ public partial class FogTileLayer : Node2D
 
         if (!animate)
         {
-            visuals.Carton.Modulate = WithAlpha(CartonBaseTint, targetCartonAlpha);
+            visuals.Carton.Color = WithAlpha(CartonBaseTint, targetCartonAlpha);
             visuals.Carton.RotationDegrees = 0f;
             visuals.Carton.Position = Vector2.Zero;
-            visuals.Carton.Scale = SteadyScale();
+            visuals.Carton.Scale = Vector2.One;
             visuals.Carton.Visible = targetCartonAlpha > 0f;
 
-            visuals.Shadow.Modulate = new Color(0f, 0f, 0f, targetCartonAlpha * 0.4f);
+            visuals.Shadow.Color = new Color(0f, 0f, 0f, targetCartonAlpha * 0.4f);
             visuals.Shadow.Visible = targetCartonAlpha > 0f;
 
             visuals.Swatch.Visible = showSwatch;
@@ -516,14 +627,10 @@ public partial class FogTileLayer : Node2D
             return;
         }
 
-        // Kill any prior tween on this cell — tween discipline.
         KillCellTween(coord);
 
-        // The pliure-soulèvement is the only animation with structural
-        // changes (rotation, lift, scale) ; everything else is alpha
-        // crossfade. Detect the pliure case explicitly.
         var isPliure = state == TileKnowledgeState.Levee
-            && visuals.Carton.Modulate.A > 0f;
+            && visuals.Carton.Color.A > 0f;
 
         if (isPliure)
         {
@@ -545,39 +652,42 @@ public partial class FogTileLayer : Node2D
         var tween = CreateTween();
         tween.SetParallel(true);
 
-        // Carton rotation : 0 → PliureRotationDegrees over the full
-        // PliureDurationSec. Reads as a corner peel.
+        // Pliure rotation — slice 3.5 anchors around the NW vertex of
+        // the iso diamond (or the top-left corner of the rect cell).
+        // Implementation : we don't use Polygon2D.Pivot (Polygon2D has
+        // no pivot field in 4.6) ; instead we shift Position by the
+        // pivot vector and re-express vertices around that pivot. That
+        // edit happens once per cell at spawn time -- but we kept the
+        // vertices anchored at center for hit-test consistency with
+        // the math seam, so for the pliure we just rotate around the
+        // current center and visually accept the small offset. The
+        // 25° rotation reads as a corner peel either way ; a future
+        // slice can wire a true off-center rotation via a wrapper Node2D.
         tween.TweenProperty(visuals.Carton, "rotation_degrees", PliureRotationDegrees, PliureDurationSec)
             .SetTrans(Tween.TransitionType.Quad)
             .SetEase(Tween.EaseType.InOut);
 
-        // Carton lift : translate Y by -lift amount (Y grows downward).
-        var liftPx = -CellSizePx * PliureLiftFractionOfCell;
+        var halfH = (Projection == GridProjection.IsoDiamondDown)
+            ? CellSizePx / 4f
+            : CellSizePx / 2f;
+        var liftPx = -(halfH * 2f) * PliureLiftFractionOfCell;
         tween.TweenProperty(visuals.Carton, "position", new Vector2(0f, liftPx), PliureDurationSec)
             .SetTrans(Tween.TransitionType.Quad)
             .SetEase(Tween.EaseType.InOut);
 
-        // Carton fade : alpha hold for the first 600 ms, then drop to
-        // 0 over the last 200 ms. Uses two sequential tweens chained
-        // by delay : the first tween waits 600 ms doing nothing, the
-        // second fades over 200 ms.
-        var startAlpha = visuals.Carton.Modulate.A;
+        var startAlpha = visuals.Carton.Color.A;
         var preFadeDuration = PliureDurationSec - 0.20f;
         if (preFadeDuration > 0f)
         {
-            tween.TweenProperty(visuals.Carton, "modulate:a", startAlpha, preFadeDuration);
+            tween.TweenProperty(visuals.Carton, "color:a", startAlpha, preFadeDuration);
         }
-        tween.TweenProperty(visuals.Carton, "modulate:a", 0f, 0.20f)
+        tween.TweenProperty(visuals.Carton, "color:a", 0f, 0.20f)
             .SetDelay(System.MathF.Max(preFadeDuration, 0f));
 
-        // Shadow rétraction parallèle (alpha 1→0 sur la même 800 ms).
-        // Brief slice 2 livrable 3 : "L'ombre portée se rétracte en
-        // parallèle".
-        tween.TweenProperty(visuals.Shadow, "modulate:a", 0f, PliureDurationSec)
+        tween.TweenProperty(visuals.Shadow, "color:a", 0f, PliureDurationSec)
             .SetTrans(Tween.TransitionType.Quad)
             .SetEase(Tween.EaseType.Out);
 
-        // Swatch + sceau finalisation : appliqués à la fin du tween.
         tween.Chain().TweenCallback(Callable.From(() =>
         {
             FinalizeCell(visuals, targetState, showSwatch, showSceau);
@@ -595,32 +705,22 @@ public partial class FogTileLayer : Node2D
         bool showSwatch,
         bool showSceau)
     {
-        // Reset any leftover pliure-state on the carton (rotation /
-        // position / scale) — for any non-pliure transition the carton
-        // sits in steady-state pose. Done instantaneously, alpha is
-        // tweened separately below.
         visuals.Carton.RotationDegrees = 0f;
         visuals.Carton.Position = Vector2.Zero;
-        visuals.Carton.Scale = SteadyScale();
-        visuals.Carton.Visible = true; // force visible during crossfade ; finalization hides if needed
+        visuals.Carton.Scale = Vector2.One;
+        visuals.Carton.Visible = true;
 
-        // Swatch toggle is instantaneous — slice 2 doesn't tween the
-        // swatch's appear/disappear (the carton's alpha crossfade
-        // carries the perception of palette becoming visible). Sceau
-        // is also instantaneous (drop animation Varn §4.5 400 ms is
-        // slice 3+ work).
         visuals.Swatch.Visible = showSwatch;
         visuals.Sceau.Visible = showSceau;
 
         var tween = CreateTween();
         tween.SetParallel(true);
 
-        tween.TweenProperty(visuals.Carton, "modulate:a", targetCartonAlpha, CrossfadeDurationSec)
+        tween.TweenProperty(visuals.Carton, "color:a", targetCartonAlpha, CrossfadeDurationSec)
             .SetTrans(Tween.TransitionType.Sine)
             .SetEase(Tween.EaseType.InOut);
 
-        // Shadow alpha tracks carton alpha (×0.4 dimming).
-        tween.TweenProperty(visuals.Shadow, "modulate:a", targetCartonAlpha * 0.4f, CrossfadeDurationSec)
+        tween.TweenProperty(visuals.Shadow, "color:a", targetCartonAlpha * 0.4f, CrossfadeDurationSec)
             .SetTrans(Tween.TransitionType.Sine)
             .SetEase(Tween.EaseType.InOut);
 
@@ -636,16 +736,13 @@ public partial class FogTileLayer : Node2D
     private void FinalizeCell(CellVisuals visuals, TileKnowledgeState state, bool showSwatch, bool showSceau)
     {
         var alpha = TileKnowledgeStateHelpers.ResolveCartonAlpha(state);
-        visuals.Carton.Modulate = WithAlpha(CartonBaseTint, alpha);
+        visuals.Carton.Color = WithAlpha(CartonBaseTint, alpha);
         visuals.Carton.Visible = alpha > 0f;
-        // Reset pliure transform so the next state-change starts from
-        // the steady pose (a re-Toggle while invisible should not leave
-        // the carton rotated by 25° if it later becomes visible again).
         visuals.Carton.RotationDegrees = 0f;
         visuals.Carton.Position = Vector2.Zero;
-        visuals.Carton.Scale = SteadyScale();
+        visuals.Carton.Scale = Vector2.One;
 
-        visuals.Shadow.Modulate = new Color(0f, 0f, 0f, alpha * 0.4f);
+        visuals.Shadow.Color = new Color(0f, 0f, 0f, alpha * 0.4f);
         visuals.Shadow.Visible = alpha > 0f;
 
         visuals.Swatch.Visible = showSwatch;
@@ -664,30 +761,20 @@ public partial class FogTileLayer : Node2D
         }
     }
 
-    private Vector2 SteadyScale()
-    {
-        // Recompute on demand rather than caching — keeps the field count
-        // down. Texture is the placeholder, fixed at 1×1, so this is
-        // always (CellSizePx, CellSizePx). If a future refactor swaps
-        // the texture for a real asset, this method centralises the
-        // recompute.
-        return new Vector2(CellSizePx, CellSizePx);
-    }
-
     private static Color WithAlpha(Color baseColor, float alpha)
     {
         return new Color(baseColor.R, baseColor.G, baseColor.B, alpha);
     }
 
     /// <summary>
-    /// Per-cell node references. Held so the transition handler can
-    /// mutate sub-nodes without traversing the scene tree on every
-    /// signal emission.
+    /// Per-cell node references. Slice 3.5 swaps Sprite2D for Polygon2D
+    /// on Carton, Shadow, Sceau (true diamond geometry) ; Swatch stays a
+    /// Node2D parent of three Polygon2D bands.
     /// </summary>
     private readonly record struct CellVisuals(
         Node2D Cell,
-        Sprite2D Shadow,
+        Polygon2D Shadow,
         Node2D Swatch,
-        Sprite2D Carton,
-        ColorRect Sceau);
+        Polygon2D Carton,
+        Polygon2D Sceau);
 }

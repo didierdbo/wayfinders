@@ -6,136 +6,102 @@ using Wayfinders.Client.Scripts.Screens;
 namespace Wayfinders.Client.Tools;
 
 /// <summary>
-/// Editor-only <c>[Tool]</c> script that bakes the slice 1 placeholder
-/// palette quantification of a world-map image (livrable 4 — M3 / L1
-/// World fondations / 2026-05-08). Reads a PNG, divides it into the
-/// same fog-tile grid <see cref="FogTileLayer"/> uses at runtime, and
-/// for each cell extracts the **3 dominant teintes** via a simple
-/// 5-bit-per-channel histogram bucketisation. Writes the result to
-/// <see cref="OutputPath"/> as a PNG laid out 3 texels per cell along
-/// the X axis : for cell (c, r) the texels at (3c, r), (3c+1, r),
-/// (3c+2, r) are the three sorted-by-luminance teintes.
+/// Editor-only <c>[Tool]</c> script that bakes the placeholder palette
+/// quantification of a world-map image (slice 1 livrable 4 → slice 3.5
+/// iso refactor — M3 / L1 World fondations / 2026-05-08). Reads a PNG,
+/// divides it into the same fog-tile grid <see cref="Wayfinders.Client.Components.FogTileLayer"/>
+/// uses at runtime (with the same <see cref="GridProjection"/> setting),
+/// and for each cell extracts the **3 dominant teintes** via a 5-bit-per-channel
+/// histogram bucketisation. Writes the result to <see cref="OutputPath"/>
+/// as a PNG laid out 3 texels per cell along the X axis.
 ///
 /// <para>
-/// <b>Why histogram bucketisation, not k-means.</b> Slice 1 brief
-/// authorises either (livrable 4 acceptance criteria : "k-means sur
-/// les pixels de la cellule, k=3, ou simple histogramme bucketisé si
-/// k-means trop lourd à implémenter"). Histogram bucketisation is
-/// O(pixels) per cell with a tiny fixed-size frequency map, ships in
-/// ~50 lines of code, and produces results visually indistinguishable
-/// from k-means for the purpose of "give the player a 3-blob colour
-/// approximation through the fog" (Varn §3.1 source primaire). K-means
-/// is the right call when slice 2's biome-modulated palette needs
-/// stable centroids across re-bakes ; for slice 1 placeholder, the
-/// histogram is faster to implement, easier to reason about, and
-/// produces deterministic output (a given input image always yields
-/// byte-identical output, which makes the bake idempotent for
-/// version control). Swap to k-means in slice 2 if the visual passes
-/// reveal a real difference.
+/// <b>Slice 3.5 iso refactor.</b> The bake now respects the configured
+/// <see cref="Projection"/> mode :
+/// <list type="bullet">
+///   <item><b>Rect</b> — slice 1 behaviour preserved : sample every pixel
+///         in the cell's bounding box.</item>
+///   <item><b>IsoDiamondDown</b> — slice 3.5 default for L1 World : sample
+///         only the pixels that fall <b>inside the iso diamond</b> of the
+///         cell, using <see cref="FogTileGridLogic.IsoCellContainsWorldPoint"/>.
+///         Pixels in the empty triangles between adjacent diamonds are
+///         not double-counted.</item>
+/// </list>
+/// The output PNG format (3 × cols texels along X) is identical in both
+/// modes — <see cref="Wayfinders.Client.Services.BakedFogPaletteSource"/>
+/// does not need to know which projection produced the bake. The runtime
+/// queries by (col, row) and the bake stores by (col, row) ; the
+/// projection only affects the per-cell pixel sampling, not the output
+/// schema.
 /// </para>
 ///
 /// <para>
-/// <b>Output format (slice 1 schema).</b> A single
+/// <b>Re-bake required after slice 3.5.</b> The cell layout changed
+/// (rect 30×17 → iso ~120×34) so any pre-slice-3.5 bake PNG is dimensionally
+/// invalid for the new <see cref="Wayfinders.Client.Services.BakedFogPaletteSource"/>
+/// expected dimensions. The fallback codepath in the source kicks in
+/// (neutral-carton swatches) until Didier re-runs this tool. Mentioned
+/// in the slice 3.5 closeout.
+/// </para>
+///
+/// <para>
+/// <b>Why histogram bucketisation, not k-means.</b> Same rationale as
+/// slice 1 : O(pixels-in-cell), deterministic, indistinguishable from
+/// k-means at the placeholder use case. Iso refactor doesn't change
+/// this trade-off.
+/// </para>
+///
+/// <para>
+/// <b>Output format (slice 1 schema, preserved at slice 3.5).</b> A single
 /// <see cref="Image.Format.Rgba8"/> PNG of dimensions
 /// <c>(3 × gridCols, gridRows)</c>. For cell at column <c>c</c>,
-/// row <c>r</c>, the three palette teintes are at:
-/// <list type="bullet">
-///   <item><c>(3c+0, r)</c> -- darkest teinte (lowest perceptual
-///         luminance).</item>
-///   <item><c>(3c+1, r)</c> -- mid teinte.</item>
-///   <item><c>(3c+2, r)</c> -- brightest teinte.</item>
-/// </list>
-/// Sorting by luminance keeps slice 2's runtime sampler trivial:
-/// "row-by-row scan, skip 2 to advance one cell, no metadata needed".
-/// The format is intentionally not a custom Godot Resource — a PNG is
-/// the simplest output that survives version control, can be opened
-/// in any image viewer for spot-check, and consumes no engine import
-/// reflection at AOT time.
+/// row <c>r</c>, the three palette teintes are at (3c+0, r), (3c+1, r),
+/// (3c+2, r), sorted darkest → brightest by Rec.709 luminance.
 /// </para>
 ///
 /// <para>
 /// <b>How to run.</b> Drop a <c>PaletteQuantizerTool</c> node into a
 /// scratch scene in the editor (or use the bundled
-/// <c>tools/PaletteQuantizerTool.tscn</c> as the running scene), set
-/// <see cref="InputResPath"/> and <see cref="OutputPath"/>, then check
-/// the <see cref="RunBakeNow"/> tool button in the inspector. The
-/// script runs synchronously (~1-3 s for the 3840×2160 master,
-/// depending on cell size) and prints progress + per-cell timings to
-/// the editor console. Not wired to the build pipeline by design —
-/// the bake is an explicit, versionable artifact that lands in
-/// <c>client/assets/baked/</c> alongside <c>asset_keys.json</c>'s
-/// future <c>baked.*</c> entries.
-/// </para>
-///
-/// <para>
-/// <b>Cell coverage at the right/bottom edge.</b> The grid is computed
-/// via <see cref="FogTileGridLogic.ComputeGridSize"/> using ceiling
-/// division, so the last column / row may overhang the image. For
-/// histogram sampling we clamp the per-cell pixel rect to the actual
-/// image bounds so we don't index out of range — the overhang cells
-/// just sample fewer pixels and end up with palettes weighted toward
-/// the partial-row content. Acceptable for slice 1 placeholder ; if
-/// slice 2 reveals visual artifacts at the edge, we can either align
-/// the master image to a multiple of CellSizePx (asset-side fix) or
-/// drop the overhang cells from the bake (code-side fix).
-/// </para>
-///
-/// <para>
-/// <b>Why no <c>#if TOOLS</c> guard.</b> The <c>[Tool]</c> attribute
-/// alone makes the script editor-runnable ; the actual "do not run at
-/// runtime" gating happens in <see cref="RunBakeNow"/> which checks
-/// <see cref="Engine.IsEditorHint()"/> before invoking the bake. A
-/// <c>#if TOOLS</c> conditional would require a TOOLS define in the
-/// client csproj, which would split the build between editor and
-/// runtime in a way that complicates the AOT publish path (the
-/// runtime publish wouldn't see the file at all, and a hypothetical
-/// future test would have to mirror the conditional).
+/// <c>tools/PaletteQuantizerTool.tscn</c>), set <see cref="InputResPath"/>
+/// and <see cref="OutputPath"/> and <see cref="Projection"/>, then check
+/// the <see cref="RunBakeNow"/> tool button.
 /// </para>
 /// </summary>
 [Tool]
 public partial class PaletteQuantizerTool : Node
 {
-    /// <summary>
-    /// res:// path to the input PNG (the world-map master image).
-    /// Default points at the E2.1 master so the slice 1 bake works
-    /// out-of-the-box on a fresh checkout.
-    /// </summary>
+    /// <summary>res:// path to the input PNG (the world-map master image).</summary>
     [Export(PropertyHint.File, "*.png")]
     public string InputResPath { get; set; } =
         "res://assets/wayfinders_visual_assets/e2/wf_e2_carte_monde_base_3840x2160.png";
 
-    /// <summary>
-    /// res:// path of the baked palette output. The default lands the
-    /// file under <c>assets/baked/</c> alongside the future
-    /// <c>baked.*</c> asset_keys.json convention.
-    /// </summary>
+    /// <summary>res:// path of the baked palette output.</summary>
     [Export(PropertyHint.File, "*.png")]
     public string OutputPath { get; set; } =
         "res://assets/baked/e2_world_palette_3teintes_128px.png";
 
     /// <summary>
     /// Cell side length in source pixels. Must match
-    /// <see cref="FogTileLayer.CellSizePx"/> for the runtime
-    /// consumer of the baked output to align cell-by-cell. Slice 1
-    /// default 128 px keeps both ends of the seam in lockstep.
+    /// <see cref="Wayfinders.Client.Components.FogTileLayer.CellSizePx"/>
+    /// for the runtime consumer of the baked output to align cell-by-cell.
     /// </summary>
     [Export]
     public int CellSizePx { get; set; } = 128;
 
     /// <summary>
-    /// Frequency-bucket precision. 5 bits per channel = 32×32×32 =
-    /// 32 768 buckets — fine enough that two visually-distinct
-    /// teintes don't collapse into one bucket on a typical oil-paint
-    /// surface, coarse enough that the dominant cluster wins by
-    /// vote-mass without tuning.
+    /// Slice 3.5 -- grid projection. Must match
+    /// <see cref="Wayfinders.Client.Components.FogTileLayer.Projection"/>
+    /// or the bake samples pixels from regions the runtime won't display.
+    /// Default <see cref="GridProjection.IsoDiamondDown"/> for L1 World.
     /// </summary>
+    [Export]
+    public GridProjection Projection { get; set; } = GridProjection.IsoDiamondDown;
+
+    /// <summary>Frequency-bucket precision : 5 bits per channel = 32×32×32 buckets.</summary>
     [Export]
     public int BitsPerChannel { get; set; } = 5;
 
-    /// <summary>
-    /// Editor inspector toggle — flip true to run the bake. Always
-    /// reads as false so a re-flip can re-trigger another bake.
-    /// </summary>
+    /// <summary>Editor inspector toggle — flip true to run the bake.</summary>
     [Export]
     public bool RunBakeNow
     {
@@ -151,7 +117,9 @@ public partial class PaletteQuantizerTool : Node
 
     private void Bake()
     {
-        GD.Print($"[PaletteQuantizerTool] starting bake: input={InputResPath}, output={OutputPath}, cellSize={CellSizePx}");
+        GD.Print(
+            $"[PaletteQuantizerTool] starting bake: input={InputResPath}, output={OutputPath}, " +
+            $"cellSize={CellSizePx}, projection={Projection}");
         var startUsec = Time.GetTicksUsec();
 
         var sourceImage = LoadSourceImage(InputResPath);
@@ -163,12 +131,12 @@ public partial class PaletteQuantizerTool : Node
 
         var imageSize = sourceImage.GetSize();
         var dimensions = FogTileGridLogic.ComputeGridSize(
-            new PanVec2(imageSize.X, imageSize.Y), CellSizePx);
+            new PanVec2(imageSize.X, imageSize.Y), CellSizePx, Projection);
 
         GD.Print(
             $"[PaletteQuantizerTool] source: {imageSize.X}×{imageSize.Y} px, " +
             $"grid: {dimensions.Columns}×{dimensions.Rows} cells " +
-            $"({dimensions.TotalCells} total)");
+            $"({dimensions.TotalCells} total), projection={Projection}");
 
         var outputWidth = dimensions.Columns * 3;
         var outputHeight = dimensions.Rows;
@@ -179,7 +147,9 @@ public partial class PaletteQuantizerTool : Node
 
         foreach (var coord in FogTileGridLogic.EnumerateCells(dimensions))
         {
-            var palette = QuantifyCell(sourceImage, coord, CellSizePx, bucketShift, perChannelBuckets);
+            var palette = QuantifyCell(
+                sourceImage, coord, CellSizePx, dimensions, Projection,
+                bucketShift, perChannelBuckets);
             palette.Sort(CompareByLuminance);
             outputImage.SetPixel(coord.Col * 3 + 0, coord.Row, palette[0]);
             outputImage.SetPixel(coord.Col * 3 + 1, coord.Row, palette[1]);
@@ -200,35 +170,72 @@ public partial class PaletteQuantizerTool : Node
     }
 
     /// <summary>
-    /// Per-cell palette extraction. Sweeps the cell's pixel rect,
-    /// buckets each pixel by quantised RGB, then picks the three
-    /// most-frequent buckets as the dominant teintes. The bucket
-    /// centre (midpoint of the bucket's RGB range) is used as the
-    /// representative colour rather than the average of pixels in
-    /// the bucket — fewer cache misses, no second pass.
+    /// Per-cell palette extraction. In rect mode, sweeps the cell's bbox.
+    /// In iso mode, sweeps the bbox and rejects pixels that fall outside
+    /// the iso diamond via <see cref="FogTileGridLogic.IsoCellContainsWorldPoint"/>.
     /// </summary>
     private static List<Color> QuantifyCell(
         Image sourceImage,
         GridCoord coord,
         int cellSizePx,
+        GridDimensions dimensions,
+        GridProjection projection,
         int bucketShift,
         int perChannelBuckets)
     {
         var imgWidth = sourceImage.GetWidth();
         var imgHeight = sourceImage.GetHeight();
 
-        // Clamp cell rect to image bounds. Edge cells with overhang
-        // sample fewer pixels but never read OOB.
-        var x0 = coord.Col * cellSizePx;
-        var y0 = coord.Row * cellSizePx;
-        var x1 = Math.Min(x0 + cellSizePx, imgWidth);
-        var y1 = Math.Min(y0 + cellSizePx, imgHeight);
+        // Compute the cell's bounding box in world coords. For iso, this
+        // is the diamond's bounding rectangle ; for rect it's the cell
+        // rectangle itself.
+        int x0, y0, x1, y1;
+        if (projection == GridProjection.IsoDiamondDown)
+        {
+            var center = FogTileGridLogic.ComputeCellCenter(coord, cellSizePx, projection);
+            var shift = FogTileGridLogic.ComputeIsoOriginShift(dimensions, cellSizePx, projection);
+            var halfW = cellSizePx / 2f;
+            var halfH = cellSizePx / 4f;
+            var cx = center.X + shift.X;
+            var cy = center.Y + shift.Y;
+            x0 = (int)System.MathF.Floor(cx - halfW);
+            y0 = (int)System.MathF.Floor(cy - halfH);
+            x1 = (int)System.MathF.Ceiling(cx + halfW);
+            y1 = (int)System.MathF.Ceiling(cy + halfH);
+        }
+        else
+        {
+            x0 = coord.Col * cellSizePx;
+            y0 = coord.Row * cellSizePx;
+            x1 = x0 + cellSizePx;
+            y1 = y0 + cellSizePx;
+        }
+
+        // Clamp to image bounds.
+        x0 = Math.Max(x0, 0);
+        y0 = Math.Max(y0, 0);
+        x1 = Math.Min(x1, imgWidth);
+        y1 = Math.Min(y1, imgHeight);
 
         var freq = new Dictionary<int, int>(64);
         for (int y = y0; y < y1; y++)
         {
             for (int x = x0; x < x1; x++)
             {
+                if (projection == GridProjection.IsoDiamondDown)
+                {
+                    // Iso : reject pixels outside the diamond. The pixel
+                    // center is at (x+0.5, y+0.5).
+                    if (!FogTileGridLogic.IsoCellContainsWorldPoint(
+                            coord,
+                            new PanVec2(x + 0.5f, y + 0.5f),
+                            cellSizePx,
+                            dimensions))
+                    {
+                        continue;
+                    }
+                }
+
                 var c = sourceImage.GetPixel(x, y);
                 var rB = (int)(c.R * 255f) >> bucketShift;
                 var gB = (int)(c.G * 255f) >> bucketShift;
@@ -279,8 +286,6 @@ public partial class PaletteQuantizerTool : Node
 
     private static int CompareByLuminance(Color a, Color b)
     {
-        // Rec. 709 luma — same coefficients Godot uses internally for
-        // grayscale conversions.
         var la = 0.2126f * a.R + 0.7152f * a.G + 0.0722f * a.B;
         var lb = 0.2126f * b.R + 0.7152f * b.G + 0.0722f * b.B;
         return la.CompareTo(lb);
