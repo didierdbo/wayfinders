@@ -594,39 +594,65 @@ public partial class E2WorldMap : Control, IScreen
     }
 
     /// <summary>
-    /// J5 hotfix (2026-05-09 evening, locked) -- back-button click handler
-    /// with explicit diagnostic and F6-fallback. Pre-J5 the handler was a
-    /// one-liner <c>await sceneManager.NavigateBack()</c>, which is correct
-    /// in the production navigation flow (E1 -&gt; E2 -&gt; back to E1) but
-    /// silently no-ops when the SceneManager stack is empty -- the F6 path
-    /// where Godot instantiates E2WorldMap directly as <c>main_scene</c>.
+    /// J6 hotfix (2026-05-09 evening, locked) -- back-button click handler
+    /// "Refermer le feuillet". The button label and intent are clear : the
+    /// player closes the current feuillet (E2 World Map) and returns to
+    /// whatever was below it. In production navigation (E1 -&gt; E2),
+    /// <c>SceneManager.NavigateBack</c> pops the stack and shows E1 again.
     ///
     /// <para>
-    /// J5 surfaces both halves : the click is logged unconditionally so
-    /// the user can confirm the <c>Pressed</c> signal fires (rules out
-    /// "the click never reached the button" -- e.g. an Area3D or invisible
-    /// Control overlay swallowing the event), and the empty-stack path
-    /// closes the editor app via <see cref="SceneTree.Quit"/> so F6 testing
-    /// can exit the screen the same way the production button would.
+    /// <b>Why the F6 path matters.</b> When Godot launches E2 directly via
+    /// <c>main_scene</c> or "Run Current Scene", the SceneManager stack is
+    /// empty (the bootstrap registered every screen but did not push any) ;
+    /// <c>NavigateBack</c> early-returns silently. J5 mistakenly mapped
+    /// that path to <c>GetTree().Quit()</c>, which closes the entire editor
+    /// app -- a destructive surprise. J6 corrects this : in F6 mode we
+    /// <c>NavigateTo("E1_TITLE")</c> instead, simulating the upstream
+    /// scene the player would see if they had reached E2 from E1. The
+    /// editor stays open, the user can re-enter E2 by clicking
+    /// "Nouvelle Partie" on E1, and F6 testing has a non-destructive exit
+    /// path. The <c>Quit</c> behaviour was wrong : the BackButton's
+    /// vocabulary is "fermer le feuillet", not "fermer le jeu".
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Defense-in-depth.</b> If <c>E1_TITLE</c> is not registered (e.g.
+    /// the bootstrap was gated by the <c>skip_opening_bootstrap</c> meta
+    /// flag), <c>NavigateTo</c> emits its own warning and the click logs
+    /// a diagnostic but otherwise becomes a no-op -- the editor still does
+    /// not close. The unconditional <c>GD.Print</c> at entry stays so the
+    /// user can confirm the <c>Pressed</c> signal fires (rules out an
+    /// invisible Control overlay swallowing the click).
     /// </para>
     /// </summary>
     private async void OnBackPressed()
     {
-        GD.Print("[E2WorldMap J5] BackButton clicked -- delegating to SceneManager.NavigateBack");
+        GD.Print("[E2WorldMap J6] BackButton clicked (Refermer le feuillet) -- delegating to SceneManager");
         var sceneManager = GetNode<SceneManager>("/root/SceneManager");
 
         // F6 fallback : in production, E2 sits above E1 on the stack and
-        // NavigateBack pops to E1. In F6 mode, the stack is empty (E2 was
-        // instantiated by Godot, not by SceneManager.NavigateTo) and
-        // NavigateBack early-returns silently -- the user perceives this
-        // as a dead button. Quit the running scene tree instead so F6
-        // testing has a clean exit path.
+        // NavigateBack pops to E1. In F6 mode, the stack is empty and
+        // NavigateBack early-returns silently. NavigateTo("E1_TITLE")
+        // simulates the upstream screen so the player sees a sensible
+        // transition instead of a dead button OR a Quit (J5 regression).
         if (sceneManager.CurrentScreenId is null)
         {
             GD.Print(
-                "[E2WorldMap J5] BackButton clicked in F6 mode " +
-                "(SceneManager stack empty) -- quitting scene tree");
-            GetTree().Quit();
+                "[E2WorldMap J6] BackButton in F6 mode (SceneManager stack empty) " +
+                "-- routing to E1_TITLE instead of quitting the editor");
+            try
+            {
+                await sceneManager.NavigateTo("E1_TITLE");
+            }
+            catch (System.Exception e)
+            {
+                // E1 might not be registered (skip_opening_bootstrap meta).
+                // Log and stay on E2 ; closing the editor app from a
+                // BackButton click is never the right answer.
+                GD.PushWarning(
+                    $"[E2WorldMap J6] F6-mode NavigateTo(E1_TITLE) failed : {e.Message}. " +
+                    $"Staying on E2 -- close the editor manually if you want to exit.");
+            }
             return;
         }
 

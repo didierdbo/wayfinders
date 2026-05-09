@@ -244,6 +244,18 @@ public partial class MapPan2DComponent : Node2D
     /// happens before they lose patience clicking other UI.</summary>
     [Export] public ulong StuckTransitionResetMs { get; set; } = 2000;
 
+    /// <summary>J6 diagnostics (post-J5 evening, locked) -- when the user
+    /// is actively panning (input direction non-zero), log a compact dump
+    /// every N frames showing the resolved direction, the Camera2D position
+    /// before/after the clamp, and the zoom. Distinguishes regression
+    /// hypothesis (b) "direction.Y forced to 0" from (c) "frozen-camera
+    /// watchdog never reaches its 30-frame threshold because the user
+    /// releases too fast" -- this dump fires every frame the input is
+    /// active, regardless of whether the camera moves.
+    /// 30 frames = 0.5 s at 60 fps : one dump per half-second of held key,
+    /// not per frame, to keep the Output panel readable.</summary>
+    [Export] public int ActivePanTraceEveryNFrames { get; set; } = 30;
+
 
     /// <summary>
     /// Names of the four InputMap actions <see cref="_Process"/> polls.
@@ -362,6 +374,13 @@ public partial class MapPan2DComponent : Node2D
     private Vector2 _j5LastCameraPosition;
     private ulong _j5InTransitionStartedMs;
     private bool _j5StuckTransitionWarned;
+
+    // J6 diagnostics state -- active-pan trace counter. Increments every
+    // frame input direction is non-zero ; resets to 0 when input stops.
+    // Triggers a compact dump every ActivePanTraceEveryNFrames frames so
+    // the Output panel sees the resolved direction + camera position +
+    // zoom while the user is holding ZQSD. Allocation-free.
+    private int _j6ActivePanFrameCount;
 
     /// <summary>The world container Node2D. Consumers spawn world-space
     /// children (entities, fog, decals) under this node so they pan with
@@ -638,6 +657,7 @@ public partial class MapPan2DComponent : Node2D
         if (dir.X == 0f && dir.Y == 0f)
         {
             _j5FrozenFrameCount = 0;
+            _j6ActivePanFrameCount = 0;
             return;
         }
 
@@ -646,11 +666,39 @@ public partial class MapPan2DComponent : Node2D
         var viewportSize = GetViewport().GetVisibleRect().Size;
         var viewport = new PanVec2(viewportSize.X, viewportSize.Y);
 
+        var prevCameraPos = _worldCamera.Position;
         var advanced = CameraPanLogic.AdvanceCameraCenter(
             current, dir, PanSpeedPxPerSec, (float)delta, imageSize, viewport);
 
         var newPos = new Vector2(advanced.X, advanced.Y);
         _worldCamera.Position = newPos;
+
+        // J6 active-pan trace -- log a compact dump every
+        // ActivePanTraceEveryNFrames frames while input is held. Distinguishes
+        // hypothesis (b) "direction.Y is computed as 0" (the dump shows
+        // dir=(?,0.00) while the user holds Z) from (c) "frozen-camera
+        // watchdog threshold never reached because the user released too
+        // fast" (the dump shows dir!=0 but Camera2D.Position not advancing).
+        // Also pins hypothesis (a)/(d) by logging the camera Current flag
+        // every dump -- if a phantom Camera2D took over, Current would be
+        // false here even though the prod camera is still being written to.
+        if (EnableJ5PanDiagnostics)
+        {
+            _j6ActivePanFrameCount++;
+            if (_j6ActivePanFrameCount % ActivePanTraceEveryNFrames == 1)
+            {
+                var moved = newPos - prevCameraPos;
+                GD.Print(
+                    $"[MapPan2DComponent J6] active-pan trace #{_j6ActivePanFrameCount}: " +
+                    $"dir=({dir.X:+0.00;-0.00;0.00},{dir.Y:+0.00;-0.00;0.00}) " +
+                    $"camPos {prevCameraPos} -> {newPos} (Δ={moved}) " +
+                    $"zoom={_worldCamera.Zoom.X:F2} " +
+                    $"current={_worldCamera.IsCurrent()} " +
+                    $"viewport={viewportSize} image={_worldImageSize} " +
+                    $"limits=[({_worldCamera.LimitLeft},{_worldCamera.LimitTop})-" +
+                    $"({_worldCamera.LimitRight},{_worldCamera.LimitBottom})]");
+            }
+        }
 
         // J5 frozen-camera watchdog -- input direction is non-zero but
         // the clamp snapped the camera to the same Y or X. Common cause :
@@ -1126,6 +1174,25 @@ public partial class MapPan2DComponent : Node2D
             $"step={ZoomStepPerTick} tweenSec={ZoomTweenDurationSec} " +
             $"debounceMs={ZoomPostTransitionDebounceMs}");
 
+        // J6 Camera2D census -- list every Camera2D in the scene tree
+        // and flag which one is current. Pins regression hypothesis (a)/(d) :
+        // if J4's Camera3DShadowFollower or any other component spawned a
+        // phantom Camera2D, it would show up here. The prod _worldCamera
+        // should be the only one with current=true ; anything else flags
+        // a take-over.
+        var cameraCensus = CountCamera2DsInTree();
+        GD.Print(
+            $"[MapPan2DComponent J6] Camera2D census : found {cameraCensus.total} Camera2D(s) " +
+            $"in tree, {cameraCensus.current} marked current. " +
+            $"Prod _worldCamera path={_worldCamera.GetPath()} current={_worldCamera.IsCurrent()}.");
+        if (cameraCensus.current != 1)
+        {
+            GD.PushWarning(
+                $"[MapPan2DComponent J6] Camera2D census : expected exactly 1 current, " +
+                $"found {cameraCensus.current}. Phantom Camera2D suspected -- " +
+                $"see the Output panel for the per-camera dump above.");
+        }
+
         var hasLeft  = InputMap.HasAction(PanActionNames[0]);
         var hasRight = InputMap.HasAction(PanActionNames[1]);
         var hasUp    = InputMap.HasAction(PanActionNames[2]);
@@ -1141,6 +1208,52 @@ public partial class MapPan2DComponent : Node2D
             GD.PushWarning(
                 "[MapPan2DComponent] preflight: at least one ui_pan_* action is missing from InputMap. " +
                 "ZQSD pan will silently no-op until project.godot is fixed.");
+        }
+    }
+
+    /// <summary>
+    /// J6 diagnostic helper : walk the SceneTree and count every
+    /// <see cref="Camera2D"/> instance, separately tallying those marked
+    /// <c>current</c>. Logs each one's path + current flag for the user.
+    /// Called once from <see cref="DumpPreflightState"/> so the dump
+    /// surfaces alongside the InputMap preflight at scene entry.
+    ///
+    /// <para>
+    /// Why count : in Godot 4 a viewport has at most one current Camera2D ;
+    /// MakeCurrent on a second one silently demotes the first. If the J4
+    /// 3D backing or any unrelated component spawns a stray Camera2D and
+    /// flips it current (e.g. a pickable's debug overlay), the prod camera
+    /// stops driving the canvas transform and pan/zoom appear broken in
+    /// hard-to-diagnose ways. This census surfaces it on the very first
+    /// frame, before the user has any chance to interact.
+    /// </para>
+    /// </summary>
+    private (int total, int current) CountCamera2DsInTree()
+    {
+        var tree = GetTree();
+        if (tree?.Root is null) return (0, 0);
+        var total = 0;
+        var current = 0;
+        WalkCamera2Ds(tree.Root, ref total, ref current);
+        return (total, current);
+    }
+
+    private void WalkCamera2Ds(Node node, ref int total, ref int current)
+    {
+        if (node is Camera2D cam)
+        {
+            total++;
+            var isCurrent = cam.IsCurrent();
+            if (isCurrent) current++;
+            GD.Print(
+                $"[MapPan2DComponent J6]   Camera2D found : path={cam.GetPath()} " +
+                $"current={isCurrent} zoom={cam.Zoom} " +
+                $"limits=[({cam.LimitLeft},{cam.LimitTop})-" +
+                $"({cam.LimitRight},{cam.LimitBottom})]");
+        }
+        foreach (var child in node.GetChildren())
+        {
+            WalkCamera2Ds(child, ref total, ref current);
         }
     }
 }
