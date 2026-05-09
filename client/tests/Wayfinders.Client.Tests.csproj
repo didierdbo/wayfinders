@@ -178,4 +178,14 @@
     <Compile Include="..\scripts\screens\CellBitmapRegistry.cs" Link="src\CellBitmapRegistry.cs" />
   </ItemGroup>
 
+  <!-- Phase 9 J5+ (Compagnie panel probe / 2026-05-09 nuit): UI panel
+       slide state machine + drag-drop NPC autonomy invariant + auto-rabat
+       dispatch contract. Pure-C# so xUnit pins the state transitions and
+       the AssignToMissionEvent shape ; the runtime CompagniePanelProbe
+       owns the SubViewport + Camera2D/Camera3D pair + Tween3D + signals,
+       validated by the canary self-check at _Ready (Pattern J). -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\CompagniePanelLogic.cs" Link="src\CompagniePanelLogic.cs" />
+  </ItemGroup>
+
 </Project>
