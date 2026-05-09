@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="TileBackingData" format=3 uid="uid://cwfthinjlbk2"]
+
+[ext_resource type="Script" path="res://scenes/scratch/TileBackingData.cs" id="1_thin"]
+
+[resource]
+script = ExtResource("1_thin")
+SpritePixelHeight = 130
+SpriteTopHeightPx = 128
+SpriteTopWidthPx = 256

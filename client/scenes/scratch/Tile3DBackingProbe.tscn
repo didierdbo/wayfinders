@@ -1,0 +1,49 @@
+[gd_scene load_steps=8 format=3 uid="uid://cwfprobej1n01"]
+
+[ext_resource type="Script" path="res://scenes/scratch/Tile3DBackingProbe.cs" id="1_probe"]
+[ext_resource type="Resource" uid="uid://cwfthickjlbk1" path="res://scenes/scratch/tile_backing_thick.tres" id="2_data"]
+[ext_resource type="Texture2D" uid="uid://d3vnvyx3wgvni" path="res://assets/card_1.png" id="3_tex"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_initial"]
+size = Vector3(256, 6, 128)
+
+[sub_resource type="ProceduralSkyMaterial" id="SkyMat_probe"]
+sky_top_color = Color(0.18, 0.14, 0.11, 1)
+sky_horizon_color = Color(0.42, 0.32, 0.22, 1)
+ground_horizon_color = Color(0.42, 0.32, 0.22, 1)
+ground_bottom_color = Color(0.13, 0.10, 0.08, 1)
+
+[sub_resource type="Sky" id="Sky_probe"]
+sky_material = SubResource("SkyMat_probe")
+
+[sub_resource type="Environment" id="Env_probe"]
+background_mode = 2
+sky = SubResource("Sky_probe")
+ambient_light_source = 2
+ambient_light_color = Color(1, 0.96, 0.88, 1)
+ambient_light_energy = 1.0
+
+[node name="Tile3DBackingProbe" type="Node3D"]
+script = ExtResource("1_probe")
+BackingData = ExtResource("2_data")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Env_probe")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+projection = 1
+size = 600.0
+near = 0.1
+far = 6000.0
+
+[node name="TileSprite3D" type="Sprite3D" parent="."]
+texture = ExtResource("3_tex")
+pixel_size = 1.0
+shaded = false
+double_sided = true
+
+[node name="TileBackingArea3D" type="Area3D" parent="."]
+input_ray_pickable = true
+
+[node name="BackingShape3D" type="CollisionShape3D" parent="TileBackingArea3D"]
+shape = SubResource("BoxShape3D_initial")
