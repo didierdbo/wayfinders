@@ -1,0 +1,31 @@
+{
+  "substep": "11+12",
+  "date": "2026-05-09",
+  "checkpoint": "artifacts/models/v0.6/head_final.pt",
+  "onnx_out": "artifacts/onnx/resolution-head-v0.6.onnx",
+  "manifest_out": "artifacts/onnx/resolution-head-v0.6.manifest.json",
+  "parity_csv_out": "artifacts/onnx/parity-v0.6.csv",
+  "onnx_size_mb": 1.25,
+  "opset": 17,
+  "dtype": "fp32",
+  "head_sha256": "719fb8f0a29c06628f1ca189fa64a9d770895d856aa06b924efb5e3d83df054b",
+  "head_pt_sha256": "dd88b15c0e8c8a7c162ae21976ba2208474d887511b32176305f51e59c85772e",
+  "encoder_sha256": "c9ba7cae1af741d9702daa7e314b287c67bd0d7c8bc68f4315a633973161b769",
+  "training_run_id": "v0.6-seed42-ep100",
+  "val_mae": 0.5657,
+  "test_mae": 0.8240,
+  "r_squared_test": 0.7655,
+  "parity_check": {
+    "n_rollouts": 100,
+    "parity_seed": 777,
+    "atol": 1e-4,
+    "max_abs_diff": 1.86e-06,
+    "mean_abs_diff": 6.66e-07,
+    "violations": 0,
+    "passed": true,
+    "note": "Torch (CUDA fp32) vs ORT (CPUExecutionProvider fp32). Both paths share the ORT encoder for embedding to isolate head export parity from fp16/fp32 encoder noise."
+  },
+  "gate": "PASS",
+  "tests_run": "399/399 passed (uv run pytest tests/ml/)",
+  "next": "substep 13 -- API wiring (proposal, awaiting Didier/Larry validation)"
+}

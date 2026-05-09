@@ -57,13 +57,20 @@ EMBEDDING_DIM: Final[int] = 384
 HEAD_INPUT_DIM: Final[int] = EMBEDDING_DIM * 3 + 1  # 1153
 
 # Default paths (relative to repo root -- callers may override).
-DEFAULT_CHECKPOINT_PATH: Final[str] = "artifacts/models/v0.1/head_final.pt"
-DEFAULT_METRICS_PATH: Final[str] = "artifacts/models/v0.1/metrics.json"
-DEFAULT_TEST_METRICS_PATH: Final[str] = "artifacts/models/v0.1/test_metrics.json"
+# Updated to v0.6: retrain PASS, val MAE 0.5657 (gate <=0.6 cleared, 2026-05-09).
+DEFAULT_CHECKPOINT_PATH: Final[str] = "artifacts/models/v0.6/head_final.pt"
+DEFAULT_METRICS_PATH: Final[str] = "artifacts/models/v0.6/metrics.json"
+DEFAULT_TEST_METRICS_PATH: Final[str] = "artifacts/models/v0.6/test_metrics.json"
 DEFAULT_ENCODER_MANIFEST_PATH: Final[str] = "artifacts/onnx/minilm-l6-v2-fp16.manifest.json"
-DEFAULT_OUT_PATH: Final[str] = "artifacts/onnx/resolution-head-v0.1.onnx"
+DEFAULT_OUT_PATH: Final[str] = "artifacts/onnx/resolution-head-v0.6.onnx"
 
-# Known v0.1 metrics (from substep 10 training run).
+# Known v0.6 metrics (retrain 2026-05-09, 100 epochs, seed=42).
+# v0.1 kept as legacy fallback for callers that still reference the old checkpoint.
+_V06_VAL_MAE: Final[float] = 0.5657
+_V06_TEST_MAE: Final[float] = 0.8240
+_V06_R_SQUARED_TEST: Final[float] = 0.7655
+
+# Legacy v0.1 fallback metrics (kept for backward compat in callers).
 _V01_VAL_MAE: Final[float] = 0.9027
 _V01_TEST_MAE: Final[float] = 0.9893
 _V01_R_SQUARED_TEST: Final[float] = 0.7938
@@ -248,9 +255,9 @@ def export_head(
     # Extract training metadata from metrics.json if present
     # ------------------------------------------------------------------
     training_run_id: str = ""
-    val_mae: float = _V01_VAL_MAE
-    test_mae: float = _V01_TEST_MAE
-    r_squared_test: float = _V01_R_SQUARED_TEST
+    val_mae: float = _V06_VAL_MAE
+    test_mae: float = _V06_TEST_MAE
+    r_squared_test: float = _V06_R_SQUARED_TEST
 
     if metrics_path is None:
         # Try default relative to repo root (two levels up from this file).
@@ -263,8 +270,15 @@ def export_head(
             # Compose a run_id from seed + a stable token if no explicit id.
             config = metrics_data.get("config", {})
             seed = config.get("seed", 42)
-            epochs = metrics_data.get("epochs_run", 50)
-            training_run_id = f"v0.1-seed{seed}-ep{epochs}"
+            epochs = metrics_data.get("epochs_run", 100)
+            # Derive version from output_dir stored in config if available.
+            output_dir_str = str(config.get("output_dir", "v0.6"))
+            ver = (
+                "v0.6"
+                if "v0.6" in output_dir_str
+                else ("v0.1" if "v0.1" in output_dir_str else "vX")
+            )
+            training_run_id = f"{ver}-seed{seed}-ep{epochs}"
             val_mae_raw = metrics_data.get("best_val_mae")
             if val_mae_raw is not None:
                 val_mae = float(val_mae_raw)
@@ -275,7 +289,7 @@ def export_head(
             logger.warning("Could not parse metrics.json: %s", exc)
     else:
         logger.warning("metrics.json not found at %s -- using fallback values", metrics_path)
-        training_run_id = "v0.1-seed42-ep50"
+        training_run_id = "v0.6-seed42-ep100"
 
     if test_metrics_path is None:
         repo_root = Path(__file__).resolve().parent.parent.parent.parent
@@ -319,7 +333,7 @@ def export_head(
     # ------------------------------------------------------------------
     manifest: dict[str, object] = {
         "model_name": "wayfinders.ml.training.head.ResolutionHead",
-        "version": "v0.1",
+        "version": "v0.6",
         "export_timestamp": datetime.now(UTC).isoformat(),
         "head_sha256": head_onnx_sha,
         "head_pt_sha256": head_pt_sha,
