@@ -28,6 +28,27 @@ namespace Wayfinders.Client.Services;
 /// resolver user-root path is also logged at boot so dev knows where to
 /// drop hot-swap PNGs without a recompile.
 /// </para>
+///
+/// <para>
+/// <b>J1.1 scratch-scene gate (2026-05-09, Rune).</b>
+/// Autoloads run regardless of which scene is set as <c>run/main_scene</c>.
+/// When the active main scene is a scratch probe (e.g.
+/// <c>Tile3DBackingProbe</c>), this autoload would still register all the
+/// Opening Scenario screens AND fire <c>NavigateTo("E1_TITLE")</c>, which
+/// instantiates E1's <c>BureauSprite</c> on a CanvasLayer that renders
+/// independently of the probe's scene tree -- thus covering the probe's
+/// 3D viewport with the cartographer's office background. Symptom:
+/// "je ne vois pas de tuile, je vois juste l'image du bureau du
+/// cartographe".
+/// </para>
+/// <para>
+/// Fix: any scene whose root carries <c>metadata/skip_opening_bootstrap = true</c>
+/// gates the bootstrap to a no-op (with an explicit log line so dev sees
+/// the gate fired). Adding a future scratch scene = add the metadata flag
+/// on its root, no code change here. The metadata absence means production
+/// boot path is unchanged -- BootScene and the Opening Scenario flow get
+/// the full registration + NavigateTo as before.
+/// </para>
 /// </summary>
 public partial class OpeningBootstrap : Node
 {
@@ -41,6 +62,9 @@ public partial class OpeningBootstrap : Node
     private const string OptionsModalScenePath = "res://scenes/modals/OptionsModal.tscn";
     private const string QuitModalScenePath = "res://scenes/modals/QuitConfirmModal.tscn";
 
+    // J1.1 scratch-scene gate -- see class docstring.
+    private const string SkipBootstrapMetaKey = "skip_opening_bootstrap";
+
     public override void _Ready()
     {
         // Defer to give SceneManager._Ready a chance to attach the
@@ -53,6 +77,19 @@ public partial class OpeningBootstrap : Node
 
     private void WireAndBoot()
     {
+        // J1.1 gate: if the active main scene is a scratch probe, skip the
+        // entire bootstrap sequence. The probe will own the screen entirely
+        // -- no E1 background hijacking the 3D viewport.
+        var currentScene = GetTree().CurrentScene;
+        if (currentScene is not null && currentScene.HasMeta(SkipBootstrapMetaKey)
+            && (bool)currentScene.GetMeta(SkipBootstrapMetaKey))
+        {
+            GD.Print(
+                $"[OpeningBootstrap] gated by skip_opening_bootstrap on " +
+                $"'{currentScene.Name}' -- registration AND NavigateTo skipped");
+            return;
+        }
+
         var sceneManager = GetNodeOrNull<SceneManager>("/root/SceneManager");
         if (sceneManager is null)
         {

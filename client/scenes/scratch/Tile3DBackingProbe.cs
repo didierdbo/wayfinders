@@ -235,6 +235,15 @@ public partial class Tile3DBackingProbe : Node3D
 
     public override void _Ready()
     {
+        // J1.1 canary log -- printed before anything else so Didier sees
+        // it in the Output panel AND, once the LiveLogLabel is wired up,
+        // mirrored on screen. Disambiguates "is the probe actually
+        // running?" without having to read the scene tree inspector.
+        // If you ever see the cartographer's office background instead
+        // of the dark probe, the absence of this line in the Output panel
+        // tells you the probe scene was not the one launched.
+        GD.Print("[PROBE J1.1] scene started, you are looking at the right scene -- Tile3DBackingProbe._Ready entered");
+
         // Mandatory for Area3D mouse signals to fire. Default false on
         // the root viewport — silent failure mode if forgotten. See
         // class-level "Gotcha" docstring.
@@ -269,6 +278,10 @@ public partial class Tile3DBackingProbe : Node3D
 
         ApplySpriteModulate();
         UpdateStatusLabel();
+
+        // Mirror the canary onto the on-screen live log so it is visible
+        // even if the Output panel is collapsed (the user's default).
+        Log("PROBE J1.1 -- you are looking at Tile3DBackingProbe (the right scene)");
 
         Log(
             $"ready: sprite_h={BackingData.SpritePixelHeight}px " +

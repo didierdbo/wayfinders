@@ -22,6 +22,7 @@ outline_color = Color(0, 0, 0, 1)
 [node name="Tile3DBackingProbe" type="Node3D"]
 script = ExtResource("1_probe")
 BackingData = ExtResource("2_data")
+metadata/skip_opening_bootstrap = true
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Env_probe")
