@@ -225,6 +225,41 @@ public partial class FogTileLayer : Node2D
     /// </summary>
     [Export] public Vector2I J3WitnessCoord { get; set; } = new Vector2I(0, 0);
 
+    /// <summary>
+    /// Jalon 4 (Wayfinders 3D Backing Architecture, GO J4 2026-05-09) --
+    /// generalise the J3 single-cell 3D backing to every cell of the
+    /// grid. When <c>true</c> (default), <see cref="Configure"/> spawns
+    /// one <see cref="Cell3DBackingFollower"/> per cell + one
+    /// <see cref="Camera3DShadowFollower"/> for the layer ; per-frame
+    /// sync is gated by the dirty-bit on each follower (Pattern N), so
+    /// static cells contribute zero work after the initial seed.
+    /// Flip to <c>false</c> in the inspector to fall back to the J3
+    /// single-cell witness path (driven by <see cref="EnableJ3Witness"/>).
+    /// Flip both J3 and J4 off to revert to pre-J3 pure-2D behaviour.
+    /// </summary>
+    [Export] public bool EnableJ4AllCells { get; set; } = true;
+
+    /// <summary>
+    /// Jalon 4 -- minimal hover visual for the 3D-backed cells. When
+    /// <c>true</c>, the Area3D <c>MouseEntered</c> signal applies a
+    /// light green tint to the cell's <c>CartonFace</c> modulate ; the
+    /// <c>MouseExited</c> signal restores the canonical alpha. Proves
+    /// the 3D pickup path end-to-end without committing to the richer
+    /// hover visuals (lift, glow) that come at J5+. Flip to <c>false</c>
+    /// to disable the visual feedback while keeping the Area3D pickup
+    /// (useful when integrating with E2 prod cursor visuals later).
+    /// </summary>
+    [Export] public bool EnableJ4HoverFeedback { get; set; } = true;
+
+    /// <summary>
+    /// Jalon 4 -- light green tint applied to <c>CartonFace.Modulate</c>
+    /// on hover when <see cref="EnableJ4HoverFeedback"/> is true. Multiplies
+    /// against the canonical white modulate (1, 1, 1, alpha) so the alpha
+    /// is preserved (the source-map slice still resolves alpha through
+    /// the knowledge state ; only RGB tints).
+    /// </summary>
+    [Export] public Color J4HoverTint { get; set; } = new Color(0.85f, 1f, 0.85f, 1f);
+
     private Node2D _fogContainer = null!;
     private TileKnowledgeStore? _knowledgeStore;
     private TileKnowledgeStore.KnowledgeChangedEventHandler? _knowledgeChangedHandler;
@@ -251,13 +286,38 @@ public partial class FogTileLayer : Node2D
     private readonly Dictionary<GridCoord, Tween> _activeCellTweens = new();
 
     /// <summary>
-    /// Jalon 3 -- the 3D-authoritative follower for the witness cell, or
-    /// null if <see cref="EnableJ3Witness"/> is false / not configured
-    /// yet. The follower owns the witness Node3D, the Area3D pickup, and
-    /// the Camera3D shadow follower ; <see cref="FogTileLayer"/> drives
-    /// it via per-frame <see cref="_Process"/>.
+    /// J3 + J4 -- the per-cell 3D-authoritative followers. J3 ships
+    /// with one entry (the witness cell) ; J4 ships with one entry
+    /// per cell of the grid. Driven each frame by
+    /// <see cref="_Process"/>.
     /// </summary>
-    private Cell3DBackingFollower? _j3Follower;
+    private readonly Dictionary<GridCoord, Cell3DBackingFollower> _backingFollowers = new();
+
+    /// <summary>
+    /// J4 -- the single Camera3D follower for the layer (extracted out
+    /// of the per-cell follower at J4 ; one Camera3D for N cells).
+    /// Null when both J3 and J4 are disabled, or before <see cref="Configure"/>.
+    /// </summary>
+    private Camera3DShadowFollower? _cameraFollower;
+
+    /// <summary>
+    /// J4 -- the canonical face modulate per cell, captured at spawn
+    /// time and restored on <c>MouseExited</c> when the hover tint is
+    /// active. We snapshot it instead of trusting "white" because future
+    /// tinting (knowledge state, palette) may push CartonFace away from
+    /// pure white in the meantime.
+    /// </summary>
+    private readonly Dictionary<GridCoord, Color> _faceCanonicalModulate = new();
+
+    /// <summary>
+    /// J4 -- diagnostic counter for the canary log. Incremented each
+    /// time <see cref="_Process"/> applies a non-trivial sync to a
+    /// follower (i.e., the dirty bit was set). At J4 (static positions)
+    /// this stays at <see cref="_backingFollowers.Count"/> for the
+    /// first frame, then 0 for subsequent frames -- a cheap way to
+    /// detect a regression where the dirty bit gate stops working.
+    /// </summary>
+    private int _lastFrameSyncedFollowerCount;
 
     public override void _Ready()
     {
@@ -270,37 +330,58 @@ public partial class FogTileLayer : Node2D
     }
 
     /// <summary>
-    /// Jalon 3 -- per-frame sync of the 3D-authoritative witness cell.
-    /// Reads the witness Node3D position via the follower, derives the
-    /// 2D screen position via the forward iso projection, and applies
-    /// it to the witness cell's <c>Node2D</c> in <see cref="_cells"/>.
-    /// Also drives the follower Camera3D from the prod Camera2D.
+    /// J3 + J4 -- per-frame sync of the 3D backing. Two responsibilities :
+    /// <list type="bullet">
+    ///   <item>Drive the singleton <see cref="Camera3DShadowFollower"/>
+    ///         from the prod Camera2D (pose + ortho size). One call per
+    ///         frame, regardless of cell count.</item>
+    ///   <item>Iterate every entry in <see cref="_backingFollowers"/>
+    ///         and call <see cref="Cell3DBackingFollower.ApplySync"/>.
+    ///         The follower's dirty-bit gate (Pattern N) collapses the
+    ///         work to a single bool read for static cells -- O(N)
+    ///         iterations, ~0 marshalling crossings per frame at J4 scale.</item>
+    /// </list>
     ///
     /// <para>
-    /// J3 scope : the 3D node is static (constructor-positioned, never
-    /// mutated this jalon), so the witness cell's screen position
-    /// equals what <c>SpawnCells</c> originally computed. The path
-    /// through the 3D node is what makes Option A
-    /// (entity-3D-authoritative) live in runtime, not the visual
-    /// outcome ; J6+ will start mutating <c>WitnessNode3D.Position</c>
-    /// for animations.
+    /// J4 scope : the 3D nodes are static (constructor-positioned, never
+    /// mutated this jalon), so each follower's screen position equals
+    /// what <c>SpawnCells</c> originally computed. The path through the
+    /// 3D node is what makes Option A live in runtime ; J6+ will start
+    /// mutating <c>WitnessNode3D.Position</c> for animations and the
+    /// dirty bit will start firing.
     /// </para>
     /// </summary>
     public override void _Process(double delta)
     {
-        if (_j3Follower is null) return;
-        _j3Follower.ApplyFollowerSync();
+        _cameraFollower?.ApplySync();
 
-        // Apply the 3D-derived 2D position to the witness cell's
-        // Node2D. The witness cell still has its full pre-J3 visual
-        // tree (Shadow, CartonFace, CartonBack, Sceau) -- only its
-        // Position is now driven by the 3D-authoritative path.
-        var coord = new GridCoord(J3WitnessCoord.X, J3WitnessCoord.Y);
-        if (_cells.TryGetValue(coord, out var visuals))
+        if (_backingFollowers.Count == 0) return;
+
+        var synced = 0;
+        foreach (var (_, follower) in _backingFollowers)
         {
-            visuals.Cell.Position = _j3Follower.WitnessCell2DPosition;
+            var wasDirty = follower.IsPositionDirty;
+            follower.ApplySync();
+            if (wasDirty) synced++;
         }
+        _lastFrameSyncedFollowerCount = synced;
     }
+
+    /// <summary>
+    /// J4 diagnostic -- count of followers whose dirty bit fired during
+    /// the last <see cref="_Process"/> frame. Reads as 0 in steady-state
+    /// (J4 = static positions) ; a non-zero value means something is
+    /// mutating Node3D positions, which is expected at J6+ but unexpected
+    /// here. Read by tests + the canary log.
+    /// </summary>
+    public int LastFrameSyncedFollowerCount => _lastFrameSyncedFollowerCount;
+
+    /// <summary>
+    /// J4 diagnostic -- the count of currently-spawned followers.
+    /// Read by tests + the canary log to verify J4 generalisation
+    /// reached the expected cell count.
+    /// </summary>
+    public int SpawnedFollowerCount => _backingFollowers.Count;
 
     /// <summary>
     /// One-shot configuration after the consumer knows the world size,
@@ -321,7 +402,7 @@ public partial class FogTileLayer : Node2D
 
         SpawnCells(placeholderTexture);
 
-        TrySpawnJ3Follower();
+        TrySpawnBacking();
 
         _knowledgeChangedHandler = OnKnowledgeChanged;
         _knowledgeStore.KnowledgeChanged += _knowledgeChangedHandler;
@@ -640,64 +721,188 @@ public partial class FogTileLayer : Node2D
     }
 
     /// <summary>
-    /// Jalon 3 -- spawn the <see cref="Cell3DBackingFollower"/> for the
-    /// witness cell when <see cref="EnableJ3Witness"/> is true. No-op
-    /// otherwise. The follower owns the witness Node3D, the Area3D
-    /// pickup volume, and the Camera3D shadow follower ; it spawns
-    /// them as children of this <c>FogTileLayer</c> Node2D so they
-    /// share the world-tree pan but live in 3D space.
+    /// J3 + J4 -- spawn the 3D backing for the layer. Decision tree :
+    /// <list type="bullet">
+    ///   <item>If <see cref="EnableJ4AllCells"/> is true (J4 ship
+    ///         default), spawn one <see cref="Cell3DBackingFollower"/>
+    ///         per cell + one <see cref="Camera3DShadowFollower"/> for
+    ///         the layer. Every cell's pickup is now Area3D-driven.</item>
+    ///   <item>Else if <see cref="EnableJ3Witness"/> is true, spawn
+    ///         the J3 single-cell witness path (one follower for
+    ///         <see cref="J3WitnessCoord"/>) -- the J3 fallback path.</item>
+    ///   <item>Else (both off), no 3D backing : pure-2D pre-J3 behaviour.</item>
+    /// </list>
     ///
     /// <para>
     /// The Camera2D is read from the parent <c>MapPan2DComponent</c>
-    /// (search up the scene tree for a child <c>WorldCamera</c>
-    /// Camera2D, then any Camera2D). If the layer is not parented
-    /// under a <c>MapPan2DComponent</c> (e.g. unit test harness), the
-    /// follower spawns without a Camera2D reference and the per-frame
-    /// sync degrades to identity (the witness still anchors at its
-    /// canonical screen position, just without zoom/pan tracking).
+    /// via <see cref="FindParentCamera2D"/>. In a test harness without
+    /// a Camera2D ancestor, the camera follower stays at identity (the
+    /// followers still anchor at their canonical screen positions, just
+    /// without zoom/pan tracking).
     /// </para>
     /// </summary>
-    private void TrySpawnJ3Follower()
+    private void TrySpawnBacking()
     {
-        if (!EnableJ3Witness) return;
-        if (_j3Follower is not null)
+        // Always despawn first so re-Configure is idempotent.
+        DespawnBacking();
+
+        if (!EnableJ4AllCells && !EnableJ3Witness) return;
+
+        var shift = FogTileGridLogic.ComputeIsoOriginShift(_dimensions, CellSizePx, Projection);
+        Camera2D? parentCamera = FindParentCamera2D();
+
+        // Always one Camera3D follower per layer (Pattern M -- extracted singleton).
+        _cameraFollower = new Camera3DShadowFollower(
+            host: this,
+            camera2D: parentCamera,
+            isoOriginShift: shift,
+            cellSizePx: CellSizePx);
+        _cameraFollower.Spawn();
+
+        if (EnableJ4AllCells)
         {
-            _j3Follower.Dispose();
-            _j3Follower = null;
+            SpawnJ4AllFollowers(shift);
+        }
+        else
+        {
+            SpawnJ3SingleFollower(shift);
         }
 
+        var anchorSummary = parentCamera is null
+            ? "no Camera2D found (no zoom/pan tracking)"
+            : $"Camera2D={parentCamera.Name}";
+        var modeSummary = EnableJ4AllCells
+            ? $"J4 mode -- {_backingFollowers.Count} cells backed"
+            : $"J3 fallback -- 1 witness cell ({J3WitnessCoord.X},{J3WitnessCoord.Y})";
+        GD.Print(
+            $"[FogTileLayer Backing] {modeSummary}. {anchorSummary}.");
+    }
+
+    private void SpawnJ3SingleFollower(PanVec2 shift)
+    {
         var witness = new GridCoord(J3WitnessCoord.X, J3WitnessCoord.Y);
         if (witness.Col < 0 || witness.Col >= _dimensions.Columns ||
             witness.Row < 0 || witness.Row >= _dimensions.Rows)
         {
             GD.PushWarning(
                 $"[FogTileLayer J3] witness coord ({witness.Col}, {witness.Row}) " +
-                $"out of grid bounds ({_dimensions.Columns}x{_dimensions.Rows}) -- skip J3 spawn");
+                $"out of grid bounds ({_dimensions.Columns}x{_dimensions.Rows}) -- skip");
             return;
         }
 
-        var shift = FogTileGridLogic.ComputeIsoOriginShift(_dimensions, CellSizePx, Projection);
+        SpawnFollowerAt(witness, shift);
+    }
 
-        Camera2D? parentCamera = FindParentCamera2D();
+    private void SpawnJ4AllFollowers(PanVec2 shift)
+    {
+        // Profile the spawn step -- J4 spawns N followers and we want to
+        // track the cost as the grid grows. The canary log surfaces it.
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        foreach (var coord in FogTileGridLogic.EnumerateCells(_dimensions))
+        {
+            SpawnFollowerAt(coord, shift);
+        }
+        sw.Stop();
 
-        _j3Follower = new Cell3DBackingFollower(
+        var perCellMicros = _backingFollowers.Count > 0
+            ? (sw.Elapsed.TotalMilliseconds * 1000.0) / _backingFollowers.Count
+            : 0.0;
+        GD.Print(
+            $"[FogTileLayer J4 CANARY] spawned {_backingFollowers.Count} followers " +
+            $"in {sw.ElapsedMilliseconds} ms ({perCellMicros:F1} us per cell). " +
+            $"Per-frame work after spawn = {_backingFollowers.Count} dirty-bit reads " +
+            $"(estimated < 100 us total at typical CPU).");
+    }
+
+    private void SpawnFollowerAt(GridCoord coord, PanVec2 shift)
+    {
+        var follower = new Cell3DBackingFollower(
             host: this,
-            witnessCell: witness,
+            witnessCell: coord,
             cellSizePx: CellSizePx,
             isoOriginShift: shift,
-            fogYOffset: FogYOffset,
-            camera2D: parentCamera);
+            fogYOffset: FogYOffset);
 
-        _j3Follower.Spawn();
+        follower.Spawn(
+            onMouseEntered: () => OnFollowerHoverEnter(coord),
+            onMouseExited: () => OnFollowerHoverExit(coord),
+            onInputEvent: (cam, ev, pos, norm, shape) => OnFollowerInputEvent(coord, ev));
 
-        var anchorSummary = parentCamera is null
-            ? "no Camera2D found (no zoom/pan tracking)"
-            : $"Camera2D={parentCamera.Name}";
-        GD.Print(
-            $"[FogTileLayer J3] spawned witness 3D follower at cell " +
-            $"({witness.Col}, {witness.Row}) -- Pattern A in runtime, Option A locked. " +
-            $"Hover/click on this cell now flows through Area3D physics picking. " +
-            $"{anchorSummary}.");
+        // Bind the 2D consumer so per-frame ApplySync writes Cell.Position
+        // directly (J4 path -- skips the J3 manual cell.Position write).
+        if (_cells.TryGetValue(coord, out var visuals))
+        {
+            follower.BindCellNode2D(visuals.Cell);
+            // Snapshot the canonical face modulate for hover-restore.
+            _faceCanonicalModulate[coord] = visuals.CartonFace.Color;
+            // Force one apply so the bound Cell.Position is written
+            // through the 3D path on the very first frame (visually
+            // invisible since the math is identical, but it pins the
+            // data flow through 3D from the start).
+            follower.MarkDirty();
+            follower.ApplySync();
+        }
+
+        _backingFollowers[coord] = follower;
+    }
+
+    /// <summary>J4 hover plug -- light tint on CartonFace via Modulate.
+    /// Read once at spawn, applied multiplicatively so the canonical
+    /// alpha (knowledge state) is preserved.</summary>
+    private void OnFollowerHoverEnter(GridCoord coord)
+    {
+        if (!EnableJ4HoverFeedback) return;
+        if (!_cells.TryGetValue(coord, out var visuals)) return;
+        if (!_faceCanonicalModulate.TryGetValue(coord, out var baseColor))
+            baseColor = visuals.CartonFace.Color;
+
+        // Multiply RGB by the J4 tint, preserve alpha (set by knowledge state).
+        var tint = J4HoverTint;
+        visuals.CartonFace.Color = new Color(
+            baseColor.R * tint.R,
+            baseColor.G * tint.G,
+            baseColor.B * tint.B,
+            baseColor.A);
+    }
+
+    private void OnFollowerHoverExit(GridCoord coord)
+    {
+        if (!EnableJ4HoverFeedback) return;
+        if (!_cells.TryGetValue(coord, out var visuals)) return;
+        if (!_faceCanonicalModulate.TryGetValue(coord, out var baseColor))
+            return;
+
+        // Restore the canonical modulate but keep the current alpha
+        // (knowledge state may have animated it since spawn).
+        var current = visuals.CartonFace.Color;
+        visuals.CartonFace.Color = new Color(
+            baseColor.R, baseColor.G, baseColor.B, current.A);
+    }
+
+    private void OnFollowerInputEvent(GridCoord coord, InputEvent ev)
+    {
+        if (ev is InputEventMouseButton mb && mb.Pressed && mb.ButtonIndex == MouseButton.Left)
+        {
+            GD.Print(
+                $"[FogTileLayer J4] click on cell ({coord.Col}, {coord.Row}) " +
+                $"-- Area3D pickup");
+        }
+    }
+
+    private void DespawnBacking()
+    {
+        foreach (var (_, follower) in _backingFollowers)
+        {
+            follower.Dispose();
+        }
+        _backingFollowers.Clear();
+        _faceCanonicalModulate.Clear();
+
+        if (_cameraFollower is not null)
+        {
+            _cameraFollower.Dispose();
+            _cameraFollower = null;
+        }
     }
 
     /// <summary>
@@ -726,11 +931,7 @@ public partial class FogTileLayer : Node2D
 
     public override void _ExitTree()
     {
-        if (_j3Follower is not null)
-        {
-            _j3Follower.Dispose();
-            _j3Follower = null;
-        }
+        DespawnBacking();
 
         DespawnAll();
 
