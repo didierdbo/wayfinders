@@ -56,3 +56,55 @@ class HealthResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     status: str = Field(..., description="Service status. ``ok`` when healthy.")
+
+
+class UC1PredictRequest(BaseModel):
+    """Input for the UC1 resolution prediction endpoint.
+
+    All three prose strings must be EN-rendered (renderer English-pinning
+    contract). They are fed directly to the MiniLM encoder; no further
+    transformation is performed server-side.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    char_prose: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "EN-rendered character prose (render_character() output). "
+            "Must be non-empty. EN-pinned regardless of UI locale."
+        ),
+    )
+    action_prose: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "EN-rendered action prose (render_action() output). Must be non-empty. EN-pinned."
+        ),
+    )
+    context_prose: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "EN-rendered context prose (render_context() output). Must be non-empty. EN-pinned."
+        ),
+    )
+
+
+class UC1PredictResponse(BaseModel):
+    """Output of the UC1 resolution prediction endpoint.
+
+    ``delta`` is the raw model output in [-5, +5] (tanh x 5, computed
+    inside the head graph). The game engine adds this to the base modifier
+    to produce the final resolution delta.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    delta: float = Field(
+        ...,
+        ge=-5.0,
+        le=5.0,
+        description="Predicted resolution delta in [-5, +5]. tanh-bounded by the head.",
+    )
