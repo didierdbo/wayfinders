@@ -237,7 +237,12 @@ def exported_head_onnx_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
 @pytest.fixture(scope="session")
 def exported_head_manifest(exported_head_onnx_path: Path) -> dict[str, Any]:
     """Read the manifest written alongside the exported head .onnx."""
-    manifest_path = exported_head_onnx_path.with_suffix("").with_suffix(".manifest.json")
+    # Use stem + ".manifest.json" to avoid stripping the version component from
+    # names like "resolution-head-v0.1.onnx" where the double .with_suffix() call
+    # would incorrectly produce "resolution-head-v0.manifest.json".
+    manifest_path = exported_head_onnx_path.parent / (
+        exported_head_onnx_path.stem + ".manifest.json"
+    )
     return json.loads(manifest_path.read_text(encoding="utf-8"))
 
 
@@ -282,7 +287,11 @@ class TestHeadOnnxFileExists:
         assert exported_head_onnx_path.is_file(), f"ONNX not found: {exported_head_onnx_path}"
 
     def test_head_manifest_file_exists(self, exported_head_onnx_path: Path) -> None:
-        manifest_path = exported_head_onnx_path.with_suffix("").with_suffix(".manifest.json")
+        # Use stem + ".manifest.json" to match export_head()'s naming convention
+        # (avoid double .with_suffix() which strips the version from "v0.1").
+        manifest_path = exported_head_onnx_path.parent / (
+            exported_head_onnx_path.stem + ".manifest.json"
+        )
         assert manifest_path.is_file(), f"Manifest not found: {manifest_path}"
 
     def test_head_onnx_size_reasonable(self, exported_head_onnx_path: Path) -> None:
