@@ -1,0 +1,81 @@
+{
+  "run_id": "v0.6-run-001",
+  "date": "2026-05-09",
+  "table_version": "v0.6",
+  "table_commit": "596e305",
+  "tanh_input_scale": 8.0,
+  "n_rollouts": 100000,
+  "policy": "MixedPolicy",
+  "seed": 42,
+  "device": "cuda",
+  "cuda_device": "NVIDIA RTX A2000 Laptop GPU",
+  "torch_version": "2.6.0+cu124",
+  "config": {
+    "epochs": 100,
+    "batch_size": 64,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "dropout": 0.1,
+    "huber_delta": 1.0,
+    "monotonicity_weight": 0.1,
+    "patience": 10,
+    "seed": 42
+  },
+  "split": {
+    "train": 60692,
+    "val": 7670,
+    "test": 31638,
+    "note": "split by archetype+scene key; ratios are approximate (60.7/7.7/31.6% vs intended 80/10/10%)"
+  },
+  "label_distribution": {
+    "train": {"mean": 0.134, "stdev": 2.148, "min": -4.859, "max": 4.797},
+    "val": {"mean": 0.262, "stdev": 2.173, "min": -4.820, "max": 4.841},
+    "test": {"mean": 0.154, "stdev": 2.158, "min": -4.859, "max": 4.876},
+    "note": "vs v0.5: mean was -1.28, stdev 3.15, sat ~20%. v0.6 near-zero mean, sat<1%."
+  },
+  "results": {
+    "best_epoch": 95,
+    "epochs_run": 100,
+    "best_val_mae": 0.5657,
+    "final_val_mae": 0.5664,
+    "test_mae": 0.8240,
+    "test_rmse": 1.0438,
+    "test_r_squared": 0.7655,
+    "test_count": 31688,
+    "test_mae_by_bucket": {
+      "[-5,-4)": 0.5408,
+      "[-4,-3)": 0.8149,
+      "[-3,-2)": 0.9490,
+      "[-2,-1)": 1.0329,
+      "[-1,0)": 0.9962,
+      "[0,1)": 0.9269,
+      "[1,2)": 0.7758,
+      "[2,3)": 0.6399,
+      "[3,4)": 0.4269,
+      "[4,5]": 0.2406
+    }
+  },
+  "gate": "PASS",
+  "gate_threshold": 0.6,
+  "comparison_v05": {
+    "val_mae": 0.9027,
+    "test_mae": 0.9893,
+    "gate": "YELLOW",
+    "improvement_val_mae": 0.337,
+    "note": "v0.5 run: 50k rollouts, 50 epochs, same split by archetype+scene"
+  },
+  "artifacts": {
+    "note": "artifacts/ is gitignored; model files on local disk only",
+    "head_best_pt": "artifacts/models/checkpoints_v0.6/head_best.pt",
+    "head_final_pt": "artifacts/models/v0.6/head_final.pt",
+    "metrics_json": "artifacts/models/v0.6/metrics.json",
+    "test_metrics_json": "artifacts/models/v0.6/test_metrics.json",
+    "cache_npz": "artifacts/cache/embeddings.npz"
+  },
+  "notes": [
+    "val_mae (0.566) vs test_mae (0.824) gap is partly structural: split produces 7.7% val vs 31.6% test (small val = noisier/more optimistic, large test = harder).",
+    "v0.5->v0.6 improvement driven by: (a) TANH_INPUT_SCALE 5->8 eliminates comb pattern + squashing; (b) recentering of negative anchors (mean bias -1.28 -> +0.13); (c) 2x rollout count (50k->100k).",
+    "Gate is on val MAE per agreed spec. Test MAE flagged for Larry decision.",
+    "Next: ONNX export (substep 11) + parity verify Python vs C# (substep 12)."
+  ]
+}
