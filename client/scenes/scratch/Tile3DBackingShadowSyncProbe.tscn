@@ -3,8 +3,12 @@
 [ext_resource type="Script" path="res://scenes/scratch/Tile3DBackingShadowSyncProbe.cs" id="1_probe"]
 [ext_resource type="Resource" uid="uid://cwfthickjlbk1" path="res://scenes/scratch/tile_backing_thick.tres" id="2_data"]
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_initial"]
-size = Vector3(256, 6, 128)
+; Placeholder convex polygon ; the probe overrides Points and Position
+; at _Ready (ApplyWitness3DGeometry) -- the real prism is built from
+; CellSizePx and BackingData.BackingHeightPx so we don't have to keep a
+; second source of truth in the .tscn float soup.
+[sub_resource type="ConvexPolygonShape3D" id="ConvexPolygonShape3D_placeholder"]
+points = PackedVector3Array(64, 0, -64, -64, 0, 64, -64, 0, -64, 64, 0, 64, 64, -6, -64, -64, -6, 64, -64, -6, -64, 64, -6, 64)
 
 [sub_resource type="Environment" id="Env_probe3D"]
 background_mode = 1
@@ -73,7 +77,9 @@ current = true
 input_ray_pickable = true
 
 [node name="WitnessShape3D" type="CollisionShape3D" parent="Witness3D/WitnessArea3D"]
-shape = SubResource("BoxShape3D_initial")
+shape = SubResource("ConvexPolygonShape3D_placeholder")
+
+[node name="WireframeOverlay3D" type="MeshInstance3D" parent="Witness3D"]
 
 [node name="OverlayUI" type="CanvasLayer" parent="."]
 layer = 10
@@ -92,7 +98,7 @@ offset_left = 16.0
 offset_top = 12.0
 offset_right = -16.0
 offset_bottom = 44.0
-text = "Tile3DBackingShadowSyncProbe -- Jalon 2 (Pattern B2)"
+text = "Tile3DBackingShadowSyncProbe -- Jalon 2 (Pattern B2 + Pattern J inv. 7)"
 label_settings = SubResource("LabelSettings_overlay")
 
 [node name="InstructionsLabel" type="Label" parent="OverlayUI/OverlayRoot"]
@@ -102,14 +108,15 @@ anchor_right = 1.0
 offset_left = 16.0
 offset_top = 48.0
 offset_right = -16.0
-offset_bottom = 240.0
+offset_bottom = 280.0
 text = "1. ZQSD (AZERTY -- physical W/A/S/D positions) or arrow keys -> pan the Camera2D in 2D world coords.
 2. The witness cell (parchment + green border + black centre dot) is anchored at cell (5, 5). It should appear to slide across the screen as you pan.
-3. The RED diamond outline (Line2D) is the screen footprint of the 3D Area3D click volume, drawn in 2D coords. It MUST follow the sprite at every frame -- no drift.
+3. The RED 2D rhombus (Line2D, target silhouette) and the ORANGE 3D prism wireframe (ImmediateMesh, actual ConvexPolygonShape3D collision) MUST visually overlap on the top face. The 3D prism's bottom rhombus is offset slightly (the skirt extrusion) -- this proves the shape is a prism, not a flat plane.
 4. Move the cursor over the parchment tile -> sprite tints GREEN (the 3D Area3D fired -> picking works through the synced 3D camera).
-5. Left-click -> sprite tints RED. Click again -> idle.
-6. Watch the DRIFT label (top-right) : it must stay near 0.00 px. If it grows when you pan, the 2D-3D camera sync is broken -- log it before reporting back.
-7. Check the Output panel for [CANARY OK] / [CANARY FAIL] lines : PhysicsObjectPicking, Camera3D.Current, Area3D pickable+layer, Camera2D anchor drift. If any FAIL appears, hover/click is dead by design until you fix it."
+5. RHOMBUS BORDER TEST -- approach the cursor from the 4 diagonals (TL, TR, BL, BR). Hover must trigger ONLY when the cursor crosses the visible rhombus outline, NOT before. If hover fires while still in a corner of the sprite rectangle, the click zone is overshooting (Pattern J inv. 7 fail).
+6. Left-click -> sprite tints RED. Click again -> idle.
+7. Watch the DRIFT label (top-right) : it must stay near 0.00 px. If it grows when you pan, the 2D-3D camera sync is broken -- log it before reporting back.
+8. Check the Output panel for [CANARY OK] / [CANARY FAIL] lines : 7 invariants. The 7th covers the rhombus shape match -- if it FAILS, the collision regressed back to a box."
 label_settings = SubResource("LabelSettings_overlay")
 autowrap_mode = 2
 

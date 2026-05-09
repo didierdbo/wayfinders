@@ -12,10 +12,10 @@ namespace Wayfinders.Client.Scenes.Scratch;
 /// transform every frame ; both cameras are anchored on the same
 /// witness cell ; the cell is rendered <i>twice</i> -- once as a
 /// <c>Sprite2D</c> in 2D world coords (the visible pixel), once as an
-/// <c>Area3D</c> + <c>BoxShape3D</c> + red wireframe in 3D world coords
-/// (the click volume). The probe pans on ZQSD ( AZERTY -- physical
-/// position W/A/S/D on the keyboard) ; the rendering and the wireframe
-/// must move in lock-step, no drift, at every pan delta.
+/// <c>Area3D</c> + <c>ConvexPolygonShape3D</c> + red 3D wireframe in 3D
+/// world coords (the click volume). The probe pans on ZQSD ( AZERTY --
+/// physical position W/A/S/D on the keyboard) ; the rendering and the
+/// wireframe must move in lock-step, no drift, at every pan delta.
 ///
 /// <para>
 /// <b>What this probe proves.</b>
@@ -34,6 +34,16 @@ namespace Wayfinders.Client.Scenes.Scratch;
 ///         prod) -- dark technical background, vivid green/red
 ///         tints, red wireframe, on-screen STATUS + live log. No
 ///         confusion possible with the production E2 World Map.</item>
+///   <item><b>Shape matches silhouette</b> (Pattern J invariant 7,
+///         locked 2026-05-09 night) -- the click zone is the iso
+///         <i>rhombus prism</i>, not the rectangular bounding box of
+///         the sprite. A 3D <c>BoxShape3D</c> with width != depth
+///         projects to a parallelogram on screen that overshoots the
+///         visible rhombus on the TL/BR diagonals -- exact symptom
+///         Didier reported in the second J2 playtest. Fix : an 8-vertex
+///         <c>ConvexPolygonShape3D</c> whose top face is the 4 rhombus
+///         poles in 3D world coords, extruded by <c>BackingHeightPx</c>
+///         on -Y.</item>
 /// </list>
 /// </para>
 ///
@@ -88,6 +98,44 @@ namespace Wayfinders.Client.Scenes.Scratch;
 /// no exceptions. Captured in
 /// <c>feedback_godot_rendering_input_traps.md</c>.
 /// </para>
+///
+/// <para>
+/// <b>Rhombus prism collision -- the second J2 regression
+/// (2026-05-09 night).</b>
+/// First fix of the J2 regressions (commit <c>932f1b4</c>) restored pan
+/// and hover from the BL/TR diagonals. From TL and BR the hover still
+/// triggered <i>before</i> the cursor crossed the visible rhombus
+/// outline -- by ~30 px on a 128-cellSize tile. Cause : the collision
+/// volume was a <c>BoxShape3D</c> sized
+/// <c>(SpriteTopWidthPx, h, SpriteTopWidthPx/2) = (256, 6, 128)</c>.
+/// Under the iso projection <c>screenX = (X-Z)/2</c>,
+/// <c>screenY = (X+Z)/4</c>, an axis-aligned 3D box with non-square
+/// X-Z footprint projects to a <i>parallelogram</i>, not a rhombus.
+/// The parallelogram corners stick out beyond the rhombus poles on the
+/// TL and BR diagonals -- physics picking fires on the parallelogram,
+/// the visible rhombus is smaller, hover wins early on those two
+/// diagonals.
+/// Fix : <c>ConvexPolygonShape3D</c> whose 4 top-face vertices are
+/// the 4 rhombus poles in 3D world coords --
+/// <c>(±halfW, 0, ±halfW)</c> with <c>halfW = CellSizePx/2 = 64</c> --
+/// extruded by <c>BackingHeightPx</c> on -Y to form an 8-vertex prism.
+/// The convex hull picking now matches the visible rhombus to the
+/// pixel on all 4 diagonals.
+/// </para>
+///
+/// <para>
+/// Note that an axis-aligned 3D square with halfX = halfZ projects to a
+/// rhombus on screen under the same iso projection -- so a
+/// <c>BoxShape3D</c> with <c>Size = (CellSizePx, h, CellSizePx)</c>
+/// would <i>also</i> be geometrically correct. We pick
+/// <c>ConvexPolygonShape3D</c> with explicit pole vertices because
+/// (a) the geometry is self-documenting (the 4 vertex names
+/// top/right/bottom/left match the visual silhouette) and (b) if a
+/// future tile shape diverges from the 2:1 iso ratio (e.g. a hexagonal
+/// cell or a non-square footprint), the explicit vertex list is the
+/// right place to encode that, while a <c>BoxShape3D</c> would silently
+/// stop matching.
+/// </para>
 /// </summary>
 public partial class Tile3DBackingShadowSyncProbe : Node2D
 {
@@ -118,10 +166,10 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
     /// <summary>The follower 3D camera. Lives in the same root viewport
     /// as the <c>Camera2D</c> -- Godot 4 supports a Camera2D and a
     /// Camera3D current in the same viewport because they drive
-    /// separate render layers (2D canvas / 3D world). The Camera3D is
-    /// invisible to the player here because nothing 3D is rendered
-    /// (no <c>MeshInstance3D</c>) -- its only purpose is to host the
-    /// <c>Area3D</c> picking.</summary>
+    /// separate render layers (2D canvas / 3D world). The Camera3D
+    /// renders the 3D rhombus prism wireframe (a <c>MeshInstance3D</c>)
+    /// so Didier can <i>see</i> the click volume in 3D, not just trust
+    /// that it matches the 2D rhombus shadow.</summary>
     [Export] public NodePath Camera3DPath { get; set; } = "Camera3D";
 
     /// <summary>The visible 2D sprite for the witness cell.</summary>
@@ -132,10 +180,22 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
     [Export] public NodePath WitnessShape3DPath { get; set; } = "Witness3D/WitnessArea3D/WitnessShape3D";
     [Export] public NodePath WitnessNode3DPath { get; set; } = "Witness3D";
 
-    /// <summary>The red wireframe overlay around the 3D click volume,
-    /// drawn in 2D world coords using a <c>Polygon2D</c> with no fill
-    /// (line drawn via <c>Line2D</c> children).</summary>
-    [Export] public NodePath WireframeOverlayPath { get; set; } = "Witness2D/WireframeOverlay";
+    /// <summary>The 2D rhombus wireframe overlay -- the <i>target</i>
+    /// silhouette, drawn directly from <c>FogTileGridLogic</c> math in
+    /// 2D world coords using a <c>Line2D</c> closed loop on the 4
+    /// rhombus poles. This is the shape the click zone <i>should</i>
+    /// match.</summary>
+    [Export] public NodePath WireframeOverlay2DPath { get; set; } = "Witness2D/WireframeOverlay";
+
+    /// <summary>The 3D rhombus prism wireframe -- the <i>actual</i>
+    /// click volume, drawn as a 12-edge <c>ImmediateMesh</c> on the
+    /// 8 vertices of the <c>ConvexPolygonShape3D</c>. Rendered by the
+    /// follower Camera3D, projected onto the screen alongside the 2D
+    /// wireframe. The two wireframes must visually overlap (the prism
+    /// top face = the 2D rhombus). If the 3D wireframe drifts off the
+    /// 2D wireframe, the camera-sync math is broken before we even
+    /// hover.</summary>
+    [Export] public NodePath WireframeOverlay3DPath { get; set; } = "Witness3D/WireframeOverlay3D";
 
     /// <summary>Overlay live STATUS readout.</summary>
     [Export] public NodePath StatusLabelPath { get; set; } = "OverlayUI/OverlayRoot/StatusLabel";
@@ -158,9 +218,20 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
     /// <summary>Default modulate.</summary>
     [Export] public Color IdleModulate { get; set; } = new(1f, 1f, 1f, 1f);
 
-    /// <summary>Wireframe edge colour -- vivid red so it pops against
-    /// the parchment witness texture and the dark background.</summary>
-    [Export] public Color WireframeColor { get; set; } = new(1.0f, 0.20f, 0.20f, 1.0f);
+    /// <summary>2D wireframe (target silhouette) edge colour -- soft yellow,
+    /// the reference rhombus drawn directly from FogTileGridLogic 2D math.
+    /// Distinct from the 3D wireframe red so the two outlines are visually
+    /// separable when they (correctly) overlap. If only the red is visible,
+    /// the yellow is hidden behind it (everything in lock-step) ; if the
+    /// 3D drifts off, both colours appear at different positions.</summary>
+    [Export] public Color WireframeColor2D { get; set; } = new(1.00f, 0.85f, 0.20f, 1.0f);
+
+    /// <summary>3D wireframe (actual collision prism) edge colour -- vivid
+    /// red, the wireframe Didier asks for in the playtest brief. This is
+    /// the prism whose 8 vertices match the ConvexPolygonShape3D used by
+    /// physics picking (Pattern J invariant 7) -- if it shifts off the
+    /// yellow target rhombus, the camera-sync is broken.</summary>
+    [Export] public Color WireframeColor3D { get; set; } = new(1.0f, 0.20f, 0.20f, 1.0f);
 
     private Camera2D? _camera2D;
     private Camera3D? _camera3D;
@@ -168,7 +239,8 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
     private Area3D? _witnessArea3D;
     private CollisionShape3D? _witnessShape3D;
     private Node3D? _witnessNode3D;
-    private Node2D? _wireframeOverlay;
+    private Node2D? _wireframeOverlay2D;
+    private MeshInstance3D? _wireframeOverlay3D;
     private Label? _statusLabel;
     private Label? _liveLogLabel;
     private Label? _driftLabel;
@@ -200,7 +272,8 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
         _witnessArea3D = GetNode<Area3D>(WitnessArea3DPath);
         _witnessShape3D = GetNode<CollisionShape3D>(WitnessShape3DPath);
         _witnessNode3D = GetNode<Node3D>(WitnessNode3DPath);
-        _wireframeOverlay = GetNodeOrNull<Node2D>(WireframeOverlayPath);
+        _wireframeOverlay2D = GetNodeOrNull<Node2D>(WireframeOverlay2DPath);
+        _wireframeOverlay3D = GetNodeOrNull<MeshInstance3D>(WireframeOverlay3DPath);
         _statusLabel = GetNodeOrNull<Label>(StatusLabelPath);
         _liveLogLabel = GetNodeOrNull<Label>(LiveLogLabelPath);
         _driftLabel = GetNodeOrNull<Label>(DriftLabelPath);
@@ -239,7 +312,8 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
         _camera2DStartPosition = witnessCenter2D;
 
         ApplyCamera3DTransform();
-        BuildWireframeOverlay();
+        BuildWireframeOverlay2D();
+        BuildWireframeOverlay3D();
 
         _mouseEnteredHandler = OnMouseEntered;
         _mouseExitedHandler = OnMouseExited;
@@ -261,18 +335,29 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
         // Camera3D pointed thousands of pixels off the witness.
         AssertCanaryInvariants();
 
-        Log("PROBE J2 SHADOW-SYNC ready -- ZQSD or arrows pan the Camera2D ; the red wireframe must follow the green sprite at every frame");
+        Log("PROBE J2 SHADOW-SYNC ready -- ZQSD or arrows pan the Camera2D ; the red 2D rhombus and the orange 3D prism must overlap at every frame, hover must trigger only inside the rhombus silhouette");
         Log($"witness cell ({WitnessCol}, {WitnessRow}) center2D = ({witnessCenter2D.X:F1}, {witnessCenter2D.Y:F1})");
     }
 
     /// <summary>
-    /// Five invariants any 2D-camera + 3D-Area3D shadow-sync probe must
-    /// satisfy or hover/click is dead. Run once at <c>_Ready</c>, log a
-    /// vivid red <c>[CANARY FAIL]</c> on each violation. We do NOT
-    /// throw -- a probe that crashes is less debuggable than a probe
-    /// that runs and screams. The console line is enough to make any
-    /// future testplay regression land within seconds of the scene
-    /// loading.
+    /// Seven invariants any 2D-camera + 3D-Area3D shadow-sync probe must
+    /// satisfy or hover/click is dead, or the click zone overshoots the
+    /// visible silhouette. Run once at <c>_Ready</c>, log a vivid red
+    /// <c>[CANARY FAIL]</c> on each violation. We do NOT throw -- a
+    /// probe that crashes is less debuggable than a probe that runs and
+    /// screams. The console line is enough to make any future testplay
+    /// regression land within seconds of the scene loading.
+    ///
+    /// <para>
+    /// Invariant 7 (rhombus shape match) is new with the 2026-05-09
+    /// night fix : <c>BoxShape3D</c> with non-square X-Z footprint
+    /// projects to a parallelogram on screen, not the visible iso
+    /// rhombus, and hover triggers <i>before</i> the cursor crosses
+    /// the rhombus pointes on the TL/BR diagonals. The static check
+    /// here verifies the first 4 vertices of the
+    /// <c>ConvexPolygonShape3D</c> are the 4 expected rhombus poles
+    /// in 3D world coords.
+    /// </para>
     /// </summary>
     private void AssertCanaryInvariants()
     {
@@ -333,7 +418,7 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
         }
         else if (_witnessShape3D.Shape is null)
         {
-            GD.PushError("[CANARY FAIL] WitnessShape3D.Shape is null -- BoxShape3D was never assigned.");
+            GD.PushError("[CANARY FAIL] WitnessShape3D.Shape is null -- ConvexPolygonShape3D was never assigned.");
         }
         else if (_witnessShape3D.Disabled)
         {
@@ -363,6 +448,61 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
             {
                 GD.Print($"[CANARY OK] Camera2D anchored on witness (drift={anchorDriftPx:F3} px)");
             }
+        }
+
+        // Invariant 7 (locked 2026-05-09 night) : the collision shape is
+        // a ConvexPolygonShape3D whose first 4 vertices match the 4
+        // rhombus poles in 3D world coords. This catches a regression
+        // back to BoxShape3D, or a typo in the pole vertex list, or a
+        // future edit that picks the wrong halfW (e.g. SpriteTopWidthPx
+        // / 2 instead of CellSizePx / 2 -- which is exactly the rectangle
+        // bug that triggered this lesson).
+        if (_witnessShape3D?.Shape is ConvexPolygonShape3D prism)
+        {
+            var halfW = CellSizePx / 2f;
+            var expectedPoles = new[]
+            {
+                new Vector3(+halfW, 0f, -halfW), // RIGHT pole on screen
+                new Vector3(-halfW, 0f, +halfW), // LEFT pole
+                new Vector3(-halfW, 0f, -halfW), // TOP pole
+                new Vector3(+halfW, 0f, +halfW), // BOTTOM pole
+            };
+            var actualPoles = prism.Points.Length >= 4
+                ? new[] { prism.Points[0], prism.Points[1], prism.Points[2], prism.Points[3] }
+                : System.Array.Empty<Vector3>();
+
+            var allMatch = actualPoles.Length == 4;
+            for (var i = 0; allMatch && i < 4; i++)
+            {
+                if (!actualPoles[i].IsEqualApprox(expectedPoles[i]))
+                    allMatch = false;
+            }
+
+            if (!allMatch)
+            {
+                GD.PushError(
+                    $"[CANARY FAIL] ConvexPolygonShape3D top-face vertices do NOT " +
+                    $"match the 4 rhombus poles. Expected " +
+                    $"[{expectedPoles[0]}, {expectedPoles[1]}, {expectedPoles[2]}, " +
+                    $"{expectedPoles[3]}] (halfW={halfW}). Got " +
+                    $"[{(actualPoles.Length > 0 ? actualPoles[0].ToString() : "n/a")}, " +
+                    $"{(actualPoles.Length > 1 ? actualPoles[1].ToString() : "n/a")}, " +
+                    $"{(actualPoles.Length > 2 ? actualPoles[2].ToString() : "n/a")}, " +
+                    $"{(actualPoles.Length > 3 ? actualPoles[3].ToString() : "n/a")}]. " +
+                    $"Hover will overshoot the visible rhombus on the TL/BR diagonals.");
+            }
+            else
+            {
+                GD.Print($"[CANARY OK] Collision shape is ConvexPolygonShape3D with rhombus poles at halfW={halfW}");
+            }
+        }
+        else if (_witnessShape3D?.Shape is BoxShape3D)
+        {
+            GD.PushError(
+                "[CANARY FAIL] Collision shape is BoxShape3D -- this is the regression " +
+                "that triggered Pattern J invariant 7. A BoxShape3D with non-square X-Z " +
+                "footprint projects to a parallelogram, NOT to the visible iso rhombus. " +
+                "Switch to ConvexPolygonShape3D with the 4 rhombus poles top + 4 bottom.");
         }
     }
 
@@ -659,46 +799,117 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
         _witnessSprite2D.Centered = true;
     }
 
-    /// <summary>Resize the BoxShape3D from the BackingData (Pattern C).</summary>
+    /// <summary>
+    /// Build the <c>ConvexPolygonShape3D</c> rhombus prism (Pattern J
+    /// invariant 7, locked 2026-05-09 night).
+    ///
+    /// <para>
+    /// <b>Why a prism, not a box.</b> A <c>BoxShape3D</c> sized
+    /// <c>(SpriteTopWidthPx, h, SpriteTopWidthPx/2)</c> -- which was
+    /// the first cut -- has a <i>rectangular</i> X-Z footprint
+    /// (256 × 128 in this codebase). Under the iso projection
+    /// <c>screenX = (X-Z)/2</c>, <c>screenY = (X+Z)/4</c> a rectangle
+    /// projects to a <i>parallelogram</i>, not the rhombus the player
+    /// sees. The parallelogram corners stick out beyond the visible
+    /// rhombus on the TL and BR diagonals -- physics picking fires
+    /// <i>before</i> the cursor reaches the rhombus pointe, exact
+    /// symptom Didier reported in the second J2 playtest.
+    /// </para>
+    ///
+    /// <para>
+    /// The fix is to make the collision shape match the visible iso
+    /// silhouette directly : a rhombus prism with
+    /// <list type="bullet">
+    ///   <item>4 top-face vertices = the 4 rhombus poles in 3D world
+    ///         coords, <c>(±halfW, 0, ±halfW)</c> with
+    ///         <c>halfW = CellSizePx / 2</c> ;</item>
+    ///   <item>4 bottom-face vertices = same 4 poles, extruded by
+    ///         <c>-BackingHeightPx</c> on Y to give the shape volume
+    ///         (so picking still works for sprites with thick skirts,
+    ///         Pattern C).</item>
+    /// </list>
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why <c>halfW = CellSizePx / 2</c> and not
+    /// <c>SpriteTopWidthPx / 2</c>.</b> The visible cell on screen has
+    /// half-extents <c>halfW = cs/2 = 64</c> px (the rhombus is
+    /// 128 wide, 64 tall for cs=128). The witness <i>sprite</i> is
+    /// 256 × 128, but that's a debug rectangle decorating the cell
+    /// area at 2× scale -- the iso silhouette the player perceives is
+    /// the rhombus, not the sprite rectangle. The collision shape must
+    /// match the rhombus, so we anchor the math on the cell size, not
+    /// on the sprite size.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Pole vertex order.</b> RIGHT, LEFT, TOP, BOTTOM (top face),
+    /// then RIGHT, LEFT, TOP, BOTTOM (bottom face). The convex hull
+    /// computed by Godot's physics is order-independent, but the
+    /// canary self-check (invariant 7) reads the first 4 points and
+    /// expects this exact order to verify the shape didn't regress to
+    /// a box. Keep the order if you edit.
+    /// </para>
+    /// </summary>
     private void ApplyWitness3DGeometry()
     {
         if (_witnessShape3D is null) return;
 
-        var box = _witnessShape3D.Shape as BoxShape3D ?? new BoxShape3D();
-        var w = (float)BackingData.SpriteTopWidthPx;
+        var halfW = CellSizePx / 2f;
         var h = (float)BackingData.BackingHeightPx;
-        var d = w * 0.5f;
 
-        box.Size = new Vector3(w, h, d);
-        _witnessShape3D.Shape = box;
-        _witnessShape3D.Position = new Vector3(0f, -h * 0.5f, 0f);
+        // 4 rhombus poles on the y=0 top face. The screen-space pole
+        // names ("right", "left", "top", "bottom") refer to where the
+        // pole ends up after iso projection, not to its 3D axis -- a
+        // small notation cost for a big readability win when
+        // cross-referencing with the 2D wireframe.
+        var topRight  = new Vector3(+halfW, 0f, -halfW); // -> screen (+halfW, 0)
+        var topLeft   = new Vector3(-halfW, 0f, +halfW); // -> screen (-halfW, 0)
+        var topTop    = new Vector3(-halfW, 0f, -halfW); // -> screen (0, -halfH)
+        var topBottom = new Vector3(+halfW, 0f, +halfW); // -> screen (0, +halfH)
+
+        // 4 same poles on the y=-h bottom face (skirt-thickness
+        // extrusion, Pattern C).
+        var botRight  = topRight  with { Y = -h };
+        var botLeft   = topLeft   with { Y = -h };
+        var botTop    = topTop    with { Y = -h };
+        var botBottom = topBottom with { Y = -h };
+
+        var prism = new ConvexPolygonShape3D
+        {
+            Points = new[]
+            {
+                topRight, topLeft, topTop, topBottom,
+                botRight, botLeft, botTop, botBottom,
+            },
+        };
+        _witnessShape3D.Shape = prism;
+        // Vertices already encode the offset (top face at y=0, bottom at
+        // y=-h), so no shape-level offset needed. The previous BoxShape3D
+        // path had Position = (0, -h/2, 0) to centre the box -- here the
+        // explicit vertices replace that.
+        _witnessShape3D.Position = Vector3.Zero;
     }
 
-    /// <summary>Build a 2D Polygon2D wireframe (4 lines forming a
-    /// diamond outline at the witness sprite's 2D center) so the user
-    /// has a visual proof of the 2D-rendered click volume in 2D
-    /// coordinate space. The 3D click volume is the
-    /// <see cref="_witnessArea3D"/> Area3D ; this 2D wireframe is its
-    /// projected shadow.
+    /// <summary>Build the 2D rhombus wireframe -- the <i>target</i>
+    /// silhouette drawn directly from <c>FogTileGridLogic</c> math, in
+    /// 2D world coords using a <c>Line2D</c> closed loop on the 4
+    /// rhombus poles. This is what the click zone <i>should</i> match.
     ///
     /// <para>
-    /// <b>Why a 2D wireframe and not the 3D one we used in Jalon 1.</b>
-    /// Jalon 1 had a Camera3D rendering the whole scene, so an
-    /// <c>ImmediateMesh</c> was the natural way to draw 3D lines.
-    /// Here, the visible camera is 2D ; drawing the wireframe in 2D
-    /// (so the player-facing rendering shows it directly) is simpler
-    /// than projecting a 3D mesh through a SubViewport. The shape is
-    /// a static diamond outline ; it does not need to be 3D-correct
-    /// because the point of the probe is the <i>position match</i>,
-    /// not the <i>volume match</i>.
+    /// Paired with <see cref="BuildWireframeOverlay3D"/>, which draws
+    /// the <i>actual</i> 3D click volume as a 12-edge prism. The two
+    /// wireframes must visually overlap (the prism's projected top face
+    /// = the 2D rhombus). If they don't, the camera-sync math is wrong
+    /// before we even hover.
     /// </para>
     /// </summary>
-    private void BuildWireframeOverlay()
+    private void BuildWireframeOverlay2D()
     {
-        if (_wireframeOverlay is null) return;
+        if (_wireframeOverlay2D is null) return;
 
         // Clear children if any (idempotent rebuild on hot reload).
-        foreach (var child in _wireframeOverlay.GetChildren())
+        foreach (var child in _wireframeOverlay2D.GetChildren())
             child.QueueFree();
 
         var halfW = CellSizePx / 2f;
@@ -710,7 +921,7 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
 
         var line = new Line2D
         {
-            DefaultColor = WireframeColor,
+            DefaultColor = WireframeColor2D,
             Width = 3f,
             Closed = true,
         };
@@ -718,11 +929,109 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
         line.AddPoint(right);
         line.AddPoint(bottom);
         line.AddPoint(left);
-        _wireframeOverlay.AddChild(line);
+        _wireframeOverlay2D.AddChild(line);
 
         // Position the wireframe overlay AT the witness sprite's center.
         var center2D = ComputeWitnessCenter2D();
-        _wireframeOverlay.Position = center2D;
+        _wireframeOverlay2D.Position = center2D;
+    }
+
+    /// <summary>Build the 3D rhombus prism wireframe -- the <i>actual</i>
+    /// click volume, drawn as a 12-edge <c>ImmediateMesh</c> on the 8
+    /// vertices of the <c>ConvexPolygonShape3D</c>. Rendered by the
+    /// follower Camera3D ; projects through the same pipeline as the
+    /// physics picking, so if the prism wireframe overlaps the 2D
+    /// rhombus on screen, the picking is in lock-step too.
+    ///
+    /// <para>
+    /// <b>Two wireframes, one red one yellow, deliberate.</b> The
+    /// 3D wireframe (this prism) is red -- Didier asked for that
+    /// directly in the J2 night brief and it's the primary visual.
+    /// The 2D wireframe (<see cref="BuildWireframeOverlay2D"/>) is
+    /// yellow -- a reference rhombus drawn from independent 2D math.
+    /// When everything is correct they overlap visually : the red
+    /// prism (top face) wins on top, the yellow is hidden behind. If
+    /// the camera-sync drifts even by a pixel, both colours become
+    /// visible at slightly different positions, and the bug is
+    /// instantly diagnosable. Same defense-in-depth idea as the
+    /// drift label, with a different validation chain (visual
+    /// overlap vs measured distance) -- per Pattern J orthogonality
+    /// rule, a measurement does not validate itself.
+    /// </para>
+    ///
+    /// <para>
+    /// The bottom rhombus of the prism (extruded by -h on Y) projects
+    /// to a slightly offset rhombus on screen because the 30°-pitched
+    /// camera maps Y onto a vertical screen offset. This visualises
+    /// the "thickness" of the click volume -- if Didier sees a single
+    /// rhombus instead of a prism on screen, the extrusion is missing
+    /// (e.g. <c>BackingHeightPx</c> is 0 because the
+    /// <c>tile_backing_thick.tres</c> resource didn't load).
+    /// </para>
+    /// </summary>
+    private void BuildWireframeOverlay3D()
+    {
+        if (_wireframeOverlay3D is null) return;
+
+        var halfW = CellSizePx / 2f;
+        var h = (float)BackingData.BackingHeightPx;
+
+        // 8 vertices, mirror of ApplyWitness3DGeometry. We could share
+        // the array via a helper -- intentionally inlined here so the
+        // wireframe is independently inspectable (a developer can flip
+        // a sign in one without breaking the other ; the canary at
+        // _Ready and the visual overlap will both shout).
+        var topRight  = new Vector3(+halfW, 0f, -halfW);
+        var topLeft   = new Vector3(-halfW, 0f, +halfW);
+        var topTop    = new Vector3(-halfW, 0f, -halfW);
+        var topBottom = new Vector3(+halfW, 0f, +halfW);
+        var botRight  = topRight  with { Y = -h };
+        var botLeft   = topLeft   with { Y = -h };
+        var botTop    = topTop    with { Y = -h };
+        var botBottom = topBottom with { Y = -h };
+
+        var mesh = new ImmediateMesh();
+        var mat = new StandardMaterial3D
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            AlbedoColor = WireframeColor3D,
+            Transparency = BaseMaterial3D.TransparencyEnum.Disabled,
+            // Render in front of the (empty) 3D scene -- no other 3D
+            // geometry to occlude here, but explicit is better than
+            // implicit if a future probe rev adds 3D content.
+            NoDepthTest = true,
+        };
+
+        mesh.SurfaceBegin(Mesh.PrimitiveType.Lines, mat);
+
+        // Top rhombus (4 edges).
+        AddEdge(mesh, topTop, topRight);
+        AddEdge(mesh, topRight, topBottom);
+        AddEdge(mesh, topBottom, topLeft);
+        AddEdge(mesh, topLeft, topTop);
+
+        // Bottom rhombus (4 edges).
+        AddEdge(mesh, botTop, botRight);
+        AddEdge(mesh, botRight, botBottom);
+        AddEdge(mesh, botBottom, botLeft);
+        AddEdge(mesh, botLeft, botTop);
+
+        // Vertical edges (4 edges connecting top to bottom).
+        AddEdge(mesh, topRight, botRight);
+        AddEdge(mesh, topLeft, botLeft);
+        AddEdge(mesh, topTop, botTop);
+        AddEdge(mesh, topBottom, botBottom);
+
+        mesh.SurfaceEnd();
+
+        _wireframeOverlay3D.Mesh = mesh;
+        _wireframeOverlay3D.Position = Vector3.Zero;
+    }
+
+    private static void AddEdge(ImmediateMesh mesh, Vector3 a, Vector3 b)
+    {
+        mesh.SurfaceAddVertex(a);
+        mesh.SurfaceAddVertex(b);
     }
 
     // ===== Signals =====
@@ -800,8 +1109,9 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
         // wireframe's screen position) follow the sprite's screen
         // position as we pan? Both are anchored to the same Vector2 in
         // 2D world coords (the wireframe is positioned at
-        // ComputeWitnessCenter2D() in BuildWireframeOverlay) and to the
-        // same 3D world point (the witness Node3D at col*cs, 0, row*cs).
+        // ComputeWitnessCenter2D() in BuildWireframeOverlay2D) and to
+        // the same 3D world point (the witness Node3D at col*cs, 0,
+        // row*cs).
         //
         // We measure the drift by re-running the forward iso projection
         // on the 3D witness center and comparing with the 2D sprite
