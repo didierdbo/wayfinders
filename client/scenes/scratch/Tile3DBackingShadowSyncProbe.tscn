@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3 uid="uid://b5a91f7facbb"]
+[gd_scene format=3 uid="uid://b5ba1f7facbb"]
 
 [ext_resource type="Script" path="res://scenes/scratch/Tile3DBackingShadowSyncProbe.cs" id="1_probe"]
 [ext_resource type="Resource" uid="uid://cwfthickjlbk1" path="res://scenes/scratch/tile_backing_thick.tres" id="2_data"]
@@ -103,12 +103,13 @@ offset_left = 16.0
 offset_top = 48.0
 offset_right = -16.0
 offset_bottom = 240.0
-text = "1. WASD (or arrow keys) -> pan the Camera2D in 2D world coords.
+text = "1. ZQSD (AZERTY -- physical W/A/S/D positions) or arrow keys -> pan the Camera2D in 2D world coords.
 2. The witness cell (parchment + green border + black centre dot) is anchored at cell (5, 5). It should appear to slide across the screen as you pan.
 3. The RED diamond outline (Line2D) is the screen footprint of the 3D Area3D click volume, drawn in 2D coords. It MUST follow the sprite at every frame -- no drift.
 4. Move the cursor over the parchment tile -> sprite tints GREEN (the 3D Area3D fired -> picking works through the synced 3D camera).
 5. Left-click -> sprite tints RED. Click again -> idle.
-6. Watch the DRIFT label (top-right) : it must stay near 0.00 px. If it grows when you pan, the 2D-3D camera sync is broken -- log it before reporting back."
+6. Watch the DRIFT label (top-right) : it must stay near 0.00 px. If it grows when you pan, the 2D-3D camera sync is broken -- log it before reporting back.
+7. Check the Output panel for [CANARY OK] / [CANARY FAIL] lines : PhysicsObjectPicking, Camera3D.Current, Area3D pickable+layer, Camera2D anchor drift. If any FAIL appears, hover/click is dead by design until you fix it."
 label_settings = SubResource("LabelSettings_overlay")
 autowrap_mode = 2
 

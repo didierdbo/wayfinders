@@ -13,8 +13,9 @@ namespace Wayfinders.Client.Scenes.Scratch;
 /// witness cell ; the cell is rendered <i>twice</i> -- once as a
 /// <c>Sprite2D</c> in 2D world coords (the visible pixel), once as an
 /// <c>Area3D</c> + <c>BoxShape3D</c> + red wireframe in 3D world coords
-/// (the click volume). The probe pans on WASD ; the rendering and
-/// the wireframe must move in lock-step, no drift, at every pan delta.
+/// (the click volume). The probe pans on ZQSD ( AZERTY -- physical
+/// position W/A/S/D on the keyboard) ; the rendering and the wireframe
+/// must move in lock-step, no drift, at every pan delta.
 ///
 /// <para>
 /// <b>What this probe proves.</b>
@@ -55,26 +56,37 @@ namespace Wayfinders.Client.Scenes.Scratch;
 /// </para>
 ///
 /// <para>
-/// <b>The math, in one place.</b> The 2D-to-3D camera-target inverse :
-/// given a <c>Camera2D.Position</c> = <c>(camX2D, camY2D)</c> in pixel
-/// world coords, the equivalent <c>Camera3D</c> look-at target on the
-/// ground plane <c>y = 0</c> is :
+/// <b>Coordinate frames -- read this once and never lose it.</b>
+/// The 2D world coord that <see cref="Camera2D"/> sees is the
+/// FogTileGridLogic frame :
+/// <c>worldPx = ComputeCellCenter(coord, cs, IsoDiamondDown) +
+/// ComputeIsoOriginShift(dims, cs, IsoDiamondDown)</c>. That frame has
+/// (a) a non-zero <c>shift</c> that pushes the leftmost cell's left
+/// vertex to <c>X=0</c>, and (b) a <c>+halfH</c> on Y baked into
+/// <c>ComputeCellCenter</c> so the topmost cell's top vertex sits at
+/// <c>Y=0</c>.
+/// The 3D world coord is the raw iso frame :
+/// <c>(X, 0, Z) = (col*cs, 0, row*cs)</c>, with the pin-test forward
+/// projection <c>screenX = (X - Z) / 2</c>, <c>screenY = (X + Z) / 4</c>
+/// landing in the <i>unshifted, no-halfH</i> 2D frame.
+/// To go from <c>Camera2D.Position</c> (FogTileGridLogic frame) to a
+/// <c>Camera3D</c> look-at target on the ground plane, we therefore
+/// have to <b>strip the shift and the halfH first</b>, then invert the
+/// pin-test projection :
 /// <code>
-///   camX3D =  camX2D + 2 * camY2D
-///   camZ3D = -camX2D + 2 * camY2D
+///   pIso = camPos2D - shift - (0, halfH)
+///   targetX =  pIso.X + 2 * pIso.Y
+///   targetZ = -pIso.X + 2 * pIso.Y
 /// </code>
-/// Derivation : the pin test (<c>IsoProjection3DTo2DTests</c>) fixes
-/// the de-scaled forward projection
-/// <c>(screenX, screenY) = ((X - Z) / 2, (X + Z) / 4)</c> in pixel
-/// world units. We want the 3D camera target to project to
-/// <c>(camX2D, camY2D)</c>. Solve :
-/// <code>
-///   camX2D = (X - Z) / 2   ->   X - Z =  2 * camX2D
-///   camY2D = (X + Z) / 4   ->   X + Z =  4 * camY2D
-///   add / sub :              X =  camX2D + 2 * camY2D
-///                            Z = -camX2D + 2 * camY2D
-/// </code>
-/// Same identity as the pin test, no surprises.
+/// The first cut of this probe (commit <c>ca7be43</c>) skipped the
+/// shift+halfH subtraction and pointed the Camera3D thousands of pixels
+/// off the witness, which is why hover/click was dead silently in
+/// Didier's first playtest. The drift readout was 0 because the drift
+/// math used the same wrong frame. Lesson : when two coordinate frames
+/// share a name ("the 2D world") but differ by a constant shift, name
+/// the frames explicitly and convert at every boundary -- one place,
+/// no exceptions. Captured in
+/// <c>feedback_godot_rendering_input_traps.md</c>.
 /// </para>
 /// </summary>
 public partial class Tile3DBackingShadowSyncProbe : Node2D
@@ -93,9 +105,9 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
     /// can swap thick/thin in the inspector.</summary>
     [Export] public TileBackingData BackingData { get; set; } = new();
 
-    /// <summary>Pan speed (pixels per second) when WASD is held. 600 is
-    /// brisk enough to cross a 1280-wide viewport in 2 s -- fast feedback
-    /// for the playtest.</summary>
+    /// <summary>Pan speed (pixels per second) when ZQSD/arrows are held.
+    /// 600 is brisk enough to cross a 1280-wide viewport in 2 s -- fast
+    /// feedback for the playtest.</summary>
     [Export] public float PanSpeed { get; set; } = 600f;
 
     /// <summary>The master 2D camera -- this is what the player sees.
@@ -213,14 +225,21 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
         ApplyWitness2DTexture();
         ApplyWitness3DGeometry();
         ApplyWitnessPositions();
-        ApplyCamera3DTransform();
-        BuildWireframeOverlay();
 
         // Anchor the 2D camera on the witness cell so the playtest
         // starts already focused. Recorded for the drift readout.
+        // IMPORTANT : must happen BEFORE ApplyCamera3DTransform() so the
+        // first sync uses the correct camera position. The original cut
+        // ordered these the other way around and the 3D camera spent
+        // one frame pointing at the world origin -- harmless visually
+        // but a footgun if the start frame is the only frame the user
+        // sees (e.g. screenshot-based regression test).
         var witnessCenter2D = ComputeWitnessCenter2D();
         _camera2D!.Position = witnessCenter2D;
         _camera2DStartPosition = witnessCenter2D;
+
+        ApplyCamera3DTransform();
+        BuildWireframeOverlay();
 
         _mouseEnteredHandler = OnMouseEntered;
         _mouseExitedHandler = OnMouseExited;
@@ -233,8 +252,118 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
         ApplySpriteModulate();
         UpdateStatusLabel();
 
-        Log("PROBE J2 SHADOW-SYNC ready -- WASD pans the Camera2D ; the red wireframe must follow the green sprite at every frame");
+        // ---- canary self-check -- the invariants that, if broken,
+        // silently kill hover/click. Each violation logs a vivid
+        // "[CANARY FAIL]" line so a future testplay catches the
+        // regression instantly without spelunking. Captured in
+        // feedback_godot_rendering_input_traps.md after Didier's first
+        // J2 playtest where hover/click were dead silently because the
+        // Camera3D pointed thousands of pixels off the witness.
+        AssertCanaryInvariants();
+
+        Log("PROBE J2 SHADOW-SYNC ready -- ZQSD or arrows pan the Camera2D ; the red wireframe must follow the green sprite at every frame");
         Log($"witness cell ({WitnessCol}, {WitnessRow}) center2D = ({witnessCenter2D.X:F1}, {witnessCenter2D.Y:F1})");
+    }
+
+    /// <summary>
+    /// Five invariants any 2D-camera + 3D-Area3D shadow-sync probe must
+    /// satisfy or hover/click is dead. Run once at <c>_Ready</c>, log a
+    /// vivid red <c>[CANARY FAIL]</c> on each violation. We do NOT
+    /// throw -- a probe that crashes is less debuggable than a probe
+    /// that runs and screams. The console line is enough to make any
+    /// future testplay regression land within seconds of the scene
+    /// loading.
+    /// </summary>
+    private void AssertCanaryInvariants()
+    {
+        var viewport = GetViewport();
+        if (viewport is null || !viewport.PhysicsObjectPicking)
+        {
+            GD.PushError(
+                "[CANARY FAIL] Viewport.PhysicsObjectPicking is FALSE -- " +
+                "Area3D mouse signals will never fire. Force-enable it at _Ready " +
+                "before any picking expectation.");
+        }
+        else
+        {
+            GD.Print("[CANARY OK] Viewport.PhysicsObjectPicking = true");
+        }
+
+        if (_camera3D is null || !_camera3D.Current)
+        {
+            GD.PushError(
+                "[CANARY FAIL] Camera3D is not Current -- physics picking has no " +
+                "ray to cast. MakeCurrent() must be called at _Ready and the " +
+                ".tscn current flag must not be flipped to false at edit time.");
+        }
+        else
+        {
+            GD.Print($"[CANARY OK] Camera3D.Current=true position={_camera3D.Position} target~{_camera3D.GlobalTransform.Origin + -_camera3D.GlobalTransform.Basis.Z * 100f}");
+        }
+
+        if (_witnessArea3D is null)
+        {
+            GD.PushError(
+                "[CANARY FAIL] WitnessArea3D node not resolvable -- the .tscn " +
+                "wiring drifted. Re-check the NodePath exports.");
+        }
+        else if (!_witnessArea3D.InputRayPickable)
+        {
+            GD.PushError(
+                "[CANARY FAIL] WitnessArea3D.InputRayPickable is FALSE -- the " +
+                "Area3D will not receive mouse rays even with the Viewport flag on.");
+        }
+        else if (_witnessArea3D.CollisionLayer == 0u)
+        {
+            GD.PushError(
+                "[CANARY FAIL] WitnessArea3D.CollisionLayer is 0 -- physics " +
+                "picking ignores layer-0 bodies. Set the layer to non-zero in " +
+                "the inspector (default layer 1 is fine for a debug probe).");
+        }
+        else
+        {
+            GD.Print(
+                $"[CANARY OK] Area3D pickable=true layer=0b{System.Convert.ToString((long)_witnessArea3D.CollisionLayer, 2)} " +
+                $"position={(_witnessNode3D?.Position ?? Vector3.Zero)}");
+        }
+
+        if (_witnessShape3D is null)
+        {
+            GD.PushError("[CANARY FAIL] WitnessShape3D node not resolvable -- Area3D has nothing to collide against.");
+        }
+        else if (_witnessShape3D.Shape is null)
+        {
+            GD.PushError("[CANARY FAIL] WitnessShape3D.Shape is null -- BoxShape3D was never assigned.");
+        }
+        else if (_witnessShape3D.Disabled)
+        {
+            GD.PushError("[CANARY FAIL] WitnessShape3D.Disabled=true -- collision is opted out.");
+        }
+
+        // The big one -- if the Camera3D look-at target is far from the
+        // witness Area3D, the Area3D is outside the frustum and picking
+        // silently fails. We measure the screen-space distance between
+        // the projected witness center and the projected Camera2D center
+        // (which we anchored on the witness). If they diverge by more
+        // than a generous epsilon, the camera-sync math is wrong.
+        if (_camera2D is not null && _witnessNode3D is not null)
+        {
+            var sprite2D = _witnessSprite2D?.Position ?? ComputeWitnessCenter2D();
+            var cam2D = _camera2D.Position;
+            var anchorDriftPx = (sprite2D - cam2D).Length();
+            if (anchorDriftPx > 1.0f)
+            {
+                GD.PushError(
+                    $"[CANARY FAIL] Camera2D anchored {anchorDriftPx:F2} px off the " +
+                    $"witness sprite center -- start frame already drifted. " +
+                    $"Order of ApplyWitnessPositions() vs Camera2D.Position assignment " +
+                    $"may have regressed.");
+            }
+            else
+            {
+                GD.Print($"[CANARY OK] Camera2D anchored on witness (drift={anchorDriftPx:F3} px)");
+            }
+        }
     }
 
     public override void _ExitTree()
@@ -265,23 +394,42 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
     // ===== Input =====
 
     /// <summary>
-    /// Direct-input WASD pan -- intentionally simpler than the
+    /// Direct-input ZQSD/arrows pan -- intentionally simpler than the
     /// production <see cref="Wayfinders.Client.Components.MapPan2DComponent"/>.
-    /// We poll <c>Input.IsKeyPressed</c> rather than driving an
+    /// We poll <c>Input.IsPhysicalKeyPressed</c> rather than driving an
     /// InputMap action because the probe is throwaway debug : we want
     /// the input path to be one line, not a whole state machine. The
     /// production migration will keep MapPan2DComponent ; this
     /// shortcut never leaves the scratch folder.
+    ///
+    /// <para>
+    /// <b>AZERTY trap (P8.2 lesson, leçon 4).</b> The codebase is
+    /// French-shaped and Didier is on AZERTY. <c>Input.IsKeyPressed(Key.W)</c>
+    /// polls the <i>logical</i> keycode -- it matches the layout, not
+    /// the physical position -- so on AZERTY the W slot fires
+    /// <c>Key.Z</c>, not <c>Key.W</c>. That silently breaks WASD pan.
+    /// <c>Input.IsPhysicalKeyPressed(Key.W)</c> polls the scan code,
+    /// which IS position-mapped -- W on AZERTY = W on QWERTY,
+    /// physically. This is the same trap the InputMap fix
+    /// <c>8295c0d</c> documented for production
+    /// (<c>physical_keycode</c> in <c>project.godot</c>) ; the C# poll
+    /// API surface mirrors it with the <c>IsPhysicalKeyPressed</c>
+    /// variant. Arrow keys are layout-invariant so they don't need the
+    /// physical variant -- they're our backup.
+    /// </para>
     /// </summary>
     private void ApplyPanInput(float delta)
     {
         if (_camera2D is null) return;
 
         var dir = Vector2.Zero;
-        if (Input.IsKeyPressed(Key.W) || Input.IsKeyPressed(Key.Up)) dir.Y -= 1f;
-        if (Input.IsKeyPressed(Key.S) || Input.IsKeyPressed(Key.Down)) dir.Y += 1f;
-        if (Input.IsKeyPressed(Key.A) || Input.IsKeyPressed(Key.Left)) dir.X -= 1f;
-        if (Input.IsKeyPressed(Key.D) || Input.IsKeyPressed(Key.Right)) dir.X += 1f;
+        // Physical positions matching W / A / S / D on QWERTY -- on
+        // AZERTY this binds to the Z / Q / S / D positions automatically
+        // (same physical keys, same scan codes).
+        if (Input.IsPhysicalKeyPressed(Key.W) || Input.IsKeyPressed(Key.Up)) dir.Y -= 1f;
+        if (Input.IsPhysicalKeyPressed(Key.S) || Input.IsKeyPressed(Key.Down)) dir.Y += 1f;
+        if (Input.IsPhysicalKeyPressed(Key.A) || Input.IsKeyPressed(Key.Left)) dir.X -= 1f;
+        if (Input.IsPhysicalKeyPressed(Key.D) || Input.IsKeyPressed(Key.Right)) dir.X += 1f;
 
         if (dir.LengthSquared() > 0f)
         {
@@ -308,6 +456,20 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
     /// </para>
     ///
     /// <para>
+    /// <b>Frame conversion (the bug behind Didier's first playtest
+    /// regression).</b> The Camera2D position lives in the
+    /// FogTileGridLogic frame -- shifted by
+    /// <c>ComputeIsoOriginShift</c> on X, and offset by <c>+halfH</c>
+    /// on Y baked into <c>ComputeCellCenter</c>. The 3D witness lives
+    /// in the raw iso frame where forward projection is
+    /// <c>screenX = (X-Z)/2</c>, <c>screenY = (X+Z)/4</c>. We have to
+    /// strip the shift and the halfH from the Camera2D position before
+    /// inverting the projection -- otherwise the 3D camera target lands
+    /// thousands of pixels away from the witness Area3D and physics
+    /// picking misses every cursor ray.
+    /// </para>
+    ///
+    /// <para>
     /// <b>What we measure.</b> The drift label shows
     /// <c>|projected3D - sprite2D|</c> in pixels each frame. When the
     /// math is correct, this stays under one pixel for the whole
@@ -318,7 +480,17 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
     {
         if (_camera2D is null || _camera3D is null) return;
 
-        var camPos2D = _camera2D.Position;
+        // Frame conversion : Camera2D.Position is in the FogTileGridLogic
+        // frame (shifted + halfH baked-in). The pin-test forward
+        // projection lands in the unshifted, no-halfH frame. Strip the
+        // shift+halfH before inverting so the 3D target frame matches
+        // the 3D witness frame.
+        var dims = new GridDimensions(Columns: 64, Rows: 64);
+        var shift = FogTileGridLogic.ComputeIsoOriginShift(
+            dims, CellSizePx, GridProjection.IsoDiamondDown);
+        var halfH = CellSizePx / 4f;
+        var camPos2DInIsoFrame = _camera2D.Position
+            - new Vector2(shift.X, shift.Y + halfH);
 
         // Inverse iso projection : pixel world (X, Y) -> 3D world (X, _, Z)
         // on the y=0 ground plane.
@@ -329,14 +501,10 @@ public partial class Tile3DBackingShadowSyncProbe : Node2D
         // Solve for (worldX, worldZ) given (screenX, screenY) :
         //   worldX =  screenX + 2 * screenY
         //   worldZ = -screenX + 2 * screenY
-        // The class docstring's earlier derivation lacked the /2 and /4
-        // factors -- corrected here ; this is the formula the runtime
-        // actually uses, and the drift readout in UpdateDriftLabel will
-        // expose any reversion.
         var camTarget3D = new Vector3(
-            x: camPos2D.X + 2f * camPos2D.Y,
+            x: camPos2DInIsoFrame.X + 2f * camPos2DInIsoFrame.Y,
             y: 0f,
-            z: -camPos2D.X + 2f * camPos2D.Y);
+            z: -camPos2DInIsoFrame.X + 2f * camPos2DInIsoFrame.Y);
 
         // Position the camera on the iso vector at distance D from the
         // target. Distance is depth-invariant for orthogonal projection
