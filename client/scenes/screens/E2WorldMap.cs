@@ -496,17 +496,36 @@ public partial class E2WorldMap : Control, IScreen
 
     /// <summary>
     /// Slice 3 -- ClimbRequested handler. Routes through
-    /// <see cref="SceneManager.NavigateBack"/> -- on L1 World, "climb
-    /// out" is "go back to whatever pushed us here", which for the
-    /// MVP scenario is E1 Title. The transition lock is released after
-    /// NavigateBack completes.
+    /// <see cref="SceneManager.NavigateLadderUp"/> -- on L1 World, "climb
+    /// out" is "go up one rung of the cadastral ladder", and L1 monde
+    /// is the top rung. <see cref="LadderResolutionLogic.ResolveUpTarget"/>
+    /// returns null at the top rung, so NavigateLadderUp silently no-ops
+    /// here. That is the intent : there is nothing above monde.
+    ///
+    /// <para>
+    /// <b>Regression fix (2026-05-09).</b> Pre-fix, this handler called
+    /// <c>SceneManager.NavigateBack()</c>, which pops the navigation
+    /// stack one level. On the opening flow E1 Title sits below E2 World,
+    /// so a PULL gesture at <see cref="MapPan2DComponent.ZoomMin"/>
+    /// teleported the player back to E1. The verb was wrong : back-pop
+    /// is the Esc/back-button semantics ; the wheel ladder semantics
+    /// are <c>NavigateLadderUp</c>, which respects the ladder spine and
+    /// silently no-ops at the top rung. Pinned by
+    /// <see cref="Wayfinders.Client.Tests.Opening.E2ClimbAtZoomMinDoesNotPopToE1Tests"/>.
+    /// </para>
+    ///
+    /// <para>
+    /// The transition lock is released after the verb returns, regardless
+    /// of whether it actually navigated anywhere -- the wheel-event
+    /// session ends either way.
+    /// </para>
     /// </summary>
     private async void OnClimbRequested()
     {
         var sceneManager = GetNode<SceneManager>("/root/SceneManager");
         try
         {
-            await sceneManager.NavigateBack();
+            await sceneManager.NavigateLadderUp();
         }
         finally
         {
