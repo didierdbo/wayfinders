@@ -30,9 +30,16 @@ namespace Wayfinders.Client.Tests.Opening;
 ///   <item>Each Button declares <c>theme_override_styles/normal</c>.</item>
 ///   <item>All four point at the <b>same</b> SubResource id.</item>
 ///   <item>All four declare the <b>same</b> <c>font_outline_color</c> and
-///     <c>outline_size</c> (Mira 2026-05-09 v3 follow-up: text outline
-///     halo for figure/ground separation against the textured parchment
-///     frame).</item>
+///     <c>outline_size</c>. Didier 2026-05-09 follow-up : the global
+///     UI text contract switched from "umber ink + parchment outline"
+///     to "white text + black outline" for homogeneous legibility
+///     across all screens. The outline color is now pinned to pure
+///     black <c>Color(0, 0, 0, 1)</c>.</item>
+///   <item>The global theme <c>wayfinders_default.tres</c> declares
+///     white <c>font_color</c> and black <c>font_outline_color</c> on
+///     the Label and Button base types — so any new screen that does
+///     <i>not</i> override anything still inherits the homogeneous
+///     contract.</item>
 /// </list>
 /// A future edit that adds a 5th button without the override, or that
 /// switches one button to a different SubResource / outline value, fails
@@ -52,10 +59,20 @@ public sealed class E1ButtonSkinUniformityTests
     private const string ScenePathRelative =
         "client/scenes/screens/E1Title.tscn";
 
-    private static string ReadScene()
+    private const string ThemePathRelative =
+        "client/themes/wayfinders_default.tres";
+
+    /// <summary>
+    /// Pinned outline color for E1 menu buttons (Didier 2026-05-09:
+    /// switch from parchment cream <c>#F4E4BC</c> to pure black for
+    /// homogeneous white-on-black-outline UI text contract). Compared
+    /// after whitespace normalisation against the <c>Color(...)</c>
+    /// tuple text in the .tscn.
+    /// </summary>
+    private const string ExpectedOutlineColorTuple = "Color(0, 0, 0, 1)";
+
+    private static string RepoRoot()
     {
-        // Walk up from the test bin output to the repo root, then descend.
-        // The repo root is the first ancestor that contains pyproject.toml.
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "pyproject.toml")))
         {
@@ -64,11 +81,22 @@ public sealed class E1ButtonSkinUniformityTests
         if (dir is null)
             throw new InvalidOperationException(
                 "Could not locate repo root (pyproject.toml) from " + AppContext.BaseDirectory);
+        return dir.FullName;
+    }
 
-        var path = Path.Combine(dir.FullName, ScenePathRelative.Replace('/', Path.DirectorySeparatorChar));
+    private static string ReadScene()
+    {
+        var path = Path.Combine(RepoRoot(), ScenePathRelative.Replace('/', Path.DirectorySeparatorChar));
         if (!File.Exists(path))
             throw new FileNotFoundException("E1Title.tscn not found", path);
+        return File.ReadAllText(path);
+    }
 
+    private static string ReadTheme()
+    {
+        var path = Path.Combine(RepoRoot(), ThemePathRelative.Replace('/', Path.DirectorySeparatorChar));
+        if (!File.Exists(path))
+            throw new FileNotFoundException("wayfinders_default.tres not found", path);
         return File.ReadAllText(path);
     }
 
@@ -240,10 +268,9 @@ public sealed class E1ButtonSkinUniformityTests
                 parsed.TryGetValue(name, out var c) && !string.IsNullOrEmpty(c),
                 $"Button '{name}' is missing " +
                 "'theme_override_colors/font_outline_color'. All four E1 " +
-                "menu buttons must declare an outline so the umber text " +
-                "stays readable on the textured parchment frame backdrop " +
-                "(Mira 2026-05-09 v3 follow-up : umber-on-umber contrast " +
-                "fell under 3:1 on dark variations of the parchment grain).");
+                "menu buttons must declare an outline so the white text " +
+                "stays readable on every backdrop variation (Didier " +
+                "2026-05-09 : white-on-black-outline UI text contract).");
         }
 
         var distinct = ExpectedButtonNames
@@ -257,6 +284,12 @@ public sealed class E1ButtonSkinUniformityTests
             "'font_outline_color'. The outline is a constant " +
             "figure/ground detachment, not a state-aware accent. Found " +
             "distinct values: [" + string.Join(", ", distinct.Select(c => c ?? "<missing>")) + "]");
+
+        // Hard pin on the actual color: Didier 2026-05-09 locked the
+        // outline to pure black for homogeneous readability across the
+        // whole UI (the previous parchment-cream halo was screen-specific
+        // and broke as soon as the backdrop changed).
+        Assert.Equal(ExpectedOutlineColorTuple, distinct[0]);
     }
 
     [Fact]
@@ -331,5 +364,45 @@ public sealed class E1ButtonSkinUniformityTests
             distinct[0]!.Value > 20 && distinct[0]!.Value < 36,
             $"E1 button font_size must be > 20 (theme default) and < 36 " +
             $"(Heading size). Got {distinct[0]}.");
+    }
+
+    /// <summary>
+    /// Anti-regression pin on the global theme: the white-on-black-outline
+    /// UI text contract (Didier 2026-05-09) lives in
+    /// <c>wayfinders_default.tres</c>, not per-screen. If a future edit
+    /// removes the global declarations, every screen that did not bother
+    /// overriding (modals, tooltips, generic forms) reverts to the Godot
+    /// default and we get an inconsistent UI. This test fails loud at that
+    /// boundary.
+    /// </summary>
+    [Fact]
+    public void Global_theme_declares_white_font_color_with_black_outline()
+    {
+        var theme = ReadTheme();
+
+        // Required entries: Label and Button base types must declare the
+        // homogeneous contract.
+        var requiredLines = new[]
+        {
+            "Label/colors/font_color = Color(1, 1, 1, 1)",
+            "Label/colors/font_outline_color = Color(0, 0, 0, 1)",
+            "Label/constants/outline_size = 2",
+            "Button/colors/font_color = Color(1, 1, 1, 1)",
+            "Button/colors/font_outline_color = Color(0, 0, 0, 1)",
+            "Button/constants/outline_size = 2",
+        };
+
+        foreach (var line in requiredLines)
+        {
+            Assert.True(
+                theme.Contains(line),
+                $"Global theme 'wayfinders_default.tres' is missing required " +
+                $"line: '{line}'. The white-on-black-outline UI text contract " +
+                "(Didier 2026-05-09) must live in the global theme so any " +
+                "screen that does not bother overriding still inherits a " +
+                "homogeneous look. Either the line was deleted, or the " +
+                "Color tuple was reformatted in a way the regex does not " +
+                "tolerate — restore the canonical form.");
+        }
     }
 }

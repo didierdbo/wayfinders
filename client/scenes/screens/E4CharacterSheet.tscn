@@ -83,7 +83,6 @@ theme_type_variation = &"Heading"
 horizontal_alignment = 0
 autowrap_mode = 3
 theme_override_font_sizes/font_size = 26
-theme_override_colors/font_color = Color(0.13, 0.10, 0.08, 1)
 text = "Fiche cadastrale n°[xxx] — Sujet : [Nom officiel]."
 
 [node name="SubtitleLabel" type="Label" parent="Panel/VBox/HeaderRow/HeaderVBox"]
@@ -91,7 +90,6 @@ layout_mode = 2
 horizontal_alignment = 0
 autowrap_mode = 3
 theme_override_font_sizes/font_size = 16
-theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
 text = "Sujet observé : calme."
 
 [node name="SectionsTabContainer" type="TabContainer" parent="Panel/VBox"]
@@ -107,21 +105,18 @@ theme_override_constants/separation = 14
 layout_mode = 2
 theme_type_variation = &"Subheading"
 theme_override_font_sizes/font_size = 18
-theme_override_colors/font_color = Color(0.13, 0.10, 0.08, 1)
 text = "Identification"
 
 [node name="IdentificationBodyLabel" type="Label" parent="Panel/VBox/SectionsTabContainer/Identite"]
 layout_mode = 2
 autowrap_mode = 3
 theme_override_font_sizes/font_size = 16
-theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
 text = "Relevé d'identification en cours par les Arpenteurs."
 
 [node name="OrigineHeaderLabel" type="Label" parent="Panel/VBox/SectionsTabContainer/Identite"]
 layout_mode = 2
 theme_type_variation = &"Subheading"
 theme_override_font_sizes/font_size = 18
-theme_override_colors/font_color = Color(0.13, 0.10, 0.08, 1)
 text = "Origine déclarée"
 
 [node name="OrigineBodyContainer" type="Control" parent="Panel/VBox/SectionsTabContainer/Identite"]
@@ -138,7 +133,6 @@ grow_vertical = 2
 mouse_filter = 2
 autowrap_mode = 3
 theme_override_font_sizes/font_size = 16
-theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
 text = "(contenu réservé aux Arpenteurs autorisés)"
 
 [node name="OrigineRedactionOverlay" type="TextureRect" parent="Panel/VBox/SectionsTabContainer/Identite/OrigineBodyContainer"]
@@ -162,7 +156,6 @@ horizontal_alignment = 1
 vertical_alignment = 1
 autowrap_mode = 3
 theme_override_font_sizes/font_size = 14
-theme_override_colors/font_color = Color(0.96, 0.92, 0.84, 1)
 text = "[Caviardage classe I — accès refusé. Voir vos privilèges de patente.]"
 
 [node name="Competences" type="VBoxContainer" parent="Panel/VBox/SectionsTabContainer"]
@@ -174,14 +167,12 @@ theme_override_constants/separation = 14
 layout_mode = 2
 theme_type_variation = &"Subheading"
 theme_override_font_sizes/font_size = 18
-theme_override_colors/font_color = Color(0.13, 0.10, 0.08, 1)
 text = "Compétences attestées"
 
 [node name="CompetencesBodyLabel" type="Label" parent="Panel/VBox/SectionsTabContainer/Competences"]
 layout_mode = 2
 autowrap_mode = 3
 theme_override_font_sizes/font_size = 16
-theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
 text = "Relevé non encore consigné."
 
 [node name="Dossier" type="VBoxContainer" parent="Panel/VBox/SectionsTabContainer"]
@@ -193,7 +184,6 @@ theme_override_constants/separation = 14
 layout_mode = 2
 theme_type_variation = &"Subheading"
 theme_override_font_sizes/font_size = 18
-theme_override_colors/font_color = Color(0.13, 0.10, 0.08, 1)
 text = "Mentions et incidents"
 
 [node name="MentionsBodyContainer" type="Control" parent="Panel/VBox/SectionsTabContainer/Dossier"]
@@ -210,7 +200,6 @@ grow_vertical = 2
 mouse_filter = 2
 autowrap_mode = 3
 theme_override_font_sizes/font_size = 16
-theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
 text = "(dossier sensible — contenu non communiqué)"
 
 [node name="MentionsRedactionOverlay" type="TextureRect" parent="Panel/VBox/SectionsTabContainer/Dossier/MentionsBodyContainer"]
@@ -234,21 +223,18 @@ horizontal_alignment = 1
 vertical_alignment = 1
 autowrap_mode = 3
 theme_override_font_sizes/font_size = 14
-theme_override_colors/font_color = Color(0.96, 0.92, 0.84, 1)
 text = "[Caviardage classe I — accès refusé. Voir vos privilèges de patente.]"
 
 [node name="MarginsHeaderLabel" type="Label" parent="Panel/VBox/SectionsTabContainer/Dossier"]
 layout_mode = 2
 theme_type_variation = &"Subheading"
 theme_override_font_sizes/font_size = 18
-theme_override_colors/font_color = Color(0.13, 0.10, 0.08, 1)
 text = "Annexes — Marges du Codex"
 
 [node name="MarginsBodyLabel" type="Label" parent="Panel/VBox/SectionsTabContainer/Dossier"]
 layout_mode = 2
 autowrap_mode = 3
 theme_override_font_sizes/font_size = 16
-theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
 text = "Aucune marge n'a encore été portée à ce dossier."
 
 [node name="Caviardages" type="VBoxContainer" parent="Panel/VBox/SectionsTabContainer"]
@@ -260,14 +246,12 @@ theme_override_constants/separation = 14
 layout_mode = 2
 theme_type_variation = &"Subheading"
 theme_override_font_sizes/font_size = 18
-theme_override_colors/font_color = Color(0.13, 0.10, 0.08, 1)
 text = "Zones masquées"
 
 [node name="RedactionZonesBodyLabel" type="Label" parent="Panel/VBox/SectionsTabContainer/Caviardages"]
 layout_mode = 2
 autowrap_mode = 3
 theme_override_font_sizes/font_size = 16
-theme_override_colors/font_color = Color(0.18, 0.14, 0.11, 1)
 text = "2 caviardages présents (classe I)."
 
 [node name="FooterRow" type="HBoxContainer" parent="Panel/VBox"]
