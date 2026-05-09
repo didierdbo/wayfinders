@@ -593,9 +593,43 @@ public partial class E2WorldMap : Control, IScreen
         }
     }
 
+    /// <summary>
+    /// J5 hotfix (2026-05-09 evening, locked) -- back-button click handler
+    /// with explicit diagnostic and F6-fallback. Pre-J5 the handler was a
+    /// one-liner <c>await sceneManager.NavigateBack()</c>, which is correct
+    /// in the production navigation flow (E1 -&gt; E2 -&gt; back to E1) but
+    /// silently no-ops when the SceneManager stack is empty -- the F6 path
+    /// where Godot instantiates E2WorldMap directly as <c>main_scene</c>.
+    ///
+    /// <para>
+    /// J5 surfaces both halves : the click is logged unconditionally so
+    /// the user can confirm the <c>Pressed</c> signal fires (rules out
+    /// "the click never reached the button" -- e.g. an Area3D or invisible
+    /// Control overlay swallowing the event), and the empty-stack path
+    /// closes the editor app via <see cref="SceneTree.Quit"/> so F6 testing
+    /// can exit the screen the same way the production button would.
+    /// </para>
+    /// </summary>
     private async void OnBackPressed()
     {
+        GD.Print("[E2WorldMap J5] BackButton clicked -- delegating to SceneManager.NavigateBack");
         var sceneManager = GetNode<SceneManager>("/root/SceneManager");
+
+        // F6 fallback : in production, E2 sits above E1 on the stack and
+        // NavigateBack pops to E1. In F6 mode, the stack is empty (E2 was
+        // instantiated by Godot, not by SceneManager.NavigateTo) and
+        // NavigateBack early-returns silently -- the user perceives this
+        // as a dead button. Quit the running scene tree instead so F6
+        // testing has a clean exit path.
+        if (sceneManager.CurrentScreenId is null)
+        {
+            GD.Print(
+                "[E2WorldMap J5] BackButton clicked in F6 mode " +
+                "(SceneManager stack empty) -- quitting scene tree");
+            GetTree().Quit();
+            return;
+        }
+
         await sceneManager.NavigateBack();
     }
 

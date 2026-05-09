@@ -207,6 +207,45 @@ public partial class MapPan2DComponent : Node2D
     [Export] public ulong ZoomPostTransitionDebounceMs { get; set; } = 250;
 
     /// <summary>
+    /// J5 diagnostics (post-J4 hotfix, 2026-05-09 evening, locked).
+    /// Surfaces three failure modes the J4 generalisation could induce on
+    /// the pan stack :
+    /// <list type="bullet">
+    ///   <item><b>Action gate</b> -- one-shot log on the FIRST press of each
+    ///         <c>ui_pan_*</c> action. Confirms <see cref="Input.IsActionPressed"/>
+    ///         observes the keypress (rules out InputMap regression).</item>
+    ///   <item><b>Frozen-camera watchdog</b> -- when input direction is
+    ///         non-zero but <c>Camera2D.Position</c> does not change for
+    ///         <see cref="FrozenPanWarnFrames"/> consecutive frames, dump
+    ///         the full clamp state once. Catches "clamp snaps to center"
+    ///         (image less or equal viewport on an axis) and "viewport size unexpected"
+    ///         regressions.</item>
+    ///   <item><b>Stuck-transition watchdog</b> -- if <c>_inTransition</c>
+    ///         stays true beyond <see cref="StuckTransitionResetMs"/> with
+    ///         no <c>NotifyTransitionEnded</c> call, force-reset and warn.
+    ///         Catches the case where <c>OnDrillRequested</c> /
+    ///         <c>OnClimbRequested</c> consumer code throws before its
+    ///         <c>finally</c> block (async void unobserved exception).</item>
+    /// </list>
+    /// Default true so the user gets free observability post-J4. Flip to
+    /// false in the inspector once the regression is closed and the noise
+    /// is no longer wanted in the Output panel.
+    /// </summary>
+    [Export] public bool EnableJ5PanDiagnostics { get; set; } = true;
+
+    /// <summary>J5 diagnostics -- frame count threshold above which the
+    /// frozen-camera watchdog logs once. 30 frames = 0.5 s at 60 fps.</summary>
+    [Export] public int FrozenPanWarnFrames { get; set; } = 30;
+
+    /// <summary>J5 diagnostics -- ms threshold above which the stuck-
+    /// transition watchdog force-resets <c>_inTransition</c>. 2000 ms is
+    /// long enough for the slowest legitimate NavigateTo (E2 -&gt; E3 with
+    /// asset preload) and short enough that the user notices the reset
+    /// happens before they lose patience clicking other UI.</summary>
+    [Export] public ulong StuckTransitionResetMs { get; set; } = 2000;
+
+
+    /// <summary>
     /// Names of the four InputMap actions <see cref="_Process"/> polls.
     /// Held in one place so the preflight self-check (<see cref="_Ready"/>)
     /// can verify each one is registered and emit a console warning if
@@ -311,6 +350,18 @@ public partial class MapPan2DComponent : Node2D
     // tick).
     private ZoomNavAction _lastZoomAction = ZoomNavAction.None;
     private ulong _lastTransitionTimeMs;
+
+    // J5 diagnostics state -- four flags for first-press logging, one
+    // counter for frozen-camera watchdog, one timestamp for stuck-
+    // transition watchdog. Allocation-free in the hot path.
+    private bool _j5SeenLeftPress;
+    private bool _j5SeenRightPress;
+    private bool _j5SeenUpPress;
+    private bool _j5SeenDownPress;
+    private int _j5FrozenFrameCount;
+    private Vector2 _j5LastCameraPosition;
+    private ulong _j5InTransitionStartedMs;
+    private bool _j5StuckTransitionWarned;
 
     /// <summary>The world container Node2D. Consumers spawn world-space
     /// children (entities, fog, decals) under this node so they pan with
@@ -507,15 +558,88 @@ public partial class MapPan2DComponent : Node2D
     {
         if (!_configured) return;
         if (IsModalOpen()) return;
+
+        // J5 stuck-transition watchdog -- runs BEFORE the _inTransition
+        // gate so a stuck flag self-heals instead of permanently locking
+        // pan. async void OnDrillRequested / OnClimbRequested can swallow
+        // exceptions silently ; this catches the resulting orphan lock.
+        // The decision rule lives in PanWatchdogLogic (pure-C#, xUnit-pinned).
+        if (_inTransition && EnableJ5PanDiagnostics)
+        {
+            var nowMs = Time.GetTicksMsec();
+            var action = PanWatchdogLogic.EvaluateStuckTransition(
+                _j5InTransitionStartedMs, nowMs, StuckTransitionResetMs);
+            switch (action)
+            {
+                case StuckTransitionAction.StartTimer:
+                    _j5InTransitionStartedMs = nowMs;
+                    break;
+                case StuckTransitionAction.WarnAndReset:
+                    if (!_j5StuckTransitionWarned)
+                    {
+                        GD.PushWarning(
+                            $"[MapPan2DComponent J5] stuck-transition watchdog : " +
+                            $"_inTransition has been true for {nowMs - _j5InTransitionStartedMs} ms " +
+                            $"with no NotifyTransitionEnded -- forcing reset. " +
+                            $"Consumer OnDrillRequested / OnClimbRequested likely threw " +
+                            $"before its finally block (async void unobserved exception).");
+                        _j5StuckTransitionWarned = true;
+                    }
+                    _inTransition = false;
+                    _j5InTransitionStartedMs = 0;
+                    break;
+                case StuckTransitionAction.Wait:
+                default:
+                    break;
+            }
+        }
+        else
+        {
+            _j5InTransitionStartedMs = 0;
+            _j5StuckTransitionWarned = false;
+        }
+
         if (_inTransition) return; // slice 3 -- input lock during transition
 
-        var dir = CameraPanLogic.ResolvePanDirection(
-            left:  Input.IsActionPressed("ui_pan_left"),
-            right: Input.IsActionPressed("ui_pan_right"),
-            up:    Input.IsActionPressed("ui_pan_up"),
-            down:  Input.IsActionPressed("ui_pan_down"));
+        var leftPressed  = Input.IsActionPressed("ui_pan_left");
+        var rightPressed = Input.IsActionPressed("ui_pan_right");
+        var upPressed    = Input.IsActionPressed("ui_pan_up");
+        var downPressed  = Input.IsActionPressed("ui_pan_down");
 
-        if (dir.X == 0f && dir.Y == 0f) return;
+        // J5 -- one-shot log on first press of each direction. Confirms
+        // the InputMap action wires through to Input.IsActionPressed.
+        if (EnableJ5PanDiagnostics)
+        {
+            if (leftPressed && !_j5SeenLeftPress)
+            {
+                _j5SeenLeftPress = true;
+                GD.Print("[MapPan2DComponent J5] first ui_pan_left press observed");
+            }
+            if (rightPressed && !_j5SeenRightPress)
+            {
+                _j5SeenRightPress = true;
+                GD.Print("[MapPan2DComponent J5] first ui_pan_right press observed");
+            }
+            if (upPressed && !_j5SeenUpPress)
+            {
+                _j5SeenUpPress = true;
+                GD.Print("[MapPan2DComponent J5] first ui_pan_up press observed");
+            }
+            if (downPressed && !_j5SeenDownPress)
+            {
+                _j5SeenDownPress = true;
+                GD.Print("[MapPan2DComponent J5] first ui_pan_down press observed");
+            }
+        }
+
+        var dir = CameraPanLogic.ResolvePanDirection(
+            left: leftPressed, right: rightPressed, up: upPressed, down: downPressed);
+
+        if (dir.X == 0f && dir.Y == 0f)
+        {
+            _j5FrozenFrameCount = 0;
+            return;
+        }
 
         var current = new PanVec2(_worldCamera.Position.X, _worldCamera.Position.Y);
         var imageSize = new PanVec2(_worldImageSize.X, _worldImageSize.Y);
@@ -525,7 +649,44 @@ public partial class MapPan2DComponent : Node2D
         var advanced = CameraPanLogic.AdvanceCameraCenter(
             current, dir, PanSpeedPxPerSec, (float)delta, imageSize, viewport);
 
-        _worldCamera.Position = new Vector2(advanced.X, advanced.Y);
+        var newPos = new Vector2(advanced.X, advanced.Y);
+        _worldCamera.Position = newPos;
+
+        // J5 frozen-camera watchdog -- input direction is non-zero but
+        // the clamp snapped the camera to the same Y or X. Common cause :
+        // viewport >= image on that axis (clamp snap-to-center). Less
+        // common : zoom-aware clamp regression (when zoom < 1.0 the
+        // visible area is wider than the raw viewport, the clamp range
+        // shrinks, and a camera near an edge cannot move further).
+        if (EnableJ5PanDiagnostics)
+        {
+            if (newPos == _j5LastCameraPosition)
+            {
+                _j5FrozenFrameCount++;
+                if (PanWatchdogLogic.ShouldWarnOnFrozenCamera(_j5FrozenFrameCount, FrozenPanWarnFrames))
+                {
+                    var zoomY = _worldCamera.Zoom.Y;
+                    var visibleH = zoomY > 0f ? viewportSize.Y / zoomY : viewportSize.Y;
+                    var visibleW = _worldCamera.Zoom.X > 0f ? viewportSize.X / _worldCamera.Zoom.X : viewportSize.X;
+                    GD.PushWarning(
+                        $"[MapPan2DComponent J5] frozen-camera watchdog : pan input " +
+                        $"dir=({dir.X:F2},{dir.Y:F2}) for {FrozenPanWarnFrames} frames but " +
+                        $"Camera2D.Position={newPos} did not change. " +
+                        $"viewport={viewportSize} visible(world-px)=({visibleW:F0},{visibleH:F0}) " +
+                        $"image={_worldImageSize} zoom={_worldCamera.Zoom} " +
+                        $"limits=[({_worldCamera.LimitLeft},{_worldCamera.LimitTop})-" +
+                        $"({_worldCamera.LimitRight},{_worldCamera.LimitBottom})]. " +
+                        $"Likely cause : viewport greater or equal to image on the frozen axis " +
+                        $"(ClampCameraCenter snap-to-center branch). " +
+                        $"Run windowed at 1920x1080 to confirm.");
+                }
+            }
+            else
+            {
+                _j5FrozenFrameCount = 0;
+            }
+        }
+        _j5LastCameraPosition = newPos;
     }
 
     public override void _Input(InputEvent @event)
