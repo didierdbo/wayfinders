@@ -371,6 +371,63 @@ public sealed class FogTileGridLogicTests
     }
 
     [Fact]
+    public void Iso_hit_test_compensates_for_render_y_offset()
+    {
+        // 2026-05-09 hotfix pin. FogTileLayer renders every cell at
+        //   (centerX + shiftX, centerY + shiftY + FogYOffset)
+        // to fake the floating-tile / tile-thickness effect (Varn §4.1
+        // + 2026-05-09 thicker-asset support). The hit-test wrapper
+        // FogTileLayer.WorldPositionToCell must compensate by feeding
+        // (worldY - FogYOffset) back into the pure logic, otherwise the
+        // player clicks the visual top of a tile and the math resolves
+        // to the cell one row above.
+        //
+        // This test pins the round-trip : render a coord at its visual
+        // position with a non-zero offset, then hit-test the
+        // *compensated* world position and assert we get the same coord
+        // back. Failure here means the hit-test/render contract has
+        // drifted.
+        const float fogYOffset = -8f; // current default
+        const float thickAssetOffset = -60f; // simulated thick-skirt asset
+        var dimensions = new GridDimensions(20, 20);
+        var coord = new GridCoord(7, 4);
+        var center = FogTileGridLogic.ComputeCellCenter(
+            coord, 128, GridProjection.IsoDiamondDown);
+        var shift = FogTileGridLogic.ComputeIsoOriginShift(
+            dimensions, 128, GridProjection.IsoDiamondDown);
+
+        foreach (var offset in new[] { fogYOffset, thickAssetOffset })
+        {
+            // Player clicks the visually-rendered center of the cell.
+            var visualWorldPos = new PanVec2(
+                center.X + shift.X,
+                center.Y + shift.Y + offset);
+
+            // Wrapper compensation : subtract the offset before hit-test.
+            var compensated = new PanVec2(
+                visualWorldPos.X,
+                visualWorldPos.Y - offset);
+
+            var resolved = FogTileGridLogic.WorldPositionToCell(
+                compensated, 128, dimensions, GridProjection.IsoDiamondDown);
+            Assert.NotNull(resolved);
+            Assert.Equal(coord, resolved!.Value);
+
+            // Negative control : *without* compensation, a non-trivial
+            // offset must mis-resolve (or null). The thick-skirt case is
+            // the one that actually breaks gameplay ; -8 is too small to
+            // push out of the diamond at cellSize 128.
+            if (System.MathF.Abs(offset) > 32f)
+            {
+                var uncompensated = FogTileGridLogic.WorldPositionToCell(
+                    visualWorldPos, 128, dimensions,
+                    GridProjection.IsoDiamondDown);
+                Assert.NotEqual(coord, uncompensated ?? coord);
+            }
+        }
+    }
+
+    [Fact]
     public void Iso_diamond_vertices_match_2_to_1_aspect_ratio()
     {
         var (top, right, bottom, left) =

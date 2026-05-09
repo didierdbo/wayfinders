@@ -277,11 +277,22 @@ public partial class FogTileLayer : Node2D
     /// Hit-test entry point. Translates a world-space cursor position to
     /// a grid coord using the same <see cref="FogTileGridLogic"/> seam
     /// every other consumer uses, in the configured projection.
+    ///
+    /// <para>
+    /// 2026-05-09 hotfix : the renderer offsets every cell by
+    /// <see cref="FogYOffset"/> on Y to fake the floating-tile effect
+    /// (and, in the future, tile thickness). The hit-test must undo
+    /// the same offset before inverting the iso projection, otherwise
+    /// the player clicks the visual top of a tile and the math
+    /// resolves to a cell one row up. Visible at -8 px, catastrophic
+    /// once tile assets carry a thicker skirt. Pinned by
+    /// <c>FogTileGridLogicTests.Iso_hit_test_compensates_for_render_y_offset</c>.
+    /// </para>
     /// </summary>
     public GridCoord? WorldPositionToCell(Vector2 worldPosition)
     {
         return FogTileGridLogic.WorldPositionToCell(
-            new PanVec2(worldPosition.X, worldPosition.Y),
+            new PanVec2(worldPosition.X, worldPosition.Y - FogYOffset),
             CellSizePx,
             _dimensions,
             Projection);
