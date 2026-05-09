@@ -203,6 +203,28 @@ public partial class FogTileLayer : Node2D
     /// <summary>Sceau placeholder radius in world pixels (12-gon disc).</summary>
     [Export] public int SceauPlaceholderRadiusPx { get; set; } = 14;
 
+    /// <summary>
+    /// Jalon 3 (Wayfinders 3D Backing Architecture, locked 2026-05-09 +
+    /// GO J3 same day) -- enable the 3D-authoritative backing for a
+    /// single witness cell of the production grid. Default <c>true</c> :
+    /// J3 ships with the witness on. Flip to <c>false</c> in the
+    /// inspector to fall back to pure-2D pre-J3 behaviour without
+    /// re-deploying (kill-switch). When false, the witness cell behaves
+    /// exactly like every other cell of the grid and no 3D nodes are
+    /// spawned -- safe rollback for production.
+    /// </summary>
+    [Export] public bool EnableJ3Witness { get; set; } = true;
+
+    /// <summary>
+    /// Jalon 3 -- the witness cell coord. Default (0, 0) : top-left iso
+    /// pole of the grid. Chosen for minimum visual blast radius -- if
+    /// the 3D-authoritative sync regresses, the drift shows at the
+    /// visible edge of the world, not at the centre where it would
+    /// distort the playable area. Per-instance override via [Export]
+    /// for L2/L3 instances or playtest variants.
+    /// </summary>
+    [Export] public Vector2I J3WitnessCoord { get; set; } = new Vector2I(0, 0);
+
     private Node2D _fogContainer = null!;
     private TileKnowledgeStore? _knowledgeStore;
     private TileKnowledgeStore.KnowledgeChangedEventHandler? _knowledgeChangedHandler;
@@ -228,6 +250,15 @@ public partial class FogTileLayer : Node2D
     /// </summary>
     private readonly Dictionary<GridCoord, Tween> _activeCellTweens = new();
 
+    /// <summary>
+    /// Jalon 3 -- the 3D-authoritative follower for the witness cell, or
+    /// null if <see cref="EnableJ3Witness"/> is false / not configured
+    /// yet. The follower owns the witness Node3D, the Area3D pickup, and
+    /// the Camera3D shadow follower ; <see cref="FogTileLayer"/> drives
+    /// it via per-frame <see cref="_Process"/>.
+    /// </summary>
+    private Cell3DBackingFollower? _j3Follower;
+
     public override void _Ready()
     {
         _fogContainer = new Node2D
@@ -236,6 +267,39 @@ public partial class FogTileLayer : Node2D
             ZIndex = FogZIndex,
         };
         AddChild(_fogContainer);
+    }
+
+    /// <summary>
+    /// Jalon 3 -- per-frame sync of the 3D-authoritative witness cell.
+    /// Reads the witness Node3D position via the follower, derives the
+    /// 2D screen position via the forward iso projection, and applies
+    /// it to the witness cell's <c>Node2D</c> in <see cref="_cells"/>.
+    /// Also drives the follower Camera3D from the prod Camera2D.
+    ///
+    /// <para>
+    /// J3 scope : the 3D node is static (constructor-positioned, never
+    /// mutated this jalon), so the witness cell's screen position
+    /// equals what <c>SpawnCells</c> originally computed. The path
+    /// through the 3D node is what makes Option A
+    /// (entity-3D-authoritative) live in runtime, not the visual
+    /// outcome ; J6+ will start mutating <c>WitnessNode3D.Position</c>
+    /// for animations.
+    /// </para>
+    /// </summary>
+    public override void _Process(double delta)
+    {
+        if (_j3Follower is null) return;
+        _j3Follower.ApplyFollowerSync();
+
+        // Apply the 3D-derived 2D position to the witness cell's
+        // Node2D. The witness cell still has its full pre-J3 visual
+        // tree (Shadow, CartonFace, CartonBack, Sceau) -- only its
+        // Position is now driven by the 3D-authoritative path.
+        var coord = new GridCoord(J3WitnessCoord.X, J3WitnessCoord.Y);
+        if (_cells.TryGetValue(coord, out var visuals))
+        {
+            visuals.Cell.Position = _j3Follower.WitnessCell2DPosition;
+        }
     }
 
     /// <summary>
@@ -256,6 +320,8 @@ public partial class FogTileLayer : Node2D
             new PanVec2(worldImageSize.X, worldImageSize.Y), CellSizePx, Projection);
 
         SpawnCells(placeholderTexture);
+
+        TrySpawnJ3Follower();
 
         _knowledgeChangedHandler = OnKnowledgeChanged;
         _knowledgeStore.KnowledgeChanged += _knowledgeChangedHandler;
@@ -573,8 +639,99 @@ public partial class FogTileLayer : Node2D
             $"current state={_knowledgeStore?.GetState(coord)}");
     }
 
+    /// <summary>
+    /// Jalon 3 -- spawn the <see cref="Cell3DBackingFollower"/> for the
+    /// witness cell when <see cref="EnableJ3Witness"/> is true. No-op
+    /// otherwise. The follower owns the witness Node3D, the Area3D
+    /// pickup volume, and the Camera3D shadow follower ; it spawns
+    /// them as children of this <c>FogTileLayer</c> Node2D so they
+    /// share the world-tree pan but live in 3D space.
+    ///
+    /// <para>
+    /// The Camera2D is read from the parent <c>MapPan2DComponent</c>
+    /// (search up the scene tree for a child <c>WorldCamera</c>
+    /// Camera2D, then any Camera2D). If the layer is not parented
+    /// under a <c>MapPan2DComponent</c> (e.g. unit test harness), the
+    /// follower spawns without a Camera2D reference and the per-frame
+    /// sync degrades to identity (the witness still anchors at its
+    /// canonical screen position, just without zoom/pan tracking).
+    /// </para>
+    /// </summary>
+    private void TrySpawnJ3Follower()
+    {
+        if (!EnableJ3Witness) return;
+        if (_j3Follower is not null)
+        {
+            _j3Follower.Dispose();
+            _j3Follower = null;
+        }
+
+        var witness = new GridCoord(J3WitnessCoord.X, J3WitnessCoord.Y);
+        if (witness.Col < 0 || witness.Col >= _dimensions.Columns ||
+            witness.Row < 0 || witness.Row >= _dimensions.Rows)
+        {
+            GD.PushWarning(
+                $"[FogTileLayer J3] witness coord ({witness.Col}, {witness.Row}) " +
+                $"out of grid bounds ({_dimensions.Columns}x{_dimensions.Rows}) -- skip J3 spawn");
+            return;
+        }
+
+        var shift = FogTileGridLogic.ComputeIsoOriginShift(_dimensions, CellSizePx, Projection);
+
+        Camera2D? parentCamera = FindParentCamera2D();
+
+        _j3Follower = new Cell3DBackingFollower(
+            host: this,
+            witnessCell: witness,
+            cellSizePx: CellSizePx,
+            isoOriginShift: shift,
+            fogYOffset: FogYOffset,
+            camera2D: parentCamera);
+
+        _j3Follower.Spawn();
+
+        var anchorSummary = parentCamera is null
+            ? "no Camera2D found (no zoom/pan tracking)"
+            : $"Camera2D={parentCamera.Name}";
+        GD.Print(
+            $"[FogTileLayer J3] spawned witness 3D follower at cell " +
+            $"({witness.Col}, {witness.Row}) -- Pattern A in runtime, Option A locked. " +
+            $"Hover/click on this cell now flows through Area3D physics picking. " +
+            $"{anchorSummary}.");
+    }
+
+    /// <summary>
+    /// Jalon 3 -- walk up the scene tree to find the parent Camera2D.
+    /// Looks for a child named <c>WorldCamera</c> first (the
+    /// <see cref="MapPan2DComponent"/> convention) ; falls back to any
+    /// direct Camera2D child for test harnesses that do not follow the
+    /// naming. Returns null if no Camera2D is found in the ancestor
+    /// chain.
+    /// </summary>
+    private Camera2D? FindParentCamera2D()
+    {
+        var node = GetParent();
+        while (node is not null)
+        {
+            var cam = node.GetNodeOrNull<Camera2D>("WorldCamera");
+            if (cam is not null) return cam;
+            foreach (var child in node.GetChildren())
+            {
+                if (child is Camera2D c) return c;
+            }
+            node = node.GetParent();
+        }
+        return null;
+    }
+
     public override void _ExitTree()
     {
+        if (_j3Follower is not null)
+        {
+            _j3Follower.Dispose();
+            _j3Follower = null;
+        }
+
         DespawnAll();
 
         if (_knowledgeStore is not null && _knowledgeChangedHandler is not null)

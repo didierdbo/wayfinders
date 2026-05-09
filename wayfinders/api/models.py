@@ -56,6 +56,37 @@ class HealthResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     status: str = Field(..., description="Service status. ``ok`` when healthy.")
+    model_ready: bool = Field(
+        ...,
+        description=(
+            "True when both encoder and head ONNX sessions are loaded and "
+            "``/api/uc1/predict`` is operational. "
+            "False if either artifact is missing (predict returns 503)."
+        ),
+    )
+
+
+class UC1InfoResponse(BaseModel):
+    """Debug info for the UC1 inference backend.
+
+    Exposes the ONNX artifact paths and readiness flag so the Godot client
+    (and ops) can verify which checkpoint is loaded without calling predict.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    model_ready: bool = Field(
+        ..., description="True when both encoder and head ONNX sessions are loaded."
+    )
+    encoder_onnx_path: str = Field(..., description="Resolved path to the encoder ONNX artifact.")
+    head_onnx_path: str = Field(..., description="Resolved path to the head ONNX artifact.")
+    device: str = Field(
+        ...,
+        description=(
+            "Runtime descriptor. ``ort-cpu`` for CPUExecutionProvider (current default). "
+            "Extended in M2 for GPU providers."
+        ),
+    )
 
 
 class UC1PredictRequest(BaseModel):

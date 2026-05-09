@@ -2,20 +2,23 @@
 
 Endpoints:
 
-* ``GET /api/health`` — liveness/readiness probe. Returns ``{"status": "ok"}``.
+* ``GET /api/health`` — liveness/readiness probe.
+  Returns ``{"status": "ok", "model_ready": bool}``.
 * ``GET /api/units`` — roster of unit types as a JSON array. Schema matches
   the C# ``UnitData`` record on the Godot client side.
+* ``GET /api/uc1/info`` — UC1 model debug info: artifact paths + readiness.
 * ``POST /api/uc1/predict`` — UC1 resolution prediction. Takes three EN-rendered
   prose strings (character, action, context) and returns ``delta`` in [-5, +5].
-  Returns HTTP 503 if the model checkpoint is not loaded.
+  Returns HTTP 503 if the model ONNX sessions are not loaded.
 
 Run locally::
 
     uv run uvicorn wayfinders.api.app:app --reload
 
-To enable the UC1 predict endpoint, set the checkpoint path::
+To override the default ONNX artifact paths::
 
-    WAYFINDERS_HEAD_CKPT=artifacts/models/checkpoints/head_best.pt \\
+    WAYFINDERS_ENCODER_ONNX=artifacts/onnx/minilm-l6-v2-fp16.onnx \\
+    WAYFINDERS_HEAD_ONNX=artifacts/onnx/resolution-head-v0.6.onnx \\
         uv run uvicorn wayfinders.api.app:app --reload
 """
 
@@ -29,6 +32,7 @@ from fastapi import FastAPI, HTTPException, Request
 
 from wayfinders.api.models import (
     HealthResponse,
+    UC1InfoResponse,
     UC1PredictRequest,
     UC1PredictResponse,
     Unit,
@@ -74,9 +78,32 @@ app = FastAPI(
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["meta"])
-def get_health() -> HealthResponse:
-    """Liveness/readiness check used by the client and CI smoke tests."""
-    return HealthResponse(status="ok")
+def get_health(request: Request) -> HealthResponse:
+    """Liveness/readiness check used by the client and CI smoke tests.
+
+    ``model_ready`` lets Rune's ApiClient gate on ML availability before
+    calling ``/api/uc1/predict``.  The endpoint itself always returns 200
+    regardless of model state (liveness vs readiness separation).
+    """
+    predictor: Predictor = request.app.state.predictor
+    return HealthResponse(status="ok", model_ready=predictor.ready)
+
+
+@app.get("/api/uc1/info", response_model=UC1InfoResponse, tags=["uc1"])
+def uc1_info(request: Request) -> UC1InfoResponse:
+    """Debug info for the UC1 inference backend.
+
+    Returns the resolved ONNX artifact paths, readiness flag, and device
+    descriptor.  Intended for Rune's ApiClient startup handshake and ops
+    tooling.  Does not trigger inference.
+    """
+    predictor: Predictor = request.app.state.predictor
+    return UC1InfoResponse(
+        model_ready=predictor.ready,
+        encoder_onnx_path=predictor.encoder_onnx_path,
+        head_onnx_path=predictor.head_onnx_path,
+        device=predictor.device,
+    )
 
 
 @app.get("/api/units", response_model=list[Unit], tags=["roster"])
