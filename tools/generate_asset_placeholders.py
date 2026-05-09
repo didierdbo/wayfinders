@@ -11,11 +11,19 @@ Usage
 The script is idempotent: existing PNGs are skipped unless ``--force`` is
 passed. Each placeholder is a solid-color rectangle (palette derived from
 Mira's locked palette, picked deterministically by hashing the asset key)
-with three centered text lines:
+plus a thin dark identification bar along the bottom edge with a single
+compact label line:
 
-    1. The asset key (e.g. ``e1.bureau``).
-    2. The intended resolution parsed from the filename (e.g. ``3840x2160``).
-    3. ``Mira placeholder -- overwrite me``.
+    e1.buttons_frame -- 2048x2048 (weathered-grey)
+
+The center of the image stays a clean color aplat. Rationale: when a
+placeholder PNG is used as a frame asset (e.g. ``e1.buttons_frame``)
+underneath UI buttons, the legacy 3-lines-of-centered-text layout would
+visibly transpaire between/around the buttons. Concentrating the
+identification metadata into a thin bottom slate keeps the asset
+identifiable when opened in a file explorer or the Godot import preview,
+without polluting the visible center of the placeholder when the image
+is composited under UI. (Bug fix 2026-05-09.)
 
 Naming convention parsed from filename: ``..._<W>x<H>.png``. If the regex
 fails the file is skipped with a clear warning -- the key map should be
@@ -63,9 +71,9 @@ PALETTE = [
     ("weathered-grey", (112, 110, 102)),  # #706E66
 ]
 
-# Dark stamp-ink color for the centered text overlay. Stays readable on every
-# palette entry above.
-TEXT_COLOR = (32, 26, 22)
+# Slate (bottom identification bar) colors.
+SLATE_BG = (24, 20, 18)  # near-black ink
+SLATE_FG = (220, 210, 192)  # parchment cream
 
 RES_REGEX = re.compile(r"_(\d+)x(\d+)\.png$", re.IGNORECASE)
 
@@ -117,47 +125,45 @@ def render_placeholder(
     palette_name: str,
     palette_rgb: tuple[int, int, int],
 ) -> None:
+    """Render the placeholder. Center is a clean color aplat ; identification
+    metadata sits in a thin slate bar at the bottom edge so it does not
+    transpaire through UI when the placeholder is used as a frame.
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     image = Image.new("RGB", (width, height), palette_rgb)
     draw = ImageDraw.Draw(image)
 
-    # Pick a text size that scales with the smaller image dimension. We keep
-    # all three text lines comfortably inside the placeholder regardless of
-    # aspect ratio.
-    base_size = max(24, min(width, height) // 12)
-    title_font = find_font(base_size)
-    subtitle_font = find_font(int(base_size * 0.65))
-    footnote_font = find_font(int(base_size * 0.45))
+    # Slate bar: 8% of the image height, capped to a sane absolute range so
+    # tiny 256x256 markers still get a readable label and large 3840x2160
+    # backgrounds do not waste 300px of vertical real estate.
+    slate_h = max(28, min(height // 12, 96))
+    slate_top = height - slate_h
+    draw.rectangle((0, slate_top, width, height), fill=SLATE_BG)
 
-    line1 = asset_key
-    line2 = f"{width}x{height} ({palette_name})"
-    line3 = "Mira placeholder -- overwrite me"
+    # Single-line identification label inside the slate bar.
+    label = f"{asset_key}  --  {width}x{height} ({palette_name})  --  Mira placeholder"
+    # Aim for label height around 60% of slate height ; clamp to a font we
+    # can actually load.
+    label_size = max(12, int(slate_h * 0.55))
+    label_font = find_font(label_size)
 
-    # Compute total stack height to vertically center the text block.
     def text_size(text: str, font: ImageFont.ImageFont) -> tuple[int, int]:
-        # Pillow >= 9 uses textbbox; older versions fallback to textsize.
         if hasattr(draw, "textbbox"):
             x0, y0, x1, y1 = draw.textbbox((0, 0), text, font=font)
             return x1 - x0, y1 - y0
         return draw.textsize(text, font=font)  # type: ignore[attr-defined]
 
-    w1, h1 = text_size(line1, title_font)
-    w2, h2 = text_size(line2, subtitle_font)
-    w3, h3 = text_size(line3, footnote_font)
+    # If the label is wider than the image, drop progressively to fit.
+    lw, lh = text_size(label, label_font)
+    while lw > width - 16 and label_size > 10:
+        label_size -= 2
+        label_font = find_font(label_size)
+        lw, lh = text_size(label, label_font)
 
-    gap = max(8, base_size // 6)
-    total_h = h1 + gap + h2 + gap + h3
-    start_y = (height - total_h) // 2
-
-    draw.text(((width - w1) // 2, start_y), line1, fill=TEXT_COLOR, font=title_font)
-    draw.text(((width - w2) // 2, start_y + h1 + gap), line2, fill=TEXT_COLOR, font=subtitle_font)
-    draw.text(
-        ((width - w3) // 2, start_y + h1 + gap + h2 + gap),
-        line3,
-        fill=TEXT_COLOR,
-        font=footnote_font,
-    )
+    label_x = max(8, (width - lw) // 2)
+    label_y = slate_top + (slate_h - lh) // 2
+    draw.text((label_x, label_y), label, fill=SLATE_FG, font=label_font)
 
     image.save(out_path, format="PNG", optimize=True)
 
