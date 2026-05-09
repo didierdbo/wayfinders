@@ -635,7 +635,9 @@ def test_table_is_addressable() -> None:
         assert len(table) > 0, f"{name} is empty"
         # Every value is an int (Δ-component).
         for k, v in table.items():
-            assert isinstance(v, int), f"{name}[{k!r}] is not int: {v!r}"
+            assert isinstance(v, (int, float)), f"{name}[{k!r}] is not int/float: {v!r}"
+            # v0.6 grid: values must be on 0.5 increments.
+            assert (v * 2) == int(v * 2), f"{name}[{k!r}]={v!r} not on 0.5 grid"
 
     # Tier tables: non-empty tuples of (threshold, delta) pairs.
     tier_tables = [
@@ -649,7 +651,8 @@ def test_table_is_addressable() -> None:
         assert len(tiers) > 0, f"{name} is empty"
         for threshold, delta in tiers:
             assert isinstance(threshold, int), f"{name} threshold not int"
-            assert isinstance(delta, int), f"{name} delta not int"
+            assert isinstance(delta, (int, float)), f"{name} delta not int/float"
+            assert (delta * 2) == int(delta * 2), f"{name} delta {delta!r} not on 0.5 grid"
 
     # Frozenset tables: non-empty.
     assert len(tbl.ADJACENT_PROFESSIONS_STEALTH) > 0
@@ -659,7 +662,7 @@ def test_table_is_addressable() -> None:
     assert isinstance(tbl.TANH_OUTPUT_SCALE, float)
     assert isinstance(tbl.TANH_INPUT_SCALE, float)
     assert tbl.TANH_OUTPUT_SCALE == 5.0
-    assert tbl.TANH_INPUT_SCALE == 5.0
+    assert tbl.TANH_INPUT_SCALE == 8.0  # v0.6 -- expanded from 5.0 to reduce saturation
 
     # Total rule count: sum of entries across all Mapping tables >= 100
     # (proves the table is substantive enough for training signal).

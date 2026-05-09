@@ -225,7 +225,7 @@ def main() -> None:
     # Assemble JSON report
     # ------------------------------------------------------------------
     report: dict[str, object] = {
-        "version": "Varn UC1 Designer Modifier Table v0.5",
+        "version": "Varn UC1 Designer Modifier Table v0.6",
         "n_rollouts": n,
         "policy": args.policy,
         "seed": args.seed,
