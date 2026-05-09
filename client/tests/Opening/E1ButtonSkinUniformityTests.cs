@@ -158,6 +158,24 @@ public sealed class E1ButtonSkinUniformityTests
         return result;
     }
 
+    /// <summary>
+    /// Pull the integer value of <c>theme_override_font_sizes/font_size</c>
+    /// from each Button. Missing override -&gt; <c>null</c> (button falls
+    /// back to the theme default in <c>wayfinders_default.tres</c>).
+    /// </summary>
+    private static Dictionary<string, int?> ParseButtonFontSizes(string sceneText)
+    {
+        var result = new Dictionary<string, int?>();
+        foreach (var (name, body) in ParseButtonBodies(sceneText))
+        {
+            var m = Regex.Match(
+                body,
+                @"theme_override_font_sizes/font_size\s*=\s*(-?\d+)");
+            result[name] = m.Success ? int.Parse(m.Groups[1].Value) : null;
+        }
+        return result;
+    }
+
     [Fact]
     public void All_four_buttons_present_in_scene()
     {
@@ -273,5 +291,45 @@ public sealed class E1ButtonSkinUniformityTests
             $"E1 button outline_size must be in [1, 3] (got {distinct[0]}). " +
             "Above 3px the outline reads cartoon and breaks the Bourgeon " +
             "smooth-oil visual DNA (Wayfinders visual lock 2026-05-07).");
+    }
+
+    [Fact]
+    public void All_four_buttons_share_the_same_font_size()
+    {
+        var scene = ReadScene();
+        var parsed = ParseButtonFontSizes(scene);
+
+        foreach (var name in ExpectedButtonNames)
+        {
+            Assert.True(
+                parsed.TryGetValue(name, out var size) && size.HasValue,
+                $"Button '{name}' is missing " +
+                "'theme_override_font_sizes/font_size'. All four E1 menu " +
+                "buttons must declare an explicit font_size override so " +
+                "the typography lift survives a future theme default " +
+                "change (Didier 2026-05-09 hybrid : E1 quick fix now, " +
+                "global typography debt later).");
+        }
+
+        var distinct = ExpectedButtonNames
+            .Select(n => parsed[n])
+            .Distinct()
+            .ToList();
+
+        Assert.True(
+            distinct.Count == 1,
+            "All four E1 menu buttons must share the SAME " +
+            "'font_size'. The legibility lift is uniform across the " +
+            "menu, not per-button. Found distinct values: [" +
+            string.Join(", ", distinct.Select(s => s.HasValue ? s.Value.ToString() : "<missing>")) + "]");
+
+        // Sanity range: above the theme default (20) and below the title "Heading"
+        // size (36). The brief authorises +30..+40 pct over 20, i.e. 26..28 ;
+        // we leave headroom on both sides for a future, deliberate retune
+        // without forcing this test to be edited every time.
+        Assert.True(
+            distinct[0]!.Value > 20 && distinct[0]!.Value < 36,
+            $"E1 button font_size must be > 20 (theme default) and < 36 " +
+            $"(Heading size). Got {distinct[0]}.");
     }
 }
