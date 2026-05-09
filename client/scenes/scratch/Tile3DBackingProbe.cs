@@ -1,4 +1,5 @@
 using Godot;
+using System.Collections.Generic;
 
 namespace Wayfinders.Client.Scenes.Scratch;
 
@@ -32,6 +33,34 @@ namespace Wayfinders.Client.Scenes.Scratch;
 /// untouched. The probe is fully reversible : delete the
 /// <c>scenes/scratch/</c> folder and the production behavior is bit-for-bit
 /// identical to before Jalon 1.
+/// </para>
+///
+/// <para>
+/// <b>Debug-shaped UX (revisited 2026-05-09 after the first Didier
+/// playtest).</b> The first cut of this probe used the production
+/// parchment palette (skybox parchment background, subtle warm-tint
+/// hover/select) and an ambient <c>card_1.png</c> asset. Didier's
+/// reaction : "j'ai testé, mais je comprends pas ce qui se passe…
+/// quelle teinte parchemin ? je clique où ? je vois les mêmes tuiles
+/// qu'avant". Lesson : a debug probe must be aggressively distinct
+/// from the production palette. This rev :
+/// <list type="bullet">
+///   <item>flat dark technical background (no skybox, no parchment hue)
+///         so the witness tile is unmistakable ;</item>
+///   <item>procedurally-painted witness texture (parchment fill with a
+///         vivid green border + "TILE" label baked in) so it cannot be
+///         confused with a production iso atlas tile ;</item>
+///   <item>saturated hover (vivid green) and click (vivid red) tints —
+///         we are debugging, not shipping ;</item>
+///   <item>red wireframe box drawn over the <c>BoxShape3D</c> volume so
+///         Didier sees the click volume superimposed on the painted
+///         pixel ;</item>
+///   <item>on-screen <c>CanvasLayer</c> overlay with title, step-by-step
+///         instructions, live STATUS readout, and a live mirrored log
+///         panel — no need to hunt the Godot Output panel.</item>
+/// </list>
+/// The patterns A / C / signal-pickup are unchanged ; only the
+/// debug skin is swapped for clarity.
 /// </para>
 ///
 /// <para>
@@ -117,6 +146,19 @@ public partial class Tile3DBackingProbe : Node3D
     [Export] public NodePath CameraPath { get; set; } = "Camera3D";
 
     /// <summary>
+    /// Wireframe debug visualisation of the <c>BoxShape3D</c> volume —
+    /// 12 red line-segments showing the click zone superimposed on the
+    /// painted pixel. Lets Didier <i>see</i> the 3D collision volume.
+    /// </summary>
+    [Export] public NodePath WireframeBoxPath { get; set; } = "WireframeBox";
+
+    /// <summary>Overlay live status label — reads "STATUS: idle / hovering / SELECTED".</summary>
+    [Export] public NodePath StatusLabelPath { get; set; } = "OverlayUI/OverlayRoot/StatusLabel";
+
+    /// <summary>Overlay live mirrored log — last few lines of GD.Print output.</summary>
+    [Export] public NodePath LiveLogLabelPath { get; set; } = "OverlayUI/OverlayRoot/LiveLogLabel";
+
+    /// <summary>
     /// Camera ortho size — the vertical extent (in world units, which
     /// here equal pixels) the camera covers. 600 keeps a 256-px tile
     /// comfortably visible with margin.
@@ -147,16 +189,18 @@ public partial class Tile3DBackingProbe : Node3D
 
     /// <summary>
     /// Hover tint applied to the sprite while the cursor is over the
-    /// area. Multiplied into <c>Sprite3D.Modulate</c>. Warm parchment
-    /// glow — keeps the visual DNA palette.
+    /// area. <b>Saturated debug green</b> — we want this to be
+    /// unmistakable, not subtle. Production will swap to a
+    /// palette-aligned tint at the integration jalon.
     /// </summary>
-    [Export] public Color HoverModulate { get; set; } = new(1.20f, 1.10f, 0.90f, 1.0f);
+    [Export] public Color HoverModulate { get; set; } = new(0.30f, 1.00f, 0.30f, 1.0f);
 
     /// <summary>
-    /// Selected tint applied to the sprite after a left-click. Stronger
-    /// terracotta accent ; persists until another click.
+    /// Selected tint applied to the sprite after a left-click.
+    /// <b>Saturated debug red</b> — toggles on / off on each click.
+    /// Production will swap.
     /// </summary>
-    [Export] public Color SelectedModulate { get; set; } = new(1.40f, 0.85f, 0.60f, 1.0f);
+    [Export] public Color SelectedModulate { get; set; } = new(1.00f, 0.30f, 0.30f, 1.0f);
 
     /// <summary>
     /// Default sprite modulate (no hover, no selection). Pure white so
@@ -164,13 +208,25 @@ public partial class Tile3DBackingProbe : Node3D
     /// </summary>
     [Export] public Color IdleModulate { get; set; } = new(1f, 1f, 1f, 1f);
 
+    /// <summary>
+    /// Wireframe box edge colour. Red so it pops against the parchment
+    /// witness texture and the dark technical background.
+    /// </summary>
+    [Export] public Color WireframeColor { get; set; } = new(1.0f, 0.20f, 0.20f, 1.0f);
+
     private Sprite3D? _sprite;
     private Area3D? _backingArea;
     private CollisionShape3D? _backingShape;
     private Camera3D? _camera;
+    private MeshInstance3D? _wireframeBox;
+    private Label? _statusLabel;
+    private Label? _liveLogLabel;
 
     private bool _hovering;
     private bool _selected;
+
+    private const int LiveLogMaxLines = 10;
+    private readonly Queue<string> _liveLog = new();
 
     // Cached signal handlers so we can disconnect cleanly at _ExitTree.
     private System.Action? _mouseEnteredHandler;
@@ -193,10 +249,15 @@ public partial class Tile3DBackingProbe : Node3D
         _backingArea = GetNode<Area3D>(BackingAreaPath);
         _backingShape = GetNode<CollisionShape3D>(BackingShapePath);
         _camera = GetNode<Camera3D>(CameraPath);
+        _wireframeBox = GetNodeOrNull<MeshInstance3D>(WireframeBoxPath);
+        _statusLabel = GetNodeOrNull<Label>(StatusLabelPath);
+        _liveLogLabel = GetNodeOrNull<Label>(LiveLogLabelPath);
 
+        ApplyWitnessTexture();
         ApplyBackingGeometry();
         ApplyCameraTransform();
         ApplySpriteTransform();
+        RebuildWireframeBox();
 
         _mouseEnteredHandler = OnMouseEntered;
         _mouseExitedHandler = OnMouseExited;
@@ -207,12 +268,13 @@ public partial class Tile3DBackingProbe : Node3D
         _backingArea.InputEvent += _inputEventHandler;
 
         ApplySpriteModulate();
+        UpdateStatusLabel();
 
-        GD.Print(
-            $"[Tile3DBackingProbe] ready: sprite_h={BackingData.SpritePixelHeight}px " +
+        Log(
+            $"ready: sprite_h={BackingData.SpritePixelHeight}px " +
             $"(top={BackingData.SpriteTopHeightPx}px, w={BackingData.SpriteTopWidthPx}px) " +
-            $"→ box.y={BackingData.BackingHeightPx}px " +
-            $"(swap BackingData .tres in inspector to test thin/thick)");
+            $"-> box.y={BackingData.BackingHeightPx}px");
+        Log("hover the parchment tile -> GREEN ; click -> RED toggle ; click again -> idle");
     }
 
     public override void _ExitTree()
@@ -323,18 +385,151 @@ public partial class Tile3DBackingProbe : Node3D
         _sprite.Position = Vector3.Zero;
     }
 
+    /// <summary>
+    /// Build a procedural witness texture for the sprite — parchment
+    /// fill with a vivid green border and a "TILE" label baked in.
+    /// We do <i>not</i> reuse <c>card_1.png</c> or any production iso
+    /// atlas tile, because the first playtest showed Didier could not
+    /// distinguish the witness from the production map ("je vois les
+    /// mêmes tuiles qu'avant"). A bespoke procedural texture removes
+    /// that ambiguity and removes a runtime dependency on an asset
+    /// path.
+    /// </summary>
+    private void ApplyWitnessTexture()
+    {
+        if (_sprite is null) return;
+
+        // Match the BoxShape3D top footprint : 256-wide, 128-tall iso
+        // losange. We render a rectangle (not a losange) because
+        // Sprite3D bills itself by full quad ; the visible silhouette
+        // does not need to be a losange for the probe to make its
+        // point.
+        var w = BackingData.SpriteTopWidthPx;
+        var h = BackingData.SpriteTopHeightPx;
+        var image = Image.CreateEmpty(w, h, useMipmaps: false, format: Image.Format.Rgba8);
+
+        var fill = new Color(0.92f, 0.85f, 0.66f, 1f);   // parchment cream
+        var border = new Color(0.20f, 0.80f, 0.30f, 1f); // vivid green border
+        const int borderPx = 6;
+
+        // Fill parchment.
+        image.Fill(fill);
+
+        // Paint border (top, bottom, left, right strips).
+        for (var y = 0; y < h; y++)
+        {
+            for (var x = 0; x < w; x++)
+            {
+                var onBorder =
+                    x < borderPx || x >= w - borderPx ||
+                    y < borderPx || y >= h - borderPx;
+                if (onBorder)
+                    image.SetPixel(x, y, border);
+            }
+        }
+
+        // Diagonal stripes inside the parchment so the tile orientation
+        // is unambiguous (no mistaking it for a uniform parchment quad).
+        var stripe = new Color(0.78f, 0.62f, 0.40f, 1f);
+        for (var y = borderPx; y < h - borderPx; y++)
+        {
+            for (var x = borderPx; x < w - borderPx; x++)
+            {
+                if (((x + y) / 16) % 2 == 0)
+                    image.SetPixel(x, y, stripe);
+            }
+        }
+
+        // Bake a chunky "TILE" word using filled rectangles, no font
+        // dependency. 5x7-ish pixel typography drawn at scale.
+        DrawWord(image, "TILE", x0: w / 2 - 80, y0: h / 2 - 24, scale: 8,
+                 ink: new Color(0.10f, 0.10f, 0.10f, 1f));
+
+        var tex = ImageTexture.CreateFromImage(image);
+        _sprite.Texture = tex;
+        _sprite.PixelSize = 1.0f;
+    }
+
+    /// <summary>
+    /// Rebuild the red wireframe overlay around the BoxShape3D so the
+    /// 3D click volume is literally visible above the sprite.
+    /// 12 line-segments (one per box edge), drawn via
+    /// <c>ImmediateMesh</c> (the simplest Godot 4 way to draw lines
+    /// from C# without spinning up a custom mesh tool).
+    /// </summary>
+    private void RebuildWireframeBox()
+    {
+        if (_wireframeBox is null) return;
+
+        var w = (float)BackingData.SpriteTopWidthPx;
+        var h = (float)BackingData.BackingHeightPx;
+        var d = w * 0.5f;
+
+        var hx = w * 0.5f;
+        var hd = d * 0.5f;
+        // Box centered vertically with TOP at y=0, mirrors ApplyBackingGeometry.
+        var yTop = 0f;
+        var yBot = -h;
+
+        // 8 corners.
+        var c000 = new Vector3(-hx, yBot, -hd);
+        var c100 = new Vector3(+hx, yBot, -hd);
+        var c110 = new Vector3(+hx, yBot, +hd);
+        var c010 = new Vector3(-hx, yBot, +hd);
+        var c001 = new Vector3(-hx, yTop, -hd);
+        var c101 = new Vector3(+hx, yTop, -hd);
+        var c111 = new Vector3(+hx, yTop, +hd);
+        var c011 = new Vector3(-hx, yTop, +hd);
+
+        var mesh = new ImmediateMesh();
+        var mat = new StandardMaterial3D
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            AlbedoColor = WireframeColor,
+            Transparency = BaseMaterial3D.TransparencyEnum.Disabled,
+        };
+
+        mesh.SurfaceBegin(Mesh.PrimitiveType.Lines, mat);
+        AddEdge(mesh, c000, c100);
+        AddEdge(mesh, c100, c110);
+        AddEdge(mesh, c110, c010);
+        AddEdge(mesh, c010, c000);
+
+        AddEdge(mesh, c001, c101);
+        AddEdge(mesh, c101, c111);
+        AddEdge(mesh, c111, c011);
+        AddEdge(mesh, c011, c001);
+
+        AddEdge(mesh, c000, c001);
+        AddEdge(mesh, c100, c101);
+        AddEdge(mesh, c110, c111);
+        AddEdge(mesh, c010, c011);
+        mesh.SurfaceEnd();
+
+        _wireframeBox.Mesh = mesh;
+        _wireframeBox.Position = Vector3.Zero;
+    }
+
+    private static void AddEdge(ImmediateMesh mesh, Vector3 a, Vector3 b)
+    {
+        mesh.SurfaceAddVertex(a);
+        mesh.SurfaceAddVertex(b);
+    }
+
     private void OnMouseEntered()
     {
         _hovering = true;
         ApplySpriteModulate();
-        GD.Print("[Tile3DBackingProbe] hover enter");
+        UpdateStatusLabel();
+        Log("hover ENTER -- sprite tinted GREEN");
     }
 
     private void OnMouseExited()
     {
         _hovering = false;
         ApplySpriteModulate();
-        GD.Print("[Tile3DBackingProbe] hover exit");
+        UpdateStatusLabel();
+        Log("hover EXIT -- sprite back to idle (or RED if selected)");
     }
 
     private void OnInputEvent(
@@ -350,9 +545,10 @@ public partial class Tile3DBackingProbe : Node3D
         {
             _selected = !_selected;
             ApplySpriteModulate();
-            GD.Print(
-                $"[Tile3DBackingProbe] click at world={position} " +
-                $"(selected={_selected}, hit normal={normal})");
+            UpdateStatusLabel();
+            Log(
+                $"click @ world=({position.X:F0},{position.Y:F0},{position.Z:F0}) " +
+                $"selected={_selected}");
         }
     }
 
@@ -368,5 +564,117 @@ public partial class Tile3DBackingProbe : Node3D
             _sprite.Modulate = HoverModulate;
         else
             _sprite.Modulate = IdleModulate;
+    }
+
+    private void UpdateStatusLabel()
+    {
+        if (_statusLabel is null) return;
+        var word = _selected ? "SELECTED (red)"
+                  : _hovering ? "HOVERING (green)"
+                  : "idle (white)";
+        _statusLabel.Text =
+            $"STATUS: {word}\nbox.y = {BackingData.BackingHeightPx}px " +
+            $"(sprite_h={BackingData.SpritePixelHeight}, top={BackingData.SpriteTopHeightPx})";
+    }
+
+    /// <summary>
+    /// Print to GD.Print (Output panel) AND mirror to the on-screen
+    /// LiveLogLabel so Didier sees activity even without the Output
+    /// panel open. Keeps the last <see cref="LiveLogMaxLines"/> lines.
+    /// </summary>
+    private void Log(string message)
+    {
+        var line = $"[probe] {message}";
+        GD.Print(line);
+
+        _liveLog.Enqueue(line);
+        while (_liveLog.Count > LiveLogMaxLines)
+            _liveLog.Dequeue();
+
+        if (_liveLogLabel is not null)
+            _liveLogLabel.Text = string.Join("\n", _liveLog);
+    }
+
+    /// <summary>
+    /// Tiny baked-in "TILE" stamper. Renders the 4 ASCII letters of
+    /// "TILE" as filled rectangles directly onto an <see cref="Image"/>
+    /// — avoids depending on a Theme / FontFile / DynamicFont in the
+    /// scratch scene. Each character is hand-coded as a 3×5 cell grid
+    /// scaled up. Good enough for "I see the word TILE on the sprite".
+    /// </summary>
+    private static void DrawWord(Image image, string word, int x0, int y0, int scale, Color ink)
+    {
+        var cursor = x0;
+        foreach (var ch in word)
+        {
+            var glyph = GlyphFor(ch);
+            if (glyph is null)
+            {
+                cursor += 4 * scale;
+                continue;
+            }
+            for (var gy = 0; gy < 5; gy++)
+            {
+                for (var gx = 0; gx < 3; gx++)
+                {
+                    if (glyph[gy, gx] == 0) continue;
+                    FillCell(image, cursor + gx * scale, y0 + gy * scale, scale, ink);
+                }
+            }
+            cursor += 4 * scale;
+        }
+    }
+
+    private static void FillCell(Image image, int x, int y, int scale, Color ink)
+    {
+        var maxX = System.Math.Min(image.GetWidth(), x + scale);
+        var maxY = System.Math.Min(image.GetHeight(), y + scale);
+        for (var py = System.Math.Max(0, y); py < maxY; py++)
+        {
+            for (var px = System.Math.Max(0, x); px < maxX; px++)
+            {
+                image.SetPixel(px, py, ink);
+            }
+        }
+    }
+
+    private static int[,]? GlyphFor(char ch)
+    {
+        return ch switch
+        {
+            'T' => new[,]
+            {
+                { 1, 1, 1 },
+                { 0, 1, 0 },
+                { 0, 1, 0 },
+                { 0, 1, 0 },
+                { 0, 1, 0 },
+            },
+            'I' => new[,]
+            {
+                { 1, 1, 1 },
+                { 0, 1, 0 },
+                { 0, 1, 0 },
+                { 0, 1, 0 },
+                { 1, 1, 1 },
+            },
+            'L' => new[,]
+            {
+                { 1, 0, 0 },
+                { 1, 0, 0 },
+                { 1, 0, 0 },
+                { 1, 0, 0 },
+                { 1, 1, 1 },
+            },
+            'E' => new[,]
+            {
+                { 1, 1, 1 },
+                { 1, 0, 0 },
+                { 1, 1, 0 },
+                { 1, 0, 0 },
+                { 1, 1, 1 },
+            },
+            _ => null,
+        };
     }
 }
