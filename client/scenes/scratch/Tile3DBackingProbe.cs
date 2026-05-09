@@ -174,10 +174,20 @@ public partial class Tile3DBackingProbe : Node3D
     [Export] public float CameraDistance { get; set; } = 1500f;
 
     /// <summary>
-    /// Camera pitch — angle below horizontal. 30° is the classic 2:1
-    /// iso projection pitch (mathematically pure 2:1 is
-    /// atan(0.5) ≈ 26.57° ; 30° is the convention most game engines
-    /// ship with and is what we'll match for visual consistency).
+    /// Camera pitch — angle below horizontal.
+    /// <para>
+    /// <b>30° is numerically validated</b> as the camera Euler
+    /// angle that makes a 3D ortho projection match the 2D iso math
+    /// in <see cref="Wayfinders.Client.Scripts.Screens.FogTileGridLogic"/>
+    /// (see <c>client/tests/Phase9_3DBacking/IsoProjection3DTo2DTests.cs</c>).
+    /// The identity is <c>sin(pitch) = halfH / halfW = 1/2</c>, so
+    /// <c>pitch = arcsin(0.5) = 30°</c>. The widely-quoted
+    /// <c>atan(0.5) ≈ 26.57°</c> is the on-screen incidence angle of a
+    /// 2:1 iso projection, <i>not</i> the camera Euler pitch -- two
+    /// equivalent descriptions of the same iso, parameterised
+    /// differently. The pin test guards against the natural reflex of
+    /// substituting one for the other.
+    /// </para>
     /// </summary>
     [Export] public float CameraPitchDegrees { get; set; } = 30f;
 

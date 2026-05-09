@@ -1,0 +1,151 @@
+[gd_scene load_steps=8 format=3 uid="uid://b5a91f7facbb"]
+
+[ext_resource type="Script" path="res://scenes/scratch/Tile3DBackingShadowSyncProbe.cs" id="1_probe"]
+[ext_resource type="Resource" uid="uid://cwfthickjlbk1" path="res://scenes/scratch/tile_backing_thick.tres" id="2_data"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_initial"]
+size = Vector3(256, 6, 128)
+
+[sub_resource type="Environment" id="Env_probe3D"]
+background_mode = 1
+background_color = Color(0.06, 0.06, 0.08, 1)
+ambient_light_source = 2
+ambient_light_color = Color(1, 1, 1, 1)
+ambient_light_energy = 1.0
+
+[sub_resource type="LabelSettings" id="LabelSettings_overlay"]
+font_size = 22
+font_color = Color(0.95, 0.95, 0.95, 1)
+outline_size = 4
+outline_color = Color(0, 0, 0, 1)
+
+[sub_resource type="LabelSettings" id="LabelSettings_drift"]
+font_size = 22
+font_color = Color(1, 0.85, 0.30, 1)
+outline_size = 4
+outline_color = Color(0, 0, 0, 1)
+
+[sub_resource type="LabelSettings" id="LabelSettings_status"]
+font_size = 22
+font_color = Color(0.30, 1.00, 0.55, 1)
+outline_size = 4
+outline_color = Color(0, 0, 0, 1)
+
+[node name="Tile3DBackingShadowSyncProbe" type="Node2D"]
+script = ExtResource("1_probe")
+BackingData = ExtResource("2_data")
+metadata/skip_opening_bootstrap = true
+
+[node name="Background2D" type="CanvasLayer" parent="."]
+layer = -10
+
+[node name="BgRect" type="ColorRect" parent="Background2D"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.08, 0.08, 0.10, 1)
+mouse_filter = 2
+
+[node name="WorldEnvironment3D" type="WorldEnvironment" parent="."]
+environment = SubResource("Env_probe3D")
+
+[node name="Camera2D" type="Camera2D" parent="."]
+zoom = Vector2(1, 1)
+position_smoothing_enabled = false
+
+[node name="Witness2D" type="Node2D" parent="."]
+
+[node name="WitnessSprite2D" type="Sprite2D" parent="Witness2D"]
+centered = true
+
+[node name="WireframeOverlay" type="Node2D" parent="Witness2D"]
+
+[node name="Camera3D" type="Camera3D" parent="."]
+projection = 1
+size = 1500.0
+near = 0.1
+far = 6000.0
+current = true
+
+[node name="Witness3D" type="Node3D" parent="."]
+
+[node name="WitnessArea3D" type="Area3D" parent="Witness3D"]
+input_ray_pickable = true
+
+[node name="WitnessShape3D" type="CollisionShape3D" parent="Witness3D/WitnessArea3D"]
+shape = SubResource("BoxShape3D_initial")
+
+[node name="OverlayUI" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="OverlayRoot" type="Control" parent="OverlayUI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="TitleLabel" type="Label" parent="OverlayUI/OverlayRoot"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 16.0
+offset_top = 12.0
+offset_right = -16.0
+offset_bottom = 44.0
+text = "Tile3DBackingShadowSyncProbe -- Jalon 2 (Pattern B2)"
+label_settings = SubResource("LabelSettings_overlay")
+
+[node name="InstructionsLabel" type="Label" parent="OverlayUI/OverlayRoot"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 16.0
+offset_top = 48.0
+offset_right = -16.0
+offset_bottom = 240.0
+text = "1. WASD (or arrow keys) -> pan the Camera2D in 2D world coords.
+2. The witness cell (parchment + green border + black centre dot) is anchored at cell (5, 5). It should appear to slide across the screen as you pan.
+3. The RED diamond outline (Line2D) is the screen footprint of the 3D Area3D click volume, drawn in 2D coords. It MUST follow the sprite at every frame -- no drift.
+4. Move the cursor over the parchment tile -> sprite tints GREEN (the 3D Area3D fired -> picking works through the synced 3D camera).
+5. Left-click -> sprite tints RED. Click again -> idle.
+6. Watch the DRIFT label (top-right) : it must stay near 0.00 px. If it grows when you pan, the 2D-3D camera sync is broken -- log it before reporting back."
+label_settings = SubResource("LabelSettings_overlay")
+autowrap_mode = 2
+
+[node name="StatusLabel" type="Label" parent="OverlayUI/OverlayRoot"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -360.0
+offset_top = 12.0
+offset_right = -16.0
+offset_bottom = 96.0
+text = "STATUS: idle"
+label_settings = SubResource("LabelSettings_status")
+horizontal_alignment = 2
+
+[node name="DriftLabel" type="Label" parent="OverlayUI/OverlayRoot"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -360.0
+offset_top = 100.0
+offset_right = -16.0
+offset_bottom = 132.0
+text = "drift: -- px"
+label_settings = SubResource("LabelSettings_drift")
+horizontal_alignment = 2
+
+[node name="LiveLogLabel" type="Label" parent="OverlayUI/OverlayRoot"]
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = -220.0
+offset_right = 760.0
+offset_bottom = -16.0
+text = "(live log appears here)"
+label_settings = SubResource("LabelSettings_overlay")
+vertical_alignment = 2
