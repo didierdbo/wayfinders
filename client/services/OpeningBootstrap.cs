@@ -1,4 +1,5 @@
 using Godot;
+using Wayfinders.Client.Scripts.Screens;
 
 namespace Wayfinders.Client.Services;
 
@@ -49,6 +50,32 @@ namespace Wayfinders.Client.Services;
 /// boot path is unchanged -- BootScene and the Opening Scenario flow get
 /// the full registration + NavigateTo as before.
 /// </para>
+///
+/// <para>
+/// <b>J4 double-spawn fix (2026-05-09 evening, Rune).</b>
+/// A second case surfaced after J4 generalised the 3D backing : Didier
+/// reported the <c>[FogTileLayer J4 CANARY] spawned 1089 cells</c> log
+/// firing TWICE at boot, with two MapPan2DComponent instances live at
+/// the same time -- pan stuck on the wrong WorldCamera, F debug
+/// dispatching to the wrong knowledge store, every singleton-shaped piece
+/// of E2 state doubled. Root cause : Didier ran <c>F6 Run Current Scene</c>
+/// on <c>E2WorldMap.tscn</c> while it was open in the editor. F6
+/// temporarily swaps <c>run/main_scene</c> to the active scene, but
+/// autoloads (including this one) still fire. The skip_opening_bootstrap
+/// meta gate above only fires for probes ; production screens have no
+/// meta, so the autoload still ran <c>NavigateTo("E1_TITLE")</c>.
+/// E1 rendered above the F6-launched E2, the player clicked
+/// "Nouvelle Partie", and E2 was instantiated a SECOND time.
+/// </para>
+/// <para>
+/// Fix : when the active main scene is itself a registered production
+/// screen (i.e., <c>currentScene is IScreen</c>), still register every
+/// screen and modal (drill / climb / POI dispatch must keep working from
+/// the F6-launched screen) but SKIP the <c>NavigateTo("E1_TITLE")</c>
+/// step. The decision lives in <see cref="OpeningBootstrapLogic.Decide"/>
+/// (pure-C# seam, pinned by xUnit) so the contract has a regression
+/// guard outside the engine.
+/// </para>
 /// </summary>
 public partial class OpeningBootstrap : Node
 {
@@ -77,16 +104,20 @@ public partial class OpeningBootstrap : Node
 
     private void WireAndBoot()
     {
-        // J1.1 gate: if the active main scene is a scratch probe, skip the
-        // entire bootstrap sequence. The probe will own the screen entirely
-        // -- no E1 background hijacking the 3D viewport.
         var currentScene = GetTree().CurrentScene;
-        if (currentScene is not null && currentScene.HasMeta(SkipBootstrapMetaKey)
-            && (bool)currentScene.GetMeta(SkipBootstrapMetaKey))
+
+        var hasSkipMeta = currentScene is not null
+            && currentScene.HasMeta(SkipBootstrapMetaKey)
+            && (bool)currentScene.GetMeta(SkipBootstrapMetaKey);
+        var isRegisteredScreen = currentScene is IScreen;
+
+        var action = OpeningBootstrapLogic.Decide(hasSkipMeta, isRegisteredScreen);
+
+        if (action == OpeningBootstrapAction.SkipBootstrap)
         {
             GD.Print(
                 $"[OpeningBootstrap] gated by skip_opening_bootstrap on " +
-                $"'{currentScene.Name}' -- registration AND NavigateTo skipped");
+                $"'{currentScene?.Name}' -- registration AND NavigateTo skipped");
             return;
         }
 
@@ -106,12 +137,28 @@ public partial class OpeningBootstrap : Node
         sceneManager.RegisterModal("OPTIONS_MODAL", GD.Load<PackedScene>(OptionsModalScenePath));
         sceneManager.RegisterModal("QUIT_CONFIRM_MODAL", GD.Load<PackedScene>(QuitModalScenePath));
 
-        GD.Print("[OpeningBootstrap] screens registered, booting E1");
-
         // Surface the user:// hot-swap root so dev knows exactly where to
         // drop overrides on Windows (%APPDATA%/Godot/app_userdata/Wayfinders/...).
         var userRootGlobal = ProjectSettings.GlobalizePath("user://wayfinders_visual_assets/");
         GD.Print($"[OpeningBootstrap] hot-swap user-root path: {userRootGlobal}");
+
+        if (action == OpeningBootstrapAction.RegisterOnly)
+        {
+            // F6 / "Run Current Scene" path : the active main scene is
+            // already a registered production screen. Skip NavigateTo to
+            // avoid pushing E1 on top and double-instantiating the screen
+            // on the next "Nouvelle Partie" click. The screen owns its
+            // own _Ready -> Configure path -- nothing else for the
+            // bootstrap to do.
+            var screenId = currentScene is IScreen iscreen ? iscreen.ScreenId : "(unknown)";
+            GD.Print(
+                $"[OpeningBootstrap] screens registered, NavigateTo skipped " +
+                $"(F6 path -- main scene is already a registered screen '{screenId}'). " +
+                $"Drill / climb / POI dispatch are wired ; doubling guard active.");
+            return;
+        }
+
+        GD.Print("[OpeningBootstrap] screens registered, booting E1");
 
         // Fire-and-forget: NavigateTo is async (lifecycle calls), but the
         // bootstrap is in _Ready and there is nothing meaningful to await.

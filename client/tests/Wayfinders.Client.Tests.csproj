@@ -58,6 +58,13 @@
     <Compile Include="..\scripts\screens\ScreenContext.cs" Link="src\ScreenContext.cs" />
     <Compile Include="..\scripts\screens\NavigationRequest.cs" Link="src\NavigationRequest.cs" />
     <Compile Include="..\scripts\screens\ContinueGatingLogic.cs" Link="src\ContinueGatingLogic.cs" />
+    <!-- Phase 9 J4 hotfix (2026-05-09 evening): boot-action decision rule
+         for the OpeningBootstrap autoload. The autoload itself depends on
+         Godot (Node, GetTree, GetNode) so xUnit pins the pure decision
+         (skip / register-only / register-and-boot) at the seam. Catches
+         any future regression that drops the F6-launch RegisterOnly branch
+         and re-introduces the J4 double-spawn. -->
+    <Compile Include="..\scripts\screens\OpeningBootstrapLogic.cs" Link="src\OpeningBootstrapLogic.cs" />
   </ItemGroup>
 
   <!-- Phase 7 J3: E2 World Map POI dispatch logic (pure-C#). The DTO and
