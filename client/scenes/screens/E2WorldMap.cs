@@ -192,10 +192,38 @@ public partial class E2WorldMap : Control, IScreen
         // Configure the pan component with the world texture and an
         // initial center on Halfgate (D-P8.2-08, "tu commences là où
         // l'action est").
+        //
+        // 2026-05-09 fix : we pass explicit world BOUNDS computed from the
+        // iso fog grid extent, not the source bitmap size. The fog grid
+        // (cellSize 128, IsoDiamondDown projection) extends past the
+        // bitmap on both axes (e.g. 4224x2112 for a 2048x1024 source).
+        // Pre-fix, the camera limits tracked the bitmap and viewport.Y
+        // (1080) > bitmap.Y (1024) snapped Camera2D.Y to image-center via
+        // ClampCameraCenter's snap-to-center branch, freezing vertical pan.
+        // Bounds = max(bitmap, fogGrid) so any future asset that exceeds
+        // the grid still keeps a pannable world.
         var halfgate = FindPoi(HalfgatePoiId);
         var imageSize = worldTexture.GetSize();
         var initialCenter = halfgate?.Position ?? imageSize / 2f;
-        _panComponent.Configure(worldTexture, initialCenter);
+
+        var fogGridDimensions = FogTileGridLogic.ComputeGridSize(
+            new PanVec2(imageSize.X, imageSize.Y),
+            _fogTileLayer.CellSizePx,
+            _fogTileLayer.Projection);
+        var fogGridBounds = FogTileGridLogic.ComputeGridWorldBounds(
+            fogGridDimensions,
+            _fogTileLayer.CellSizePx,
+            _fogTileLayer.Projection);
+        var worldBounds = new Vector2(
+            Mathf.Max(imageSize.X, fogGridBounds.X),
+            Mathf.Max(imageSize.Y, fogGridBounds.Y));
+        GD.Print(
+            $"[E2WorldMap] world bounds = max(bitmap {imageSize}, " +
+            $"fogGrid ({fogGridBounds.X}, {fogGridBounds.Y}) at " +
+            $"{fogGridDimensions.Columns}x{fogGridDimensions.Rows} cells x " +
+            $"{_fogTileLayer.CellSizePx}px {_fogTileLayer.Projection}) = {worldBounds}");
+
+        _panComponent.Configure(worldTexture, initialCenter, worldBounds);
 
         // Strings -- single point of swap when Varn revises the .tres.
         _bannerTitleLabel.Text = _strings.E2Title;

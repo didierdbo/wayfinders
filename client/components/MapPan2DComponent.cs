@@ -335,6 +335,15 @@ public partial class MapPan2DComponent : Node2D
     private bool _configured;
     private Vector2 _worldImageSize;
 
+    // 2026-05-09 fix : the camera limits track the WORLD BOUNDS, which on
+    // E2 World Map exceed the source bitmap on iso projection (4224x2112
+    // grid vs 2048x1024 bitmap). Defaults to _worldImageSize via the
+    // backward-compat Configure overload, set explicitly by E2WorldMap via
+    // the three-arg overload. Z (vertical pan) was frozen pre-fix because
+    // viewport.Y > _worldImageSize.Y triggered ClampCameraCenter snap-to-
+    // image-center on Y -- now it clamps against bounds.Y instead.
+    private Vector2 _worldBoundsSize;
+
     // Slice 3 -- zoom continuous tween state. At most one zoom tween in
     // flight at a time ; killed and replaced on every new wheel tick.
     // Same discipline as FogTileLayer's per-cell tween bag (slice 2).
@@ -404,6 +413,14 @@ public partial class MapPan2DComponent : Node2D
     /// consumers (e.g. <see cref="FogTileLayer"/> sizes its grid from
     /// here). Returns <c>Vector2.Zero</c> before <see cref="Configure"/>.</summary>
     public Vector2 WorldImageSize => _worldImageSize;
+
+    /// <summary>The configured world BOUNDS dimensions -- the rectangle
+    /// the camera is allowed to traverse, in world coords. May exceed
+    /// <see cref="WorldImageSize"/> when an overlay (fog grid, future
+    /// tactical grid) extends the perceivable world past the source
+    /// bitmap. Returns <c>Vector2.Zero</c> before <see cref="Configure"/>.
+    /// Surfaced for downstream diagnostics and tests.</summary>
+    public Vector2 WorldBoundsSize => _worldBoundsSize;
 
     /// <summary>True iff a drag is currently active. Diagnostic surface
     /// for consumers and tests ; the component drives its own gating
@@ -489,13 +506,61 @@ public partial class MapPan2DComponent : Node2D
     /// should center on after configure.</param>
     public void Configure(Texture2D worldImageTexture, Vector2 initialCameraCenter)
     {
+        // Backward-compatible overload : world bounds default to the source
+        // texture size. Used by E3 / E5 (no fog overlay extending the world
+        // beyond the bitmap). E2WorldMap calls the explicit-bounds overload
+        // because its iso fog grid extends past the source bitmap on both
+        // axes (4224x2112 grid vs 2048x1024 bitmap), and the camera limits
+        // must follow the perceivable world, not just the bitmap.
+        Configure(worldImageTexture, initialCameraCenter, worldImageTexture.GetSize());
+    }
+
+    /// <summary>
+    /// Frame the camera around the supplied world image with explicit world
+    /// bounds. Same contract as the two-arg overload, but the consumer
+    /// supplies the world-space rectangle the camera is allowed to traverse
+    /// (typically <c>max(textureSize, fogGridBounds)</c> on E2 World Map).
+    ///
+    /// <para>
+    /// <b>Why a separate overload (rather than always derive from the
+    /// texture).</b> The source bitmap is an atlas/backdrop ; the
+    /// authoritative world is whatever the consumer's overlay systems
+    /// (fog grid, future tactical grid, future POI graph extending past
+    /// the bitmap) say it is. Pre-fix (2026-05-09 evening), MapPan2DComponent
+    /// silently equated bitmap = world, which made vertical pan stall on E2
+    /// when the iso fog grid was taller than the source PNG (1024 px PNG vs
+    /// 2112 px iso bounds, viewport 1080 px > PNG 1024 → ClampCameraCenter
+    /// snap-to-center branch fired and Camera2D froze on Y). The fix exposes
+    /// the seam : consumers that have an overlay extending the world pass
+    /// it explicitly ; consumers that don't (E3 / E5) keep the original
+    /// signature and the bitmap-backed default.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Consumer contract.</b> <paramref name="worldBoundsSize"/> must
+    /// be greater than or equal to <paramref name="worldImageTexture"/>.GetSize()
+    /// on each axis. The component does not enforce this -- a smaller bound
+    /// would re-introduce the very bug this overload fixes -- but the
+    /// runtime preflight dump surfaces the values so a mismatch is visible
+    /// on the console immediately.
+    /// </para>
+    /// </summary>
+    /// <param name="worldImageTexture">Texture for the world map sprite.</param>
+    /// <param name="initialCameraCenter">World-space position the camera
+    /// should center on after configure.</param>
+    /// <param name="worldBoundsSize">World-space (width, height) of the
+    /// rectangle the camera is allowed to traverse. The Camera2D limits
+    /// are set to <c>[0, 0]-[worldBoundsSize.X, worldBoundsSize.Y]</c>.</param>
+    public void Configure(Texture2D worldImageTexture, Vector2 initialCameraCenter, Vector2 worldBoundsSize)
+    {
         _worldMapSprite.Texture = worldImageTexture;
         _worldImageSize = worldImageTexture.GetSize();
+        _worldBoundsSize = worldBoundsSize;
 
         _worldCamera.LimitLeft = 0;
         _worldCamera.LimitTop = 0;
-        _worldCamera.LimitRight = (int)_worldImageSize.X;
-        _worldCamera.LimitBottom = (int)_worldImageSize.Y;
+        _worldCamera.LimitRight = (int)_worldBoundsSize.X;
+        _worldCamera.LimitBottom = (int)_worldBoundsSize.Y;
         _worldCamera.MakeCurrent();
 
         // Slice 3 -- zoom defaults applied here. Direct write (no
@@ -504,13 +569,14 @@ public partial class MapPan2DComponent : Node2D
         _targetZoom = ZoomDefault;
         _worldCamera.Zoom = new Vector2(ZoomDefault, ZoomDefault);
 
-        // Clamp the requested initial center against the limits so the
-        // consumer can pass a POI position blindly without recomputing
-        // valid camera ranges.
+        // Clamp the requested initial center against the WORLD BOUNDS (not
+        // the source bitmap) so the consumer can pass a POI position blindly
+        // without recomputing valid camera ranges. Same rationale as the
+        // limits assignment above.
         var viewportSize = GetViewport().GetVisibleRect().Size;
         var clamped = CameraPanLogic.ClampCameraCenter(
             new PanVec2(initialCameraCenter.X, initialCameraCenter.Y),
-            new PanVec2(_worldImageSize.X, _worldImageSize.Y),
+            new PanVec2(_worldBoundsSize.X, _worldBoundsSize.Y),
             new PanVec2(viewportSize.X, viewportSize.Y));
         _worldCamera.Position = new Vector2(clamped.X, clamped.Y);
 
@@ -662,7 +728,10 @@ public partial class MapPan2DComponent : Node2D
         }
 
         var current = new PanVec2(_worldCamera.Position.X, _worldCamera.Position.Y);
-        var imageSize = new PanVec2(_worldImageSize.X, _worldImageSize.Y);
+        // 2026-05-09 fix : clamp against world BOUNDS (fog grid extends past
+        // bitmap on iso). Variable name "imageSize" preserved for diff
+        // narrowness ; reads from _worldBoundsSize now.
+        var imageSize = new PanVec2(_worldBoundsSize.X, _worldBoundsSize.Y);
         var viewportSize = GetViewport().GetVisibleRect().Size;
         var viewport = new PanVec2(viewportSize.X, viewportSize.Y);
 
@@ -694,7 +763,7 @@ public partial class MapPan2DComponent : Node2D
                     $"camPos {prevCameraPos} -> {newPos} (Δ={moved}) " +
                     $"zoom={_worldCamera.Zoom.X:F2} " +
                     $"current={_worldCamera.IsCurrent()} " +
-                    $"viewport={viewportSize} image={_worldImageSize} " +
+                    $"viewport={viewportSize} image={_worldImageSize} bounds={_worldBoundsSize} " +
                     $"limits=[({_worldCamera.LimitLeft},{_worldCamera.LimitTop})-" +
                     $"({_worldCamera.LimitRight},{_worldCamera.LimitBottom})]");
             }
@@ -721,7 +790,7 @@ public partial class MapPan2DComponent : Node2D
                         $"dir=({dir.X:F2},{dir.Y:F2}) for {FrozenPanWarnFrames} frames but " +
                         $"Camera2D.Position={newPos} did not change. " +
                         $"viewport={viewportSize} visible(world-px)=({visibleW:F0},{visibleH:F0}) " +
-                        $"image={_worldImageSize} zoom={_worldCamera.Zoom} " +
+                        $"image={_worldImageSize} bounds={_worldBoundsSize} zoom={_worldCamera.Zoom} " +
                         $"limits=[({_worldCamera.LimitLeft},{_worldCamera.LimitTop})-" +
                         $"({_worldCamera.LimitRight},{_worldCamera.LimitBottom})]. " +
                         $"Likely cause : viewport greater or equal to image on the frozen axis " +
@@ -870,7 +939,9 @@ public partial class MapPan2DComponent : Node2D
             var delta = mm.Position - new Vector2(motion.PressPosition.X, motion.PressPosition.Y);
             var desired = new Vector2(motion.CameraStart.X, motion.CameraStart.Y) - delta;
 
-            var imageSize = new PanVec2(_worldImageSize.X, _worldImageSize.Y);
+            // 2026-05-09 fix : clamp against world BOUNDS (fog grid extends
+            // past bitmap on iso). Same variable name preserved for diff narrowness.
+            var imageSize = new PanVec2(_worldBoundsSize.X, _worldBoundsSize.Y);
             var viewportSize = GetViewport().GetVisibleRect().Size;
             var viewport = new PanVec2(viewportSize.X, viewportSize.Y);
             var clamped = CameraPanLogic.ClampCameraCenter(
@@ -1036,9 +1107,12 @@ public partial class MapPan2DComponent : Node2D
         var positionDelta = cursorOffsetFromCenter * (1f / zoomBefore - 1f / zoomAfter);
 
         var desiredPosition = _worldCamera.Position + positionDelta;
+        // 2026-05-09 fix : clamp against world BOUNDS (fog grid extends past
+        // bitmap on iso). Wheel zoom near an edge respects the same world the
+        // pan input does.
         var clamped = CameraPanLogic.ClampCameraCenter(
             new PanVec2(desiredPosition.X, desiredPosition.Y),
-            new PanVec2(_worldImageSize.X, _worldImageSize.Y),
+            new PanVec2(_worldBoundsSize.X, _worldBoundsSize.Y),
             new PanVec2(viewportSize.X, viewportSize.Y));
         var clampedPosition = new Vector2(clamped.X, clamped.Y);
 
@@ -1164,7 +1238,7 @@ public partial class MapPan2DComponent : Node2D
             $"Limits=[({_worldCamera.LimitLeft},{_worldCamera.LimitTop})-" +
             $"({_worldCamera.LimitRight},{_worldCamera.LimitBottom})]");
         GD.Print(
-            $"[MapPan2DComponent] preflight: ImageSize={_worldImageSize} " +
+            $"[MapPan2DComponent] preflight: ImageSize={_worldImageSize} BoundsSize={_worldBoundsSize} " +
             $"ActivePanButton={_activePanButton}");
         GD.Print(
             $"[MapPan2DComponent] preflight: zoom thresholds " +
