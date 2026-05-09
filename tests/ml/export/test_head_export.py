@@ -35,7 +35,10 @@ from wayfinders.ml.export.verify import PipelineParityResult
 # ---------------------------------------------------------------------------
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-_V01_CHECKPOINT = _REPO_ROOT / "artifacts" / "models" / "v0.1" / "head_final.pt"
+# v0.6: retrain PASS, val MAE 0.5657 (gate <=0.6 cleared, 2026-05-09).
+_V06_CHECKPOINT = _REPO_ROOT / "artifacts" / "models" / "v0.6" / "head_final.pt"
+# Keep v0.1 alias so existing skip/fixture logic still compiles.
+_V01_CHECKPOINT = _V06_CHECKPOINT
 
 
 def _make_valid_head_manifest(onnx_path: Path) -> dict[str, Any]:
@@ -43,14 +46,14 @@ def _make_valid_head_manifest(onnx_path: Path) -> dict[str, Any]:
     fake_sha = hashlib.sha256(b"").hexdigest()
     return {
         "model_name": "wayfinders.ml.training.head.ResolutionHead",
-        "version": "v0.1",
-        "export_timestamp": "2026-05-06T12:00:00+00:00",
+        "version": "v0.6",
+        "export_timestamp": "2026-05-09T12:00:00+00:00",
         "head_sha256": fake_sha,
         "head_pt_sha256": fake_sha,
-        "training_run_id": "v0.1-seed42-ep50",
-        "val_mae": 0.9027,
-        "test_mae": 0.9893,
-        "r_squared_test": 0.7938,
+        "training_run_id": "v0.6-seed42-ep100",
+        "val_mae": 0.5657,
+        "test_mae": 0.8240,
+        "r_squared_test": 0.7655,
         "encoder_sha256": fake_sha,
         "opset_version": 17,
         "dtype": "fp32",
@@ -216,28 +219,33 @@ class TestHeadManifestSchemaUnit:
 
 @pytest.fixture(scope="session")
 def exported_head_onnx_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Export the v0.1 ResolutionHead checkpoint to a temp .onnx file (once per session).
+    """Export the v0.6 ResolutionHead checkpoint to a temp .onnx file (once per session).
 
     Skips all integration tests if CUDA is not available or the checkpoint is missing.
     """
     if not torch.cuda.is_available():
         pytest.skip("CUDA not available -- skipping head ONNX integration tests")
 
-    if not _V01_CHECKPOINT.is_file():
-        pytest.skip(f"v0.1 checkpoint not found at {_V01_CHECKPOINT}")
+    if not _V06_CHECKPOINT.is_file():
+        pytest.skip(f"v0.6 checkpoint not found at {_V06_CHECKPOINT}")
 
     from wayfinders.ml.export.export_head import export_head
 
     out_dir = tmp_path_factory.mktemp("head_onnx_export")
-    onnx_file = out_dir / "resolution-head-v0.1.onnx"
-    export_head(_V01_CHECKPOINT, onnx_file)
+    onnx_file = out_dir / "resolution-head-v0.6.onnx"
+    export_head(_V06_CHECKPOINT, onnx_file)
     return onnx_file
 
 
 @pytest.fixture(scope="session")
 def exported_head_manifest(exported_head_onnx_path: Path) -> dict[str, Any]:
     """Read the manifest written alongside the exported head .onnx."""
-    manifest_path = exported_head_onnx_path.with_suffix("").with_suffix(".manifest.json")
+    # Use stem + ".manifest.json" to avoid stripping the version component from
+    # names like "resolution-head-v0.1.onnx" where the double .with_suffix() call
+    # would incorrectly produce "resolution-head-v0.manifest.json".
+    manifest_path = exported_head_onnx_path.parent / (
+        exported_head_onnx_path.stem + ".manifest.json"
+    )
     return json.loads(manifest_path.read_text(encoding="utf-8"))
 
 
@@ -253,15 +261,15 @@ def real_encoder_for_head() -> Any:
 
 @pytest.fixture(scope="session")
 def real_head_torch() -> Any:
-    """ResolutionHead loaded from v0.1 checkpoint, in eval mode, on CUDA."""
+    """ResolutionHead loaded from v0.6 checkpoint, in eval mode, on CUDA."""
     if not torch.cuda.is_available():
         pytest.skip("CUDA not available")
-    if not _V01_CHECKPOINT.is_file():
-        pytest.skip(f"v0.1 checkpoint not found at {_V01_CHECKPOINT}")
+    if not _V06_CHECKPOINT.is_file():
+        pytest.skip(f"v0.6 checkpoint not found at {_V06_CHECKPOINT}")
     from wayfinders.ml.training.head import ResolutionHead
 
     head = ResolutionHead()
-    raw_ckpt = torch.load(_V01_CHECKPOINT, map_location="cuda", weights_only=True)
+    raw_ckpt = torch.load(_V06_CHECKPOINT, map_location="cuda", weights_only=True)
     if isinstance(raw_ckpt, dict) and "model_state_dict" in raw_ckpt:
         state_dict = raw_ckpt["model_state_dict"]
     else:
@@ -282,7 +290,11 @@ class TestHeadOnnxFileExists:
         assert exported_head_onnx_path.is_file(), f"ONNX not found: {exported_head_onnx_path}"
 
     def test_head_manifest_file_exists(self, exported_head_onnx_path: Path) -> None:
-        manifest_path = exported_head_onnx_path.with_suffix("").with_suffix(".manifest.json")
+        # Use stem + ".manifest.json" to match export_head()'s naming convention
+        # (avoid double .with_suffix() which strips the version from "v0.1").
+        manifest_path = exported_head_onnx_path.parent / (
+            exported_head_onnx_path.stem + ".manifest.json"
+        )
         assert manifest_path.is_file(), f"Manifest not found: {manifest_path}"
 
     def test_head_onnx_size_reasonable(self, exported_head_onnx_path: Path) -> None:
@@ -308,9 +320,14 @@ class TestHeadManifestSchema:
     def test_manifest_val_mae_matches_training(
         self, exported_head_manifest: dict[str, Any]
     ) -> None:
-        # v0.1 val MAE should be approximately 0.9027.
+        # v0.6 val MAE 0.5657 (gate <=0.6 cleared). Plausible range: [0.4, 1.0].
         val_mae = exported_head_manifest["val_mae"]
-        assert 0.5 <= val_mae <= 2.0, f"val_mae {val_mae} out of plausible range"
+        assert 0.4 <= val_mae <= 1.0, f"val_mae {val_mae} out of plausible range"
+
+    def test_manifest_version_is_v06(self, exported_head_manifest: dict[str, Any]) -> None:
+        assert exported_head_manifest["version"] == "v0.6", (
+            f"Expected version v0.6, got {exported_head_manifest['version']}"
+        )
 
     def test_manifest_tanh_scaling(self, exported_head_manifest: dict[str, Any]) -> None:
         assert exported_head_manifest["tanh_scaling"] == 5.0

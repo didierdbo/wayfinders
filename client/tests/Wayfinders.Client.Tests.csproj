@@ -58,6 +58,13 @@
     <Compile Include="..\scripts\screens\ScreenContext.cs" Link="src\ScreenContext.cs" />
     <Compile Include="..\scripts\screens\NavigationRequest.cs" Link="src\NavigationRequest.cs" />
     <Compile Include="..\scripts\screens\ContinueGatingLogic.cs" Link="src\ContinueGatingLogic.cs" />
+    <!-- Phase 9 J4 hotfix (2026-05-09 evening): boot-action decision rule
+         for the OpeningBootstrap autoload. The autoload itself depends on
+         Godot (Node, GetTree, GetNode) so xUnit pins the pure decision
+         (skip / register-only / register-and-boot) at the seam. Catches
+         any future regression that drops the F6-launch RegisterOnly branch
+         and re-introduces the J4 double-spawn. -->
+    <Compile Include="..\scripts\screens\OpeningBootstrapLogic.cs" Link="src\OpeningBootstrapLogic.cs" />
   </ItemGroup>
 
   <!-- Phase 7 J3: E2 World Map POI dispatch logic (pure-C#). The DTO and
@@ -150,6 +157,15 @@
        csproj only and is exercised through manual integration. -->
   <ItemGroup>
     <Compile Include="..\scripts\screens\ZoomNavLogic.cs" Link="src\ZoomNavLogic.cs" />
+  </ItemGroup>
+
+  <!-- Phase 9 J5 (post-J4 hotfix / 2026-05-09 evening): pan watchdog
+       state machine. Pure-C# decision helper for the frozen-camera and
+       stuck-transition watchdogs introduced after J4 surfaced two pan
+       regressions. Engine reads (Camera2D.Position, Time.GetTicksMsec)
+       stay in MapPan2DComponent ; the rules live here. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\PanWatchdogLogic.cs" Link="src\PanWatchdogLogic.cs" />
   </ItemGroup>
 
   <!-- Phase 9 slice 3.5 (M3 / L1 World iso refactor / 2026-05-08): per-tile

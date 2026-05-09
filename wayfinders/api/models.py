@@ -56,3 +56,86 @@ class HealthResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     status: str = Field(..., description="Service status. ``ok`` when healthy.")
+    model_ready: bool = Field(
+        ...,
+        description=(
+            "True when both encoder and head ONNX sessions are loaded and "
+            "``/api/uc1/predict`` is operational. "
+            "False if either artifact is missing (predict returns 503)."
+        ),
+    )
+
+
+class UC1InfoResponse(BaseModel):
+    """Debug info for the UC1 inference backend.
+
+    Exposes the ONNX artifact paths and readiness flag so the Godot client
+    (and ops) can verify which checkpoint is loaded without calling predict.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    model_ready: bool = Field(
+        ..., description="True when both encoder and head ONNX sessions are loaded."
+    )
+    encoder_onnx_path: str = Field(..., description="Resolved path to the encoder ONNX artifact.")
+    head_onnx_path: str = Field(..., description="Resolved path to the head ONNX artifact.")
+    device: str = Field(
+        ...,
+        description=(
+            "Runtime descriptor. ``ort-cpu`` for CPUExecutionProvider (current default). "
+            "Extended in M2 for GPU providers."
+        ),
+    )
+
+
+class UC1PredictRequest(BaseModel):
+    """Input for the UC1 resolution prediction endpoint.
+
+    All three prose strings must be EN-rendered (renderer English-pinning
+    contract). They are fed directly to the MiniLM encoder; no further
+    transformation is performed server-side.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    char_prose: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "EN-rendered character prose (render_character() output). "
+            "Must be non-empty. EN-pinned regardless of UI locale."
+        ),
+    )
+    action_prose: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "EN-rendered action prose (render_action() output). Must be non-empty. EN-pinned."
+        ),
+    )
+    context_prose: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "EN-rendered context prose (render_context() output). Must be non-empty. EN-pinned."
+        ),
+    )
+
+
+class UC1PredictResponse(BaseModel):
+    """Output of the UC1 resolution prediction endpoint.
+
+    ``delta`` is the raw model output in [-5, +5] (tanh x 5, computed
+    inside the head graph). The game engine adds this to the base modifier
+    to produce the final resolution delta.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    delta: float = Field(
+        ...,
+        ge=-5.0,
+        le=5.0,
+        description="Predicted resolution delta in [-5, +5]. tanh-bounded by the head.",
+    )

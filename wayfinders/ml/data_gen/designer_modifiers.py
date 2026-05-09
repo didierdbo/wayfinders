@@ -1,6 +1,6 @@
 """Designer modifier table -> label_delta.
 
-Implements Varn's UC1 Designer Modifier Table v0.5 (2026-05-05). The label
+Implements Varn's UC1 Designer Modifier Table v0.6 (2026-05-09). The label
 is **authored**, not learned. The model learns to compress the designer's
 intent into a scalar over prose-derived vectors. Designers stay in the
 driver's seat (Pax 2026-05-02 sec. 4).
@@ -12,7 +12,13 @@ Pipeline (Varn §4):
     delta_action  = sum of Action Δ-components (§2)  -- no sub-clamps
     delta_context = sum of Context Δ-components (§3) -- no sub-clamps
     raw_delta     = delta_char + delta_action + delta_context
-    label_Δ       = 5 * tanh(raw_delta / 5)            -- bounded [-5, +5]
+    label_Δ       = 5 * tanh(raw_delta / 8)            -- bounded [-5, +5]
+
+v0.6 change vs v0.5: Δ-components are now ``float`` on a 0.5 grid (was
+``int``), and the tanh input scale is 8 (was 5) to expand the linear
+regime and eliminate the saturation plateau / comb pattern that prevented
+the regression from learning smoothly. See ``designer_modifiers_data.py``
+docstring for the calibration rationale.
 
 All functions are **pure**: same inputs -> same float, forever. No global
 state mutated across calls. (The ``UNKNOWN_VERBS`` set is a debugging
@@ -53,24 +59,24 @@ UNKNOWN_VERBS: set[str] = set()
 # ---------------------------------------------------------------------------
 
 
-def _clamp(value: int, lo: int, hi: int) -> int:
+def _clamp(value: float, lo: float, hi: float) -> float:
     """Clamp ``value`` into ``[lo, hi]`` inclusive."""
     return max(lo, min(hi, value))
 
 
-def _tier_lookup(value: int, tiers: tuple[tuple[int, int], ...]) -> int:
+def _tier_lookup(value: int, tiers: tuple[tuple[int, float], ...]) -> float:
     """Walk ``tiers`` (descending lower-bound) and return the first matching delta.
 
     ``tiers`` is a tuple of ``(lower_bound_inclusive, delta)`` ordered from
-    highest threshold to lowest. A value below all thresholds returns 0.
+    highest threshold to lowest. A value below all thresholds returns 0.0.
     """
     for threshold, delta in tiers:
         if value >= threshold:
             return delta
-    return 0
+    return 0.0
 
 
-def _substring_match_sum(text: str, keyword_table: dict[str, int] | None = None) -> int:
+def _substring_match_sum(text: str, keyword_table: dict[str, float] | None = None) -> float:
     """Sum deltas for every keyword that appears in ``text`` (lowercased).
 
     Substring matching is **longest-first** to avoid 'wet' eating 'well-fed'.
@@ -87,7 +93,7 @@ def _substring_match_sum(text: str, keyword_table: dict[str, int] | None = None)
     # Sort keys longest-first so 'leather jerkin' matches before 'leather'.
     keys = sorted(keyword_table.keys(), key=len, reverse=True)
     consumed_spans: list[tuple[int, int]] = []
-    total = 0
+    total = 0.0
     for key in keys:
         idx = haystack.find(key)
         if idx == -1:
@@ -107,14 +113,14 @@ def _substring_match_sum(text: str, keyword_table: dict[str, int] | None = None)
 # ---------------------------------------------------------------------------
 
 
-def _char_descriptor_delta(char: CharacterState, action: ActionCard) -> int:
+def _char_descriptor_delta(char: CharacterState, action: ActionCard) -> float:
     """§1.1 -- DEX / WIS / STR lane contributions, action-keyed."""
     verb = action.action_phrase.lower()
     dex: DescriptorBucket = char.dex_bucket
     wis: DescriptorBucket = char.wis_bucket
     str_: DescriptorBucket = char.str_bucket
 
-    delta = 0
+    delta = 0.0
     if verb in {"stealth approach", "ranged attack"}:
         delta += tbl.DEX_DELTA_FULL[dex]
         if verb == "stealth approach":
@@ -133,48 +139,46 @@ def _char_descriptor_delta(char: CharacterState, action: ActionCard) -> int:
     return delta
 
 
-def _char_traits_delta(char: CharacterState, action: ActionCard) -> int:
+def _char_traits_delta(char: CharacterState, action: ActionCard) -> float:
     """§1.2 -- traits sub-sum, clamped to [-3, +3]."""
     verb = action.action_phrase.lower()
     table = tbl.TRAIT_DELTA_STEALTH if verb != "melee attack" else tbl.TRAIT_DELTA_MELEE
-    raw = sum(table.get(t.lower(), 0) for t in char.traits)
+    raw = sum(table.get(t.lower(), 0.0) for t in char.traits)
     return _clamp(raw, *tbl.TRAITS_SUBCLAMP)
 
 
-def _char_status_delta(char: CharacterState) -> int:
+def _char_status_delta(char: CharacterState) -> float:
     """§1.3 -- HP + stress (no sub-clamp ; each is a single bucket)."""
     return tbl.HP_DELTA[char.hp_bucket] + tbl.STRESS_DELTA[char.stress_bucket]
 
 
-def _char_conditions_delta(char: CharacterState) -> int:
+def _char_conditions_delta(char: CharacterState) -> float:
     """§1.3 -- conditions sub-sum, clamped to [-3, +3]."""
     if not char.conditions:
-        return 0
+        return 0.0
     blob = " ".join(char.conditions).lower()
     raw = _substring_match_sum(blob, dict(tbl.CONDITION_KEYWORD_DELTA))
     return _clamp(raw, *tbl.CONDITIONS_SUBCLAMP)
 
 
-def _char_equipment_delta(char: CharacterState, action: ActionCard) -> int:
+def _char_equipment_delta(char: CharacterState, action: ActionCard) -> float:
     """§1.4 -- equipment, no sub-clamp (Varn says final tanh absorbs).
 
     Currently keyed for stealth ; melee/ranged inherit the same table
     because the dominant signals (armor weight, weapon size) trade off
-    similarly across verbs in v0.5. v1 will split per-verb.
+    similarly across verbs in v0.5/v0.6. v1 will split per-verb.
     """
     if not char.equipment:
-        return 0
+        return 0.0
     blob = " ".join(char.equipment).lower()
     return _substring_match_sum(blob, dict(tbl.EQUIPMENT_KEYWORD_DELTA_STEALTH))
 
 
-def _char_legacy_delta(char: CharacterState, action: ActionCard) -> int:
+def _char_legacy_delta(char: CharacterState, action: ActionCard) -> float:
     """§1.5 -- legacy biography. Sub-clamped to [-3, +4] per Varn rationale."""
-    raw = 0
+    raw = 0.0
 
     # §1.5.1 -- tag-aligned competence (action_counters keyed by phrase).
-    # Codebase fixture uses 'stealth approaches' (plural) ; we try a few
-    # canonical pluralizations.
     counter_key_candidates = [
         action.action_phrase + "es",
         action.action_phrase + "s",
@@ -190,12 +194,7 @@ def _char_legacy_delta(char: CharacterState, action: ActionCard) -> int:
     raw += _tier_lookup(successes, tbl.STEALTH_SUCCESS_TIERS)
     raw += _tier_lookup(failures, tbl.STEALTH_FAILURE_TIERS)
 
-    # §1.5.2 -- terrain familiarity. The codebase represents this as a
-    # qualitative dict (location -> "barely"|"moderately"|"well"|"best of
-    # all"). For UC1 stealth on broken-stone-and-scree, the relevant key
-    # is loosely 'forest terrain' / 'mountain' ; we take the **best-matching
-    # familiarity tier across all locations** as the contribution. This is
-    # an adapter compromise vs. Varn's hours-bucketing -- documented for v1.
+    # §1.5.2 -- terrain familiarity.
     if char.location_familiarity:
         best = max(tbl.TERRAIN_FAMILIARITY_DELTA[fam] for fam in char.location_familiarity.values())
         # Only count if the action is terrain-sensitive (stealth, move).
@@ -213,20 +212,20 @@ def _char_legacy_delta(char: CharacterState, action: ActionCard) -> int:
     return _clamp(raw, *tbl.LEGACY_SUBCLAMP)
 
 
-def _char_episodic_delta(char: CharacterState, action: ActionCard) -> int:
+def _char_episodic_delta(char: CharacterState, action: ActionCard) -> float:
     """§1.6 -- episodic memory (capped at +1)."""
     if not char.episodic_memory:
-        return 0
+        return 0.0
     # Top-3 by salience (the renderer already ranks ; we trust the input).
     blob = " ".join(e.description for e in char.episodic_memory[:3]).lower()
     if any(kw in blob for kw in tbl.EPISODIC_KEYWORD_HITS) and any(
         t in {"stealth", "scouting", "infiltration"} for t in action.tag_set
     ):
         return min(tbl.EPISODIC_HIT_DELTA, tbl.EPISODIC_MAX_DELTA)
-    return 0
+    return 0.0
 
 
-def _delta_char(char: CharacterState, action: ActionCard) -> int:
+def _delta_char(char: CharacterState, action: ActionCard) -> float:
     """§1 aggregate: descriptors + traits-clamped + status + conditions-clamped
     + equipment + legacy-clamped + episodic + bonds-zero.
     """
@@ -247,19 +246,19 @@ def _delta_char(char: CharacterState, action: ActionCard) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _action_base_delta(action: ActionCard) -> int:
+def _action_base_delta(action: ActionCard) -> float:
     """§2.1 -- base difficulty per verb."""
     verb = action.action_phrase.lower()
     if verb not in tbl.ACTION_BASE_DIFFICULTY:
         UNKNOWN_VERBS.add(verb)
-        return 0
+        return 0.0
     return tbl.ACTION_BASE_DIFFICULTY[verb]
 
 
-def _action_manner_delta(action: ActionCard) -> int:
+def _action_manner_delta(action: ActionCard) -> float:
     """§2.2 + §2.3 + §2.4 -- footing + lighting + noise."""
     verb = action.action_phrase.lower()
-    delta = 0
+    delta = 0.0
     if verb == "move":
         delta += tbl.FOOTING_DELTA_MOVE[action.footing_phrase]
     else:
@@ -270,11 +269,11 @@ def _action_manner_delta(action: ActionCard) -> int:
     return delta
 
 
-def _action_opposition_delta(opposition: OppositionState) -> int:
+def _action_opposition_delta(opposition: OppositionState) -> float:
     """§2.7 -- opposition vignette (count + alertness + skill + family)."""
     if opposition.count <= 0:
         # Solo action -- opposition row contributes 0 (sentence dropped at render).
-        return 0
+        return 0.0
     return (
         _tier_lookup(opposition.count, tbl.OPPOSITION_COUNT_TIERS)
         + tbl.OPPOSITION_ALERTNESS_DELTA[opposition.alertness]
@@ -283,7 +282,7 @@ def _action_opposition_delta(opposition: OppositionState) -> int:
     )
 
 
-def _delta_action(action: ActionCard, opposition: OppositionState) -> int:
+def _delta_action(action: ActionCard, opposition: OppositionState) -> float:
     """§2 aggregate. No sub-clamps -- final tanh absorbs."""
     return (
         _action_base_delta(action)
@@ -297,14 +296,14 @@ def _delta_action(action: ActionCard, opposition: OppositionState) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _context_stakes_delta(scene: SceneState) -> int:
+def _context_stakes_delta(scene: SceneState) -> float:
     return tbl.STAKES_DELTA[scene.stakes_tier]
 
 
-def _context_party_delta(party: PartyState) -> int:
+def _context_party_delta(party: PartyState) -> float:
     """§3.2. If party has no members, contributes 0 (no condition row rendered)."""
     if not party.members:
-        return 0
+        return 0.0
     return (
         tbl.WOUND_DELTA[party.wound_bucket]
         + tbl.SUPPLY_DELTA[party.supply_bucket]
@@ -312,7 +311,7 @@ def _context_party_delta(party: PartyState) -> int:
     )
 
 
-def _context_weather_delta(world: WorldState) -> int:
+def _context_weather_delta(world: WorldState) -> float:
     """§3.4 -- only temperature + wind. Precip handled via action manner."""
     return (
         tbl.TEMPERATURE_DELTA[world.temperature]
@@ -321,12 +320,12 @@ def _context_weather_delta(world: WorldState) -> int:
     )
 
 
-def _context_terrain_delta(world: WorldState) -> int:
+def _context_terrain_delta(world: WorldState) -> float:
     """§3.5 -- biome only. Footing handled in action manner."""
     return tbl.TERRAIN_PRIMARY_DELTA[world.terrain_primary]
 
 
-def _context_faction_delta(world: WorldState) -> int:
+def _context_faction_delta(world: WorldState) -> float:
     """§3.6 -- relation against the **first** faction stance.
 
     The renderer caps at 2 stances ; the table only nominates a single relation
@@ -336,17 +335,17 @@ def _context_faction_delta(world: WorldState) -> int:
     target_faction field on ActionCard to remove this ambiguity.
     """
     if not world.faction_stances:
-        return 0
+        return 0.0
     first = sorted(world.faction_stances, key=lambda s: s.other_faction)[0]
     return tbl.FACTION_RELATION_DELTA[first.relation]
 
 
-def _context_campaign_delta(campaign: CampaignState) -> int:
+def _context_campaign_delta(campaign: CampaignState) -> float:
     """§3.7 -- keyword on holdings_phrase."""
     return _substring_match_sum(campaign.holdings_phrase.lower(), dict(tbl.CAMPAIGN_KEYWORD_DELTA))
 
 
-def _context_time_delta(scene: SceneState) -> int:
+def _context_time_delta(scene: SceneState) -> float:
     """§3.8 -- countdown_hours."""
     if scene.countdown_hours is None:
         return tbl.COUNTDOWN_NONE_DELTA
@@ -358,7 +357,7 @@ def _delta_context(
     party: PartyState,
     world: WorldState,
     campaign: CampaignState,
-) -> int:
+) -> float:
     return (
         _context_stakes_delta(scene)
         + _context_party_delta(party)
@@ -384,7 +383,7 @@ def compute_delta(
     world: WorldState,
     campaign: CampaignState,
 ) -> float:
-    """Apply Varn's UC1 Designer Modifier Table v0.5 to a structured rollout.
+    """Apply Varn's UC1 Designer Modifier Table v0.6 to a structured rollout.
 
     Returns ``label_delta`` ∈ [-5.0, +5.0]. Pure function -- same inputs ->
     same float, forever.
@@ -392,7 +391,7 @@ def compute_delta(
     The full pipeline is documented in module docstring + Varn §4. Briefly:
 
         raw = delta_char + delta_action + delta_context
-        label_delta = 5 * tanh(raw / 5)
+        label_delta = 5 * tanh(raw / 8)
 
     The intermediate sums and the raw_delta are recoverable via the
     private ``_delta_*`` helpers if a debug overlay or unit test wants
@@ -417,10 +416,13 @@ def compute_raw_delta(
     party: PartyState,
     world: WorldState,
     campaign: CampaignState,
-) -> int:
+) -> float:
     """Return the pre-tanh ``raw_delta`` (sum of all Δ-components).
 
     Useful for tests and the debug overlay (Rune). Not used in training.
+
+    v0.6: returns ``float`` (was ``int`` in v0.5) since modifier values
+    are now on a 0.5 grid.
     """
     return (
         _delta_char(character, action)

@@ -128,8 +128,41 @@ public partial class MapPan2DComponent : Node2D
 
     /// <summary>Slice 3 -- minimum zoom value (vue d'ensemble).
     /// Smaller numerical values = camera zoomed out further. Default
-    /// 0.5 = the world appears at half size.</summary>
-    [Export] public float ZoomMin { get; set; } = 0.5f;
+    /// 0.7 (raised from 0.5 on 2026-05-09 after Didier playtest) = the
+    /// world appears at 70 % size.
+    ///
+    /// <para>
+    /// <b>Why 0.7 and not 0.5 / 0.8.</b> At 0.5 the world fits inside
+    /// the viewport with ~100 % unused margin around it -- the
+    /// peripheral void was visible because the source bitmap stops at
+    /// the world edges. Lifting ZoomMin tightens the climb-out floor
+    /// so the camera cannot pull back into the void. Two candidate
+    /// floors were considered:
+    /// <list type="bullet">
+    ///   <item><b>0.7</b> -- ratio Default 1.0 -&gt; floor 0.7 = 30 %
+    ///         zoom-out, perceptible amplitude for the PULL gesture
+    ///         (the player still feels they zoomed out to a vue
+    ///         d'ensemble). Source 3840 px wide at 0.7 renders at
+    ///         2688 viewport px, slightly wider than the 1920 px
+    ///         default viewport so a small pan reach is preserved at
+    ///         the floor (matches Varn §5.2 "la vue d'ensemble doit
+    ///         rester pannable, pas figée"). Leaves a tampon if the
+    ///         bitmap rework Didier flagged ("on ajustera plutôt le
+    ///         bitmap pour que le contenu utile reste accessible en
+    ///         mode zoom large") undershoots the target useful-area
+    ///         ratio.</item>
+    ///   <item><b>0.8</b> -- only 20 % zoom-out from Default. The
+    ///         PULL gesture loses its sense of amplitude vs Default,
+    ///         and the climb-out feedback ("you reached the floor")
+    ///         arrives so close to the medium that the floor stops
+    ///         feeling like a meaningful threshold. Rejected.</item>
+    /// </list>
+    /// Per-instance tuning still available via [Export] for L2/L3
+    /// (E3 City and E5 District may want a different floor against
+    /// their own source bitmaps).
+    /// </para>
+    /// </summary>
+    [Export] public float ZoomMin { get; set; } = 0.7f;
 
     /// <summary>Slice 3 -- initial zoom value applied at scene entry
     /// (medium). Set as the Camera2D.Zoom on <see cref="Configure"/>.</summary>
@@ -172,6 +205,57 @@ public partial class MapPan2DComponent : Node2D
     /// silently ignored at the <see cref="ZoomNavLogic"/> seam (visited
     /// gate). 250 ms = same horizon as <c>SceneManager.PostDragGraceMs</c>.</summary>
     [Export] public ulong ZoomPostTransitionDebounceMs { get; set; } = 250;
+
+    /// <summary>
+    /// J5 diagnostics (post-J4 hotfix, 2026-05-09 evening, locked).
+    /// Surfaces three failure modes the J4 generalisation could induce on
+    /// the pan stack :
+    /// <list type="bullet">
+    ///   <item><b>Action gate</b> -- one-shot log on the FIRST press of each
+    ///         <c>ui_pan_*</c> action. Confirms <see cref="Input.IsActionPressed"/>
+    ///         observes the keypress (rules out InputMap regression).</item>
+    ///   <item><b>Frozen-camera watchdog</b> -- when input direction is
+    ///         non-zero but <c>Camera2D.Position</c> does not change for
+    ///         <see cref="FrozenPanWarnFrames"/> consecutive frames, dump
+    ///         the full clamp state once. Catches "clamp snaps to center"
+    ///         (image less or equal viewport on an axis) and "viewport size unexpected"
+    ///         regressions.</item>
+    ///   <item><b>Stuck-transition watchdog</b> -- if <c>_inTransition</c>
+    ///         stays true beyond <see cref="StuckTransitionResetMs"/> with
+    ///         no <c>NotifyTransitionEnded</c> call, force-reset and warn.
+    ///         Catches the case where <c>OnDrillRequested</c> /
+    ///         <c>OnClimbRequested</c> consumer code throws before its
+    ///         <c>finally</c> block (async void unobserved exception).</item>
+    /// </list>
+    /// Default true so the user gets free observability post-J4. Flip to
+    /// false in the inspector once the regression is closed and the noise
+    /// is no longer wanted in the Output panel.
+    /// </summary>
+    [Export] public bool EnableJ5PanDiagnostics { get; set; } = true;
+
+    /// <summary>J5 diagnostics -- frame count threshold above which the
+    /// frozen-camera watchdog logs once. 30 frames = 0.5 s at 60 fps.</summary>
+    [Export] public int FrozenPanWarnFrames { get; set; } = 30;
+
+    /// <summary>J5 diagnostics -- ms threshold above which the stuck-
+    /// transition watchdog force-resets <c>_inTransition</c>. 2000 ms is
+    /// long enough for the slowest legitimate NavigateTo (E2 -&gt; E3 with
+    /// asset preload) and short enough that the user notices the reset
+    /// happens before they lose patience clicking other UI.</summary>
+    [Export] public ulong StuckTransitionResetMs { get; set; } = 2000;
+
+    /// <summary>J6 diagnostics (post-J5 evening, locked) -- when the user
+    /// is actively panning (input direction non-zero), log a compact dump
+    /// every N frames showing the resolved direction, the Camera2D position
+    /// before/after the clamp, and the zoom. Distinguishes regression
+    /// hypothesis (b) "direction.Y forced to 0" from (c) "frozen-camera
+    /// watchdog never reaches its 30-frame threshold because the user
+    /// releases too fast" -- this dump fires every frame the input is
+    /// active, regardless of whether the camera moves.
+    /// 30 frames = 0.5 s at 60 fps : one dump per half-second of held key,
+    /// not per frame, to keep the Output panel readable.</summary>
+    [Export] public int ActivePanTraceEveryNFrames { get; set; } = 30;
+
 
     /// <summary>
     /// Names of the four InputMap actions <see cref="_Process"/> polls.
@@ -251,6 +335,15 @@ public partial class MapPan2DComponent : Node2D
     private bool _configured;
     private Vector2 _worldImageSize;
 
+    // 2026-05-09 fix : the camera limits track the WORLD BOUNDS, which on
+    // E2 World Map exceed the source bitmap on iso projection (4224x2112
+    // grid vs 2048x1024 bitmap). Defaults to _worldImageSize via the
+    // backward-compat Configure overload, set explicitly by E2WorldMap via
+    // the three-arg overload. Z (vertical pan) was frozen pre-fix because
+    // viewport.Y > _worldImageSize.Y triggered ClampCameraCenter snap-to-
+    // image-center on Y -- now it clamps against bounds.Y instead.
+    private Vector2 _worldBoundsSize;
+
     // Slice 3 -- zoom continuous tween state. At most one zoom tween in
     // flight at a time ; killed and replaced on every new wheel tick.
     // Same discipline as FogTileLayer's per-cell tween bag (slice 2).
@@ -279,6 +372,25 @@ public partial class MapPan2DComponent : Node2D
     private ZoomNavAction _lastZoomAction = ZoomNavAction.None;
     private ulong _lastTransitionTimeMs;
 
+    // J5 diagnostics state -- four flags for first-press logging, one
+    // counter for frozen-camera watchdog, one timestamp for stuck-
+    // transition watchdog. Allocation-free in the hot path.
+    private bool _j5SeenLeftPress;
+    private bool _j5SeenRightPress;
+    private bool _j5SeenUpPress;
+    private bool _j5SeenDownPress;
+    private int _j5FrozenFrameCount;
+    private Vector2 _j5LastCameraPosition;
+    private ulong _j5InTransitionStartedMs;
+    private bool _j5StuckTransitionWarned;
+
+    // J6 diagnostics state -- active-pan trace counter. Increments every
+    // frame input direction is non-zero ; resets to 0 when input stops.
+    // Triggers a compact dump every ActivePanTraceEveryNFrames frames so
+    // the Output panel sees the resolved direction + camera position +
+    // zoom while the user is holding ZQSD. Allocation-free.
+    private int _j6ActivePanFrameCount;
+
     /// <summary>The world container Node2D. Consumers spawn world-space
     /// children (entities, fog, decals) under this node so they pan with
     /// the camera for free.</summary>
@@ -301,6 +413,14 @@ public partial class MapPan2DComponent : Node2D
     /// consumers (e.g. <see cref="FogTileLayer"/> sizes its grid from
     /// here). Returns <c>Vector2.Zero</c> before <see cref="Configure"/>.</summary>
     public Vector2 WorldImageSize => _worldImageSize;
+
+    /// <summary>The configured world BOUNDS dimensions -- the rectangle
+    /// the camera is allowed to traverse, in world coords. May exceed
+    /// <see cref="WorldImageSize"/> when an overlay (fog grid, future
+    /// tactical grid) extends the perceivable world past the source
+    /// bitmap. Returns <c>Vector2.Zero</c> before <see cref="Configure"/>.
+    /// Surfaced for downstream diagnostics and tests.</summary>
+    public Vector2 WorldBoundsSize => _worldBoundsSize;
 
     /// <summary>True iff a drag is currently active. Diagnostic surface
     /// for consumers and tests ; the component drives its own gating
@@ -386,13 +506,61 @@ public partial class MapPan2DComponent : Node2D
     /// should center on after configure.</param>
     public void Configure(Texture2D worldImageTexture, Vector2 initialCameraCenter)
     {
+        // Backward-compatible overload : world bounds default to the source
+        // texture size. Used by E3 / E5 (no fog overlay extending the world
+        // beyond the bitmap). E2WorldMap calls the explicit-bounds overload
+        // because its iso fog grid extends past the source bitmap on both
+        // axes (4224x2112 grid vs 2048x1024 bitmap), and the camera limits
+        // must follow the perceivable world, not just the bitmap.
+        Configure(worldImageTexture, initialCameraCenter, worldImageTexture.GetSize());
+    }
+
+    /// <summary>
+    /// Frame the camera around the supplied world image with explicit world
+    /// bounds. Same contract as the two-arg overload, but the consumer
+    /// supplies the world-space rectangle the camera is allowed to traverse
+    /// (typically <c>max(textureSize, fogGridBounds)</c> on E2 World Map).
+    ///
+    /// <para>
+    /// <b>Why a separate overload (rather than always derive from the
+    /// texture).</b> The source bitmap is an atlas/backdrop ; the
+    /// authoritative world is whatever the consumer's overlay systems
+    /// (fog grid, future tactical grid, future POI graph extending past
+    /// the bitmap) say it is. Pre-fix (2026-05-09 evening), MapPan2DComponent
+    /// silently equated bitmap = world, which made vertical pan stall on E2
+    /// when the iso fog grid was taller than the source PNG (1024 px PNG vs
+    /// 2112 px iso bounds, viewport 1080 px > PNG 1024 → ClampCameraCenter
+    /// snap-to-center branch fired and Camera2D froze on Y). The fix exposes
+    /// the seam : consumers that have an overlay extending the world pass
+    /// it explicitly ; consumers that don't (E3 / E5) keep the original
+    /// signature and the bitmap-backed default.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Consumer contract.</b> <paramref name="worldBoundsSize"/> must
+    /// be greater than or equal to <paramref name="worldImageTexture"/>.GetSize()
+    /// on each axis. The component does not enforce this -- a smaller bound
+    /// would re-introduce the very bug this overload fixes -- but the
+    /// runtime preflight dump surfaces the values so a mismatch is visible
+    /// on the console immediately.
+    /// </para>
+    /// </summary>
+    /// <param name="worldImageTexture">Texture for the world map sprite.</param>
+    /// <param name="initialCameraCenter">World-space position the camera
+    /// should center on after configure.</param>
+    /// <param name="worldBoundsSize">World-space (width, height) of the
+    /// rectangle the camera is allowed to traverse. The Camera2D limits
+    /// are set to <c>[0, 0]-[worldBoundsSize.X, worldBoundsSize.Y]</c>.</param>
+    public void Configure(Texture2D worldImageTexture, Vector2 initialCameraCenter, Vector2 worldBoundsSize)
+    {
         _worldMapSprite.Texture = worldImageTexture;
         _worldImageSize = worldImageTexture.GetSize();
+        _worldBoundsSize = worldBoundsSize;
 
         _worldCamera.LimitLeft = 0;
         _worldCamera.LimitTop = 0;
-        _worldCamera.LimitRight = (int)_worldImageSize.X;
-        _worldCamera.LimitBottom = (int)_worldImageSize.Y;
+        _worldCamera.LimitRight = (int)_worldBoundsSize.X;
+        _worldCamera.LimitBottom = (int)_worldBoundsSize.Y;
         _worldCamera.MakeCurrent();
 
         // Slice 3 -- zoom defaults applied here. Direct write (no
@@ -401,13 +569,14 @@ public partial class MapPan2DComponent : Node2D
         _targetZoom = ZoomDefault;
         _worldCamera.Zoom = new Vector2(ZoomDefault, ZoomDefault);
 
-        // Clamp the requested initial center against the limits so the
-        // consumer can pass a POI position blindly without recomputing
-        // valid camera ranges.
+        // Clamp the requested initial center against the WORLD BOUNDS (not
+        // the source bitmap) so the consumer can pass a POI position blindly
+        // without recomputing valid camera ranges. Same rationale as the
+        // limits assignment above.
         var viewportSize = GetViewport().GetVisibleRect().Size;
         var clamped = CameraPanLogic.ClampCameraCenter(
             new PanVec2(initialCameraCenter.X, initialCameraCenter.Y),
-            new PanVec2(_worldImageSize.X, _worldImageSize.Y),
+            new PanVec2(_worldBoundsSize.X, _worldBoundsSize.Y),
             new PanVec2(viewportSize.X, viewportSize.Y));
         _worldCamera.Position = new Vector2(clamped.X, clamped.Y);
 
@@ -474,25 +643,167 @@ public partial class MapPan2DComponent : Node2D
     {
         if (!_configured) return;
         if (IsModalOpen()) return;
+
+        // J5 stuck-transition watchdog -- runs BEFORE the _inTransition
+        // gate so a stuck flag self-heals instead of permanently locking
+        // pan. async void OnDrillRequested / OnClimbRequested can swallow
+        // exceptions silently ; this catches the resulting orphan lock.
+        // The decision rule lives in PanWatchdogLogic (pure-C#, xUnit-pinned).
+        if (_inTransition && EnableJ5PanDiagnostics)
+        {
+            var nowMs = Time.GetTicksMsec();
+            var action = PanWatchdogLogic.EvaluateStuckTransition(
+                _j5InTransitionStartedMs, nowMs, StuckTransitionResetMs);
+            switch (action)
+            {
+                case StuckTransitionAction.StartTimer:
+                    _j5InTransitionStartedMs = nowMs;
+                    break;
+                case StuckTransitionAction.WarnAndReset:
+                    if (!_j5StuckTransitionWarned)
+                    {
+                        GD.PushWarning(
+                            $"[MapPan2DComponent J5] stuck-transition watchdog : " +
+                            $"_inTransition has been true for {nowMs - _j5InTransitionStartedMs} ms " +
+                            $"with no NotifyTransitionEnded -- forcing reset. " +
+                            $"Consumer OnDrillRequested / OnClimbRequested likely threw " +
+                            $"before its finally block (async void unobserved exception).");
+                        _j5StuckTransitionWarned = true;
+                    }
+                    _inTransition = false;
+                    _j5InTransitionStartedMs = 0;
+                    break;
+                case StuckTransitionAction.Wait:
+                default:
+                    break;
+            }
+        }
+        else
+        {
+            _j5InTransitionStartedMs = 0;
+            _j5StuckTransitionWarned = false;
+        }
+
         if (_inTransition) return; // slice 3 -- input lock during transition
 
-        var dir = CameraPanLogic.ResolvePanDirection(
-            left:  Input.IsActionPressed("ui_pan_left"),
-            right: Input.IsActionPressed("ui_pan_right"),
-            up:    Input.IsActionPressed("ui_pan_up"),
-            down:  Input.IsActionPressed("ui_pan_down"));
+        var leftPressed  = Input.IsActionPressed("ui_pan_left");
+        var rightPressed = Input.IsActionPressed("ui_pan_right");
+        var upPressed    = Input.IsActionPressed("ui_pan_up");
+        var downPressed  = Input.IsActionPressed("ui_pan_down");
 
-        if (dir.X == 0f && dir.Y == 0f) return;
+        // J5 -- one-shot log on first press of each direction. Confirms
+        // the InputMap action wires through to Input.IsActionPressed.
+        if (EnableJ5PanDiagnostics)
+        {
+            if (leftPressed && !_j5SeenLeftPress)
+            {
+                _j5SeenLeftPress = true;
+                GD.Print("[MapPan2DComponent J5] first ui_pan_left press observed");
+            }
+            if (rightPressed && !_j5SeenRightPress)
+            {
+                _j5SeenRightPress = true;
+                GD.Print("[MapPan2DComponent J5] first ui_pan_right press observed");
+            }
+            if (upPressed && !_j5SeenUpPress)
+            {
+                _j5SeenUpPress = true;
+                GD.Print("[MapPan2DComponent J5] first ui_pan_up press observed");
+            }
+            if (downPressed && !_j5SeenDownPress)
+            {
+                _j5SeenDownPress = true;
+                GD.Print("[MapPan2DComponent J5] first ui_pan_down press observed");
+            }
+        }
+
+        var dir = CameraPanLogic.ResolvePanDirection(
+            left: leftPressed, right: rightPressed, up: upPressed, down: downPressed);
+
+        if (dir.X == 0f && dir.Y == 0f)
+        {
+            _j5FrozenFrameCount = 0;
+            _j6ActivePanFrameCount = 0;
+            return;
+        }
 
         var current = new PanVec2(_worldCamera.Position.X, _worldCamera.Position.Y);
-        var imageSize = new PanVec2(_worldImageSize.X, _worldImageSize.Y);
+        // 2026-05-09 fix : clamp against world BOUNDS (fog grid extends past
+        // bitmap on iso). Variable name "imageSize" preserved for diff
+        // narrowness ; reads from _worldBoundsSize now.
+        var imageSize = new PanVec2(_worldBoundsSize.X, _worldBoundsSize.Y);
         var viewportSize = GetViewport().GetVisibleRect().Size;
         var viewport = new PanVec2(viewportSize.X, viewportSize.Y);
 
+        var prevCameraPos = _worldCamera.Position;
         var advanced = CameraPanLogic.AdvanceCameraCenter(
             current, dir, PanSpeedPxPerSec, (float)delta, imageSize, viewport);
 
-        _worldCamera.Position = new Vector2(advanced.X, advanced.Y);
+        var newPos = new Vector2(advanced.X, advanced.Y);
+        _worldCamera.Position = newPos;
+
+        // J6 active-pan trace -- log a compact dump every
+        // ActivePanTraceEveryNFrames frames while input is held. Distinguishes
+        // hypothesis (b) "direction.Y is computed as 0" (the dump shows
+        // dir=(?,0.00) while the user holds Z) from (c) "frozen-camera
+        // watchdog threshold never reached because the user released too
+        // fast" (the dump shows dir!=0 but Camera2D.Position not advancing).
+        // Also pins hypothesis (a)/(d) by logging the camera Current flag
+        // every dump -- if a phantom Camera2D took over, Current would be
+        // false here even though the prod camera is still being written to.
+        if (EnableJ5PanDiagnostics)
+        {
+            _j6ActivePanFrameCount++;
+            if (_j6ActivePanFrameCount % ActivePanTraceEveryNFrames == 1)
+            {
+                var moved = newPos - prevCameraPos;
+                GD.Print(
+                    $"[MapPan2DComponent J6] active-pan trace #{_j6ActivePanFrameCount}: " +
+                    $"dir=({dir.X:+0.00;-0.00;0.00},{dir.Y:+0.00;-0.00;0.00}) " +
+                    $"camPos {prevCameraPos} -> {newPos} (Δ={moved}) " +
+                    $"zoom={_worldCamera.Zoom.X:F2} " +
+                    $"current={_worldCamera.IsCurrent()} " +
+                    $"viewport={viewportSize} image={_worldImageSize} bounds={_worldBoundsSize} " +
+                    $"limits=[({_worldCamera.LimitLeft},{_worldCamera.LimitTop})-" +
+                    $"({_worldCamera.LimitRight},{_worldCamera.LimitBottom})]");
+            }
+        }
+
+        // J5 frozen-camera watchdog -- input direction is non-zero but
+        // the clamp snapped the camera to the same Y or X. Common cause :
+        // viewport >= image on that axis (clamp snap-to-center). Less
+        // common : zoom-aware clamp regression (when zoom < 1.0 the
+        // visible area is wider than the raw viewport, the clamp range
+        // shrinks, and a camera near an edge cannot move further).
+        if (EnableJ5PanDiagnostics)
+        {
+            if (newPos == _j5LastCameraPosition)
+            {
+                _j5FrozenFrameCount++;
+                if (PanWatchdogLogic.ShouldWarnOnFrozenCamera(_j5FrozenFrameCount, FrozenPanWarnFrames))
+                {
+                    var zoomY = _worldCamera.Zoom.Y;
+                    var visibleH = zoomY > 0f ? viewportSize.Y / zoomY : viewportSize.Y;
+                    var visibleW = _worldCamera.Zoom.X > 0f ? viewportSize.X / _worldCamera.Zoom.X : viewportSize.X;
+                    GD.PushWarning(
+                        $"[MapPan2DComponent J5] frozen-camera watchdog : pan input " +
+                        $"dir=({dir.X:F2},{dir.Y:F2}) for {FrozenPanWarnFrames} frames but " +
+                        $"Camera2D.Position={newPos} did not change. " +
+                        $"viewport={viewportSize} visible(world-px)=({visibleW:F0},{visibleH:F0}) " +
+                        $"image={_worldImageSize} bounds={_worldBoundsSize} zoom={_worldCamera.Zoom} " +
+                        $"limits=[({_worldCamera.LimitLeft},{_worldCamera.LimitTop})-" +
+                        $"({_worldCamera.LimitRight},{_worldCamera.LimitBottom})]. " +
+                        $"Likely cause : viewport greater or equal to image on the frozen axis " +
+                        $"(ClampCameraCenter snap-to-center branch). " +
+                        $"Run windowed at 1920x1080 to confirm.");
+                }
+            }
+            else
+            {
+                _j5FrozenFrameCount = 0;
+            }
+        }
+        _j5LastCameraPosition = newPos;
     }
 
     public override void _Input(InputEvent @event)
@@ -628,7 +939,9 @@ public partial class MapPan2DComponent : Node2D
             var delta = mm.Position - new Vector2(motion.PressPosition.X, motion.PressPosition.Y);
             var desired = new Vector2(motion.CameraStart.X, motion.CameraStart.Y) - delta;
 
-            var imageSize = new PanVec2(_worldImageSize.X, _worldImageSize.Y);
+            // 2026-05-09 fix : clamp against world BOUNDS (fog grid extends
+            // past bitmap on iso). Same variable name preserved for diff narrowness.
+            var imageSize = new PanVec2(_worldBoundsSize.X, _worldBoundsSize.Y);
             var viewportSize = GetViewport().GetVisibleRect().Size;
             var viewport = new PanVec2(viewportSize.X, viewportSize.Y);
             var clamped = CameraPanLogic.ClampCameraCenter(
@@ -794,9 +1107,12 @@ public partial class MapPan2DComponent : Node2D
         var positionDelta = cursorOffsetFromCenter * (1f / zoomBefore - 1f / zoomAfter);
 
         var desiredPosition = _worldCamera.Position + positionDelta;
+        // 2026-05-09 fix : clamp against world BOUNDS (fog grid extends past
+        // bitmap on iso). Wheel zoom near an edge respects the same world the
+        // pan input does.
         var clamped = CameraPanLogic.ClampCameraCenter(
             new PanVec2(desiredPosition.X, desiredPosition.Y),
-            new PanVec2(_worldImageSize.X, _worldImageSize.Y),
+            new PanVec2(_worldBoundsSize.X, _worldBoundsSize.Y),
             new PanVec2(viewportSize.X, viewportSize.Y));
         var clampedPosition = new Vector2(clamped.X, clamped.Y);
 
@@ -922,7 +1238,7 @@ public partial class MapPan2DComponent : Node2D
             $"Limits=[({_worldCamera.LimitLeft},{_worldCamera.LimitTop})-" +
             $"({_worldCamera.LimitRight},{_worldCamera.LimitBottom})]");
         GD.Print(
-            $"[MapPan2DComponent] preflight: ImageSize={_worldImageSize} " +
+            $"[MapPan2DComponent] preflight: ImageSize={_worldImageSize} BoundsSize={_worldBoundsSize} " +
             $"ActivePanButton={_activePanButton}");
         GD.Print(
             $"[MapPan2DComponent] preflight: zoom thresholds " +
@@ -931,6 +1247,25 @@ public partial class MapPan2DComponent : Node2D
             $"OutLine={(ZoomMin * ZoomOutThresholdRatio):F3} " +
             $"step={ZoomStepPerTick} tweenSec={ZoomTweenDurationSec} " +
             $"debounceMs={ZoomPostTransitionDebounceMs}");
+
+        // J6 Camera2D census -- list every Camera2D in the scene tree
+        // and flag which one is current. Pins regression hypothesis (a)/(d) :
+        // if J4's Camera3DShadowFollower or any other component spawned a
+        // phantom Camera2D, it would show up here. The prod _worldCamera
+        // should be the only one with current=true ; anything else flags
+        // a take-over.
+        var cameraCensus = CountCamera2DsInTree();
+        GD.Print(
+            $"[MapPan2DComponent J6] Camera2D census : found {cameraCensus.total} Camera2D(s) " +
+            $"in tree, {cameraCensus.current} marked current. " +
+            $"Prod _worldCamera path={_worldCamera.GetPath()} current={_worldCamera.IsCurrent()}.");
+        if (cameraCensus.current != 1)
+        {
+            GD.PushWarning(
+                $"[MapPan2DComponent J6] Camera2D census : expected exactly 1 current, " +
+                $"found {cameraCensus.current}. Phantom Camera2D suspected -- " +
+                $"see the Output panel for the per-camera dump above.");
+        }
 
         var hasLeft  = InputMap.HasAction(PanActionNames[0]);
         var hasRight = InputMap.HasAction(PanActionNames[1]);
@@ -947,6 +1282,52 @@ public partial class MapPan2DComponent : Node2D
             GD.PushWarning(
                 "[MapPan2DComponent] preflight: at least one ui_pan_* action is missing from InputMap. " +
                 "ZQSD pan will silently no-op until project.godot is fixed.");
+        }
+    }
+
+    /// <summary>
+    /// J6 diagnostic helper : walk the SceneTree and count every
+    /// <see cref="Camera2D"/> instance, separately tallying those marked
+    /// <c>current</c>. Logs each one's path + current flag for the user.
+    /// Called once from <see cref="DumpPreflightState"/> so the dump
+    /// surfaces alongside the InputMap preflight at scene entry.
+    ///
+    /// <para>
+    /// Why count : in Godot 4 a viewport has at most one current Camera2D ;
+    /// MakeCurrent on a second one silently demotes the first. If the J4
+    /// 3D backing or any unrelated component spawns a stray Camera2D and
+    /// flips it current (e.g. a pickable's debug overlay), the prod camera
+    /// stops driving the canvas transform and pan/zoom appear broken in
+    /// hard-to-diagnose ways. This census surfaces it on the very first
+    /// frame, before the user has any chance to interact.
+    /// </para>
+    /// </summary>
+    private (int total, int current) CountCamera2DsInTree()
+    {
+        var tree = GetTree();
+        if (tree?.Root is null) return (0, 0);
+        var total = 0;
+        var current = 0;
+        WalkCamera2Ds(tree.Root, ref total, ref current);
+        return (total, current);
+    }
+
+    private void WalkCamera2Ds(Node node, ref int total, ref int current)
+    {
+        if (node is Camera2D cam)
+        {
+            total++;
+            var isCurrent = cam.IsCurrent();
+            if (isCurrent) current++;
+            GD.Print(
+                $"[MapPan2DComponent J6]   Camera2D found : path={cam.GetPath()} " +
+                $"current={isCurrent} zoom={cam.Zoom} " +
+                $"limits=[({cam.LimitLeft},{cam.LimitTop})-" +
+                $"({cam.LimitRight},{cam.LimitBottom})]");
+        }
+        foreach (var child in node.GetChildren())
+        {
+            WalkCamera2Ds(child, ref total, ref current);
         }
     }
 }

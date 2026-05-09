@@ -192,10 +192,38 @@ public partial class E2WorldMap : Control, IScreen
         // Configure the pan component with the world texture and an
         // initial center on Halfgate (D-P8.2-08, "tu commences là où
         // l'action est").
+        //
+        // 2026-05-09 fix : we pass explicit world BOUNDS computed from the
+        // iso fog grid extent, not the source bitmap size. The fog grid
+        // (cellSize 128, IsoDiamondDown projection) extends past the
+        // bitmap on both axes (e.g. 4224x2112 for a 2048x1024 source).
+        // Pre-fix, the camera limits tracked the bitmap and viewport.Y
+        // (1080) > bitmap.Y (1024) snapped Camera2D.Y to image-center via
+        // ClampCameraCenter's snap-to-center branch, freezing vertical pan.
+        // Bounds = max(bitmap, fogGrid) so any future asset that exceeds
+        // the grid still keeps a pannable world.
         var halfgate = FindPoi(HalfgatePoiId);
         var imageSize = worldTexture.GetSize();
         var initialCenter = halfgate?.Position ?? imageSize / 2f;
-        _panComponent.Configure(worldTexture, initialCenter);
+
+        var fogGridDimensions = FogTileGridLogic.ComputeGridSize(
+            new PanVec2(imageSize.X, imageSize.Y),
+            _fogTileLayer.CellSizePx,
+            _fogTileLayer.Projection);
+        var fogGridBounds = FogTileGridLogic.ComputeGridWorldBounds(
+            fogGridDimensions,
+            _fogTileLayer.CellSizePx,
+            _fogTileLayer.Projection);
+        var worldBounds = new Vector2(
+            Mathf.Max(imageSize.X, fogGridBounds.X),
+            Mathf.Max(imageSize.Y, fogGridBounds.Y));
+        GD.Print(
+            $"[E2WorldMap] world bounds = max(bitmap {imageSize}, " +
+            $"fogGrid ({fogGridBounds.X}, {fogGridBounds.Y}) at " +
+            $"{fogGridDimensions.Columns}x{fogGridDimensions.Rows} cells x " +
+            $"{_fogTileLayer.CellSizePx}px {_fogTileLayer.Projection}) = {worldBounds}");
+
+        _panComponent.Configure(worldTexture, initialCenter, worldBounds);
 
         // Strings -- single point of swap when Varn revises the .tres.
         _bannerTitleLabel.Text = _strings.E2Title;
@@ -496,17 +524,36 @@ public partial class E2WorldMap : Control, IScreen
 
     /// <summary>
     /// Slice 3 -- ClimbRequested handler. Routes through
-    /// <see cref="SceneManager.NavigateBack"/> -- on L1 World, "climb
-    /// out" is "go back to whatever pushed us here", which for the
-    /// MVP scenario is E1 Title. The transition lock is released after
-    /// NavigateBack completes.
+    /// <see cref="SceneManager.NavigateLadderUp"/> -- on L1 World, "climb
+    /// out" is "go up one rung of the cadastral ladder", and L1 monde
+    /// is the top rung. <see cref="LadderResolutionLogic.ResolveUpTarget"/>
+    /// returns null at the top rung, so NavigateLadderUp silently no-ops
+    /// here. That is the intent : there is nothing above monde.
+    ///
+    /// <para>
+    /// <b>Regression fix (2026-05-09).</b> Pre-fix, this handler called
+    /// <c>SceneManager.NavigateBack()</c>, which pops the navigation
+    /// stack one level. On the opening flow E1 Title sits below E2 World,
+    /// so a PULL gesture at <see cref="MapPan2DComponent.ZoomMin"/>
+    /// teleported the player back to E1. The verb was wrong : back-pop
+    /// is the Esc/back-button semantics ; the wheel ladder semantics
+    /// are <c>NavigateLadderUp</c>, which respects the ladder spine and
+    /// silently no-ops at the top rung. Pinned by
+    /// <see cref="Wayfinders.Client.Tests.Opening.E2ClimbAtZoomMinDoesNotPopToE1Tests"/>.
+    /// </para>
+    ///
+    /// <para>
+    /// The transition lock is released after the verb returns, regardless
+    /// of whether it actually navigated anywhere -- the wheel-event
+    /// session ends either way.
+    /// </para>
     /// </summary>
     private async void OnClimbRequested()
     {
         var sceneManager = GetNode<SceneManager>("/root/SceneManager");
         try
         {
-            await sceneManager.NavigateBack();
+            await sceneManager.NavigateLadderUp();
         }
         finally
         {
@@ -574,9 +621,69 @@ public partial class E2WorldMap : Control, IScreen
         }
     }
 
+    /// <summary>
+    /// J6 hotfix (2026-05-09 evening, locked) -- back-button click handler
+    /// "Refermer le feuillet". The button label and intent are clear : the
+    /// player closes the current feuillet (E2 World Map) and returns to
+    /// whatever was below it. In production navigation (E1 -&gt; E2),
+    /// <c>SceneManager.NavigateBack</c> pops the stack and shows E1 again.
+    ///
+    /// <para>
+    /// <b>Why the F6 path matters.</b> When Godot launches E2 directly via
+    /// <c>main_scene</c> or "Run Current Scene", the SceneManager stack is
+    /// empty (the bootstrap registered every screen but did not push any) ;
+    /// <c>NavigateBack</c> early-returns silently. J5 mistakenly mapped
+    /// that path to <c>GetTree().Quit()</c>, which closes the entire editor
+    /// app -- a destructive surprise. J6 corrects this : in F6 mode we
+    /// <c>NavigateTo("E1_TITLE")</c> instead, simulating the upstream
+    /// scene the player would see if they had reached E2 from E1. The
+    /// editor stays open, the user can re-enter E2 by clicking
+    /// "Nouvelle Partie" on E1, and F6 testing has a non-destructive exit
+    /// path. The <c>Quit</c> behaviour was wrong : the BackButton's
+    /// vocabulary is "fermer le feuillet", not "fermer le jeu".
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Defense-in-depth.</b> If <c>E1_TITLE</c> is not registered (e.g.
+    /// the bootstrap was gated by the <c>skip_opening_bootstrap</c> meta
+    /// flag), <c>NavigateTo</c> emits its own warning and the click logs
+    /// a diagnostic but otherwise becomes a no-op -- the editor still does
+    /// not close. The unconditional <c>GD.Print</c> at entry stays so the
+    /// user can confirm the <c>Pressed</c> signal fires (rules out an
+    /// invisible Control overlay swallowing the click).
+    /// </para>
+    /// </summary>
     private async void OnBackPressed()
     {
+        GD.Print("[E2WorldMap J6] BackButton clicked (Refermer le feuillet) -- delegating to SceneManager");
         var sceneManager = GetNode<SceneManager>("/root/SceneManager");
+
+        // F6 fallback : in production, E2 sits above E1 on the stack and
+        // NavigateBack pops to E1. In F6 mode, the stack is empty and
+        // NavigateBack early-returns silently. NavigateTo("E1_TITLE")
+        // simulates the upstream screen so the player sees a sensible
+        // transition instead of a dead button OR a Quit (J5 regression).
+        if (sceneManager.CurrentScreenId is null)
+        {
+            GD.Print(
+                "[E2WorldMap J6] BackButton in F6 mode (SceneManager stack empty) " +
+                "-- routing to E1_TITLE instead of quitting the editor");
+            try
+            {
+                await sceneManager.NavigateTo("E1_TITLE");
+            }
+            catch (System.Exception e)
+            {
+                // E1 might not be registered (skip_opening_bootstrap meta).
+                // Log and stay on E2 ; closing the editor app from a
+                // BackButton click is never the right answer.
+                GD.PushWarning(
+                    $"[E2WorldMap J6] F6-mode NavigateTo(E1_TITLE) failed : {e.Message}. " +
+                    $"Staying on E2 -- close the editor manually if you want to exit.");
+            }
+            return;
+        }
+
         await sceneManager.NavigateBack();
     }
 

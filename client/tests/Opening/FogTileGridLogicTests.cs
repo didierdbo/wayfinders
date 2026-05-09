@@ -371,6 +371,63 @@ public sealed class FogTileGridLogicTests
     }
 
     [Fact]
+    public void Iso_hit_test_compensates_for_render_y_offset()
+    {
+        // 2026-05-09 hotfix pin. FogTileLayer renders every cell at
+        //   (centerX + shiftX, centerY + shiftY + FogYOffset)
+        // to fake the floating-tile / tile-thickness effect (Varn §4.1
+        // + 2026-05-09 thicker-asset support). The hit-test wrapper
+        // FogTileLayer.WorldPositionToCell must compensate by feeding
+        // (worldY - FogYOffset) back into the pure logic, otherwise the
+        // player clicks the visual top of a tile and the math resolves
+        // to the cell one row above.
+        //
+        // This test pins the round-trip : render a coord at its visual
+        // position with a non-zero offset, then hit-test the
+        // *compensated* world position and assert we get the same coord
+        // back. Failure here means the hit-test/render contract has
+        // drifted.
+        const float fogYOffset = -8f; // current default
+        const float thickAssetOffset = -60f; // simulated thick-skirt asset
+        var dimensions = new GridDimensions(20, 20);
+        var coord = new GridCoord(7, 4);
+        var center = FogTileGridLogic.ComputeCellCenter(
+            coord, 128, GridProjection.IsoDiamondDown);
+        var shift = FogTileGridLogic.ComputeIsoOriginShift(
+            dimensions, 128, GridProjection.IsoDiamondDown);
+
+        foreach (var offset in new[] { fogYOffset, thickAssetOffset })
+        {
+            // Player clicks the visually-rendered center of the cell.
+            var visualWorldPos = new PanVec2(
+                center.X + shift.X,
+                center.Y + shift.Y + offset);
+
+            // Wrapper compensation : subtract the offset before hit-test.
+            var compensated = new PanVec2(
+                visualWorldPos.X,
+                visualWorldPos.Y - offset);
+
+            var resolved = FogTileGridLogic.WorldPositionToCell(
+                compensated, 128, dimensions, GridProjection.IsoDiamondDown);
+            Assert.NotNull(resolved);
+            Assert.Equal(coord, resolved!.Value);
+
+            // Negative control : *without* compensation, a non-trivial
+            // offset must mis-resolve (or null). The thick-skirt case is
+            // the one that actually breaks gameplay ; -8 is too small to
+            // push out of the diamond at cellSize 128.
+            if (System.MathF.Abs(offset) > 32f)
+            {
+                var uncompensated = FogTileGridLogic.WorldPositionToCell(
+                    visualWorldPos, 128, dimensions,
+                    GridProjection.IsoDiamondDown);
+                Assert.NotEqual(coord, uncompensated ?? coord);
+            }
+        }
+    }
+
+    [Fact]
     public void Iso_diamond_vertices_match_2_to_1_aspect_ratio()
     {
         var (top, right, bottom, left) =
@@ -714,6 +771,110 @@ public sealed class FogTileGridLogicTests
         Assert.Equal(300f, br.Y, precision: 4);
         Assert.Equal(300f, bl.X, precision: 4);
         Assert.Equal(300f, bl.Y, precision: 4);
+    }
+
+    // -------------------------------------------------------------------
+    // 2026-05-09 fix : ComputeGridWorldBounds.
+    //
+    // Pre-fix, MapPan2DComponent set Camera2D limits to the source bitmap
+    // size. On iso projection, the grid extends past the bitmap on both
+    // axes (the 2:1 diamond tessellation needs a +1 col + 1 row of
+    // staircase coverage AND the iso shift moves cells outward). With
+    // viewport 1080 > bitmap 1024 on Y, ClampCameraCenter snapped Y to
+    // image-center and pan vertical stalled. The new helper exposes the
+    // grid's actual world extent so the limits track the perceivable
+    // world, not the bitmap.
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public void ComputeGridWorldBounds_iso_2048x1024_at_128px_produces_4224x2112()
+    {
+        // Live-fix canonical case (2026-05-09 evening). The runtime asset
+        // wf_e2_world_map_3840x2160.png is 2048x1024 (Didier replaced the
+        // master with a smaller draft). With cellSize 128 + iso DiamondDown :
+        //   cols = ceil(2048 / 64) + 1 = 33
+        //   rows = ceil(1024 / 32) + 1 = 33
+        //   boundsX = (cols + rows) * halfW = (33 + 33) * 64 = 4224
+        //   boundsY = (cols + rows) * halfH = (33 + 33) * 32 = 2112
+        // If this changes, MapPan2DComponent.Configure must be revisited.
+        var dimensions = FogTileGridLogic.ComputeGridSize(
+            new PanVec2(2048f, 1024f), 128, GridProjection.IsoDiamondDown);
+        Assert.Equal(33, dimensions.Columns);
+        Assert.Equal(33, dimensions.Rows);
+
+        var bounds = FogTileGridLogic.ComputeGridWorldBounds(
+            dimensions, 128, GridProjection.IsoDiamondDown);
+        Assert.Equal(4224f, bounds.X);
+        Assert.Equal(2112f, bounds.Y);
+    }
+
+    [Fact]
+    public void ComputeGridWorldBounds_iso_exceeds_image_on_y_when_image_y_lt_viewport_y()
+    {
+        // The exact regression : a source bitmap shorter than the viewport
+        // produces an iso grid whose Y extent IS greater than the viewport.
+        // This is the invariant MapPan2DComponent now relies on -- if it
+        // ever broke (e.g. someone accidentally dropped the +1 row in
+        // ComputeGridSize), the camera limits would shrink to the bitmap
+        // again and vertical pan would re-stall.
+        var imageY = 1024f;
+        var viewportY = 1080f;
+        Assert.True(imageY < viewportY, "sanity");
+
+        var dimensions = FogTileGridLogic.ComputeGridSize(
+            new PanVec2(2048f, imageY), 128, GridProjection.IsoDiamondDown);
+        var bounds = FogTileGridLogic.ComputeGridWorldBounds(
+            dimensions, 128, GridProjection.IsoDiamondDown);
+
+        Assert.True(bounds.Y > viewportY,
+            $"iso grid Y bound ({bounds.Y}) must exceed viewport Y ({viewportY}) " +
+            "so ClampCameraCenter does NOT snap-to-center on Y.");
+    }
+
+    [Fact]
+    public void ComputeGridWorldBounds_rect_mode_matches_image_grid_alignment()
+    {
+        // Rect mode : trivially cols * cellSize x rows * cellSize. Pinned for
+        // the future E3+ city interior overlay that may opt for rect.
+        var dimensions = FogTileGridLogic.ComputeGridSize(
+            new PanVec2(2048f, 1024f), 128, GridProjection.Rect);
+        Assert.Equal(16, dimensions.Columns);
+        Assert.Equal(8, dimensions.Rows);
+
+        var bounds = FogTileGridLogic.ComputeGridWorldBounds(
+            dimensions, 128, GridProjection.Rect);
+        Assert.Equal(16 * 128f, bounds.X);
+        Assert.Equal(8 * 128f, bounds.Y);
+    }
+
+    [Fact]
+    public void ComputeGridWorldBounds_zero_cell_size_returns_zero_defensively()
+    {
+        // Defense-doc : a degenerate cellSize must not produce NaN / Infinity
+        // bounds that would corrupt Camera2D limits downstream.
+        var dimensions = new GridDimensions(33, 33);
+        var bounds = FogTileGridLogic.ComputeGridWorldBounds(
+            dimensions, 0, GridProjection.IsoDiamondDown);
+        Assert.Equal(0f, bounds.X);
+        Assert.Equal(0f, bounds.Y);
+    }
+
+    [Fact]
+    public void ComputeGridWorldBounds_iso_E2_master_3840x2160_at_128px_known_extent()
+    {
+        // E2.1 master (Varn-locked dimensions). cols = ceil(3840/64)+1 = 61,
+        // rows = ceil(2160/32)+1 = 69. boundsX = (61+69)*64 = 8320,
+        // boundsY = (61+69)*32 = 4160. Pinned so a future asset swap keeps
+        // the bounds math honest.
+        var dimensions = FogTileGridLogic.ComputeGridSize(
+            new PanVec2(3840f, 2160f), 128, GridProjection.IsoDiamondDown);
+        Assert.Equal(61, dimensions.Columns);
+        Assert.Equal(69, dimensions.Rows);
+
+        var bounds = FogTileGridLogic.ComputeGridWorldBounds(
+            dimensions, 128, GridProjection.IsoDiamondDown);
+        Assert.Equal(8320f, bounds.X);
+        Assert.Equal(4160f, bounds.Y);
     }
 
 }

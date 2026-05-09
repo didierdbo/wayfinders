@@ -248,4 +248,78 @@ public sealed class CameraPanLogicTests
 
         Assert.Equal(halfgate, clamped);
     }
+
+    // -------------------------------------------------------------------
+    // 2026-05-09 fix : world bounds vs source bitmap.
+    //
+    // Live-fix root cause was that MapPan2DComponent passed the source
+    // bitmap size (e.g. 2048x1024) to ClampCameraCenter even though the
+    // iso fog grid extended the perceivable world to 4224x2112. With
+    // viewport.Y (1080) > bitmap.Y (1024), the snap-to-image-center
+    // branch fired and Y froze. The fix routes the WORLD BOUNDS in.
+    //
+    // These pins assert : when the caller passes the bounds (not the
+    // bitmap), pan vertical works as expected even though the bitmap is
+    // shorter than the viewport.
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public void Clamp_against_world_bounds_allows_vertical_pan_even_when_source_bitmap_shorter_than_viewport()
+    {
+        // Source bitmap 2048x1024, fog grid bounds 4224x2112, viewport
+        // 1920x1080. Clamping against the BOUNDS (4224x2112) leaves a
+        // valid vertical pan range [540, 1572]. Clamping against the
+        // bitmap (2048x1024) would snap-to-center because 1024 < 1080.
+        var worldBounds = new PanVec2(4224f, 2112f);
+        var input = new PanVec2(2112f, 800f);
+        var clamped = CameraPanLogic.ClampCameraCenter(input, worldBounds, E2ViewportSize);
+
+        // X passes through unchanged (within the X clamp range).
+        Assert.Equal(2112f, clamped.X);
+        // Y passes through unchanged because 800 is within [540, 1572].
+        Assert.Equal(800f, clamped.Y);
+    }
+
+    [Fact]
+    public void Clamp_against_world_bounds_advance_camera_advances_vertically()
+    {
+        // The integrated path the runtime takes : pan input down, advance
+        // by speed * delta against the WORLD BOUNDS. With bounds 4224x2112
+        // and viewport 1920x1080, starting at the geometric center
+        // (2112, 1056) moving down for one frame must move Y, not freeze.
+        var worldBounds = new PanVec2(4224f, 2112f);
+        var current = new PanVec2(2112f, 1056f);
+        var down = new PanVec2(0f, 1f);
+
+        var advanced = CameraPanLogic.AdvanceCameraCenter(
+            current, down, speedPxPerSec: 800f, deltaSeconds: 1f / 60f,
+            worldBounds, E2ViewportSize);
+
+        // 800 * 1/60 = 13.333 px advance on Y. The bounds Y range is
+        // [540, 1572] so 1056 + 13.333 = 1069.333 is well within.
+        Assert.Equal(2112f, advanced.X);
+        Assert.Equal(1056f + 800f / 60f, advanced.Y, precision: 3);
+    }
+
+    [Fact]
+    public void Clamp_against_bitmap_FREEZES_vertical_pan_when_bitmap_shorter_than_viewport()
+    {
+        // Reverse-pin : this is the bug we fixed. If a future regression
+        // ever passes the bitmap size (1024 high) instead of the bounds
+        // (2112 high) when the viewport is 1080 high, ClampCameraCenter's
+        // snap-to-center branch fires on Y and the camera freezes vertically.
+        // This test proves the bug exists when the wrong dimension is fed
+        // -- if it ever fails, ClampCameraCenter's snap-to-center branch
+        // semantics changed and MapPan2DComponent must be re-audited.
+        var sourceBitmap = new PanVec2(2048f, 1024f);
+        var current = new PanVec2(1024f, 512f);
+        var down = new PanVec2(0f, 1f);
+
+        var advanced = CameraPanLogic.AdvanceCameraCenter(
+            current, down, speedPxPerSec: 800f, deltaSeconds: 1f / 60f,
+            sourceBitmap, E2ViewportSize);
+
+        // Y is snapped to the bitmap center (512), regardless of input.
+        Assert.Equal(512f, advanced.Y);
+    }
 }

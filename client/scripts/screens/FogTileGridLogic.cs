@@ -231,6 +231,70 @@ public static class FogTileGridLogic
     }
 
     /// <summary>
+    /// Compute the axis-aligned world-space bounds of the full grid -- the
+    /// rectangle <c>[0, 0]-[boundsX, boundsY]</c> that contains every cell's
+    /// diamond (iso) or square (rect), with the iso origin shift already
+    /// applied so the leftmost vertex sits at X=0 and the topmost vertex at
+    /// Y=0. Used by <see cref="Wayfinders.Client.Components.MapPan2DComponent"/>
+    /// at <c>Configure</c> time to compute Camera2D.LimitRight/Bottom against
+    /// the actual world the player can perceive (the fog grid is the world,
+    /// not the source-map atlas).
+    ///
+    /// <para>
+    /// <b>Why this exists.</b> Pre-fix, the camera limits tracked the source-map
+    /// PNG size (e.g. 2048x1024). At iso projection with cellSize=128, a 2048x1024
+    /// source produces a 33x33 grid whose iso bounding box is 4224x2112 -- wider
+    /// AND taller than the source on iso's diagonal stretch. With limits set to
+    /// the source size, vertical pan stalled because viewport.Y (1080) exceeded
+    /// the limit range Y (1024) and <see cref="CameraPanLogic.ClampCameraCenter"/>
+    /// snapped to image-center on Y. Tracking the iso grid bounds instead lets
+    /// the player pan the entire grid the fog/atlas/drill systems address.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Iso mode bounds.</b>
+    /// <list type="bullet">
+    ///   <item><b>boundsX</b> = <c>(cols + rows - 1) * halfW</c>. Derivation :
+    ///         the rightmost cell is <c>(cols-1, 0)</c> with center.X =
+    ///         <c>(cols-1) * halfW + shift.X</c>, where <c>shift.X = rows * halfW</c>.
+    ///         Adding halfW for the rightmost vertex gives
+    ///         <c>(cols-1) * halfW + rows * halfW + halfW = (cols + rows) * halfW</c>.
+    ///         The implementation uses the <c>(rows-1)</c> minus the leftmost
+    ///         padding form for symmetry with <see cref="ComputeIsoOriginShift"/> ;
+    ///         it lands on the same value.</item>
+    ///   <item><b>boundsY</b> = <c>(cols + rows) * halfH</c>. Derivation :
+    ///         the bottommost cell is <c>(cols-1, rows-1)</c> with center.Y =
+    ///         <c>(cols + rows - 2) * halfH + halfH = (cols + rows - 1) * halfH</c> ;
+    ///         the bottom vertex adds halfH to land at <c>(cols + rows) * halfH</c>.</item>
+    /// </list>
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Rect mode bounds.</b> Trivially <c>(cols * cellSizePx, rows * cellSizePx)</c>.
+    /// </para>
+    /// </summary>
+    public static PanVec2 ComputeGridWorldBounds(
+        GridDimensions dimensions,
+        int cellSizePx,
+        GridProjection projection)
+    {
+        if (cellSizePx <= 0) return new PanVec2(0f, 0f);
+
+        if (projection == GridProjection.IsoDiamondDown)
+        {
+            var halfW = cellSizePx / 2f;
+            var halfH = cellSizePx / 4f;
+            var boundsX = (dimensions.Columns + dimensions.Rows) * halfW;
+            var boundsY = (dimensions.Columns + dimensions.Rows) * halfH;
+            return new PanVec2(boundsX, boundsY);
+        }
+
+        return new PanVec2(
+            dimensions.Columns * cellSizePx,
+            dimensions.Rows * cellSizePx);
+    }
+
+    /// <summary>
     /// Hit-test : map a world-space position back to its containing
     /// grid cell. The runtime fog renderer uses this to resolve "cell
     /// under cursor" for the F debug command and the slice 3 drill
