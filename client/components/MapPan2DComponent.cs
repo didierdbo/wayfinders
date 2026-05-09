@@ -128,8 +128,41 @@ public partial class MapPan2DComponent : Node2D
 
     /// <summary>Slice 3 -- minimum zoom value (vue d'ensemble).
     /// Smaller numerical values = camera zoomed out further. Default
-    /// 0.5 = the world appears at half size.</summary>
-    [Export] public float ZoomMin { get; set; } = 0.5f;
+    /// 0.7 (raised from 0.5 on 2026-05-09 after Didier playtest) = the
+    /// world appears at 70 % size.
+    ///
+    /// <para>
+    /// <b>Why 0.7 and not 0.5 / 0.8.</b> At 0.5 the world fits inside
+    /// the viewport with ~100 % unused margin around it -- the
+    /// peripheral void was visible because the source bitmap stops at
+    /// the world edges. Lifting ZoomMin tightens the climb-out floor
+    /// so the camera cannot pull back into the void. Two candidate
+    /// floors were considered:
+    /// <list type="bullet">
+    ///   <item><b>0.7</b> -- ratio Default 1.0 -&gt; floor 0.7 = 30 %
+    ///         zoom-out, perceptible amplitude for the PULL gesture
+    ///         (the player still feels they zoomed out to a vue
+    ///         d'ensemble). Source 3840 px wide at 0.7 renders at
+    ///         2688 viewport px, slightly wider than the 1920 px
+    ///         default viewport so a small pan reach is preserved at
+    ///         the floor (matches Varn §5.2 "la vue d'ensemble doit
+    ///         rester pannable, pas figée"). Leaves a tampon if the
+    ///         bitmap rework Didier flagged ("on ajustera plutôt le
+    ///         bitmap pour que le contenu utile reste accessible en
+    ///         mode zoom large") undershoots the target useful-area
+    ///         ratio.</item>
+    ///   <item><b>0.8</b> -- only 20 % zoom-out from Default. The
+    ///         PULL gesture loses its sense of amplitude vs Default,
+    ///         and the climb-out feedback ("you reached the floor")
+    ///         arrives so close to the medium that the floor stops
+    ///         feeling like a meaningful threshold. Rejected.</item>
+    /// </list>
+    /// Per-instance tuning still available via [Export] for L2/L3
+    /// (E3 City and E5 District may want a different floor against
+    /// their own source bitmaps).
+    /// </para>
+    /// </summary>
+    [Export] public float ZoomMin { get; set; } = 0.7f;
 
     /// <summary>Slice 3 -- initial zoom value applied at scene entry
     /// (medium). Set as the Camera2D.Zoom on <see cref="Configure"/>.</summary>
