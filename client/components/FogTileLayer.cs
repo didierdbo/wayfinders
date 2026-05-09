@@ -807,11 +807,15 @@ public partial class FogTileLayer : Node2D
         var perCellMicros = _backingFollowers.Count > 0
             ? (sw.Elapsed.TotalMilliseconds * 1000.0) / _backingFollowers.Count
             : 0.0;
+        var camFollowerActive = _cameraFollower is not null && _cameraFollower.Camera3D is not null;
         GD.Print(
-            $"[FogTileLayer J4 CANARY] spawned {_backingFollowers.Count} followers " +
+            $"[FogTileLayer J4 CANARY] spawned {_backingFollowers.Count} cells + " +
+            $"{(camFollowerActive ? 1 : 0)} Camera3DShadowFollower " +
             $"in {sw.ElapsedMilliseconds} ms ({perCellMicros:F1} us per cell). " +
             $"Per-frame work after spawn = {_backingFollowers.Count} dirty-bit reads " +
-            $"(estimated < 100 us total at typical CPU).");
+            $"(estimated < 100 us total at typical CPU). " +
+            $"Active components : Cell3DBackingFollower x{_backingFollowers.Count}, " +
+            $"Camera3DShadowFollower x{(camFollowerActive ? 1 : 0)}.");
     }
 
     private void SpawnFollowerAt(GridCoord coord, PanVec2 shift)

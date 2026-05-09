@@ -90,7 +90,7 @@ public sealed class Camera3DShadowFollower : IDisposable
         if (viewport is not null && !viewport.PhysicsObjectPicking)
         {
             viewport.PhysicsObjectPicking = true;
-            GD.Print("[J4 Camera3DShadowFollower] enabled Viewport.PhysicsObjectPicking");
+            GD.Print("[Camera3DShadowFollower] enabled Viewport.PhysicsObjectPicking");
         }
 
         Camera3D = new Camera3D
@@ -105,6 +105,22 @@ public sealed class Camera3DShadowFollower : IDisposable
         Camera3D.MakeCurrent();
 
         ApplySync();
+
+        // Pattern J -- every new component owning a fresh responsibility
+        // ships with its own birth canary. Pattern M (J4) extracted the
+        // Camera3D singleton out of Cell3DBackingFollower ; this log is
+        // what proves the extracted singleton is alive in prod. The line
+        // is unconditional (the picking-enable line above only fires on
+        // cold start) so the canary survives editor reloads, scene-change
+        // re-spawns, and project-level picking presets that flip the
+        // viewport flag before us. Search the Output panel for
+        // "Camera3DShadowFollower" to confirm Pattern M is active.
+        var camPos = Camera3D.Position;
+        var cam2DName = Camera2D is null ? "<none>" : Camera2D.Name.ToString();
+        GD.Print(
+            $"[Camera3DShadowFollower] spawned, current=true, ortho size={Camera3D.Size:F1}, " +
+            $"pos=({camPos.X:F1},{camPos.Y:F1},{camPos.Z:F1}), camera2D={cam2DName}, " +
+            $"isoShift=({IsoOriginShift.X:F1},{IsoOriginShift.Y:F1}), cellSizePx={CellSizePx}");
     }
 
     /// <summary>
