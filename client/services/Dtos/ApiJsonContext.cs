@@ -62,6 +62,19 @@ namespace Wayfinders.Client.Services.Dtos;
 /// here — STJ source-gen does not auto-recurse into property types
 /// at compile time when those types are open generics.
 /// </para>
+///
+/// <para>
+/// <b>M2-advance step 2 additions (2026-05-10).</b> Mission conclude
+/// wire types pivot the resolve flow to a server-authority weighted
+/// roll. Mirrors Pydantic models in
+/// <c>wayfinders/api/mission_conclude.py</c> (Tess commit d533373) :
+/// <see cref="MissionConcludeRequestDto"/>,
+/// <see cref="MissionConcludeResponseDto"/>,
+/// <see cref="RollBreakdownEntryDto"/>,
+/// <see cref="CharacterStateWireDto"/>. The thin wire DTO carries
+/// only <c>(persona_id, dex_bucket, wis_bucket)</c> — see
+/// <c>MissionConcludeDtos.cs</c> for the rationale.
+/// </para>
 /// </summary>
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
@@ -88,6 +101,17 @@ namespace Wayfinders.Client.Services.Dtos;
 [JsonSerializable(typeof(MissionResolveRequestDto))]
 [JsonSerializable(typeof(MissionResolveResponseDto))]
 [JsonSerializable(typeof(PersonaLegacyTagDto))]
+// M2-advance step 2 — mission conclude wire types
+// (POST /api/world/mission/conclude). Mirrors Pydantic
+// MissionConcludeRequest / Response / RollBreakdownEntry /
+// CharacterStateWireDto in wayfinders/api/mission_conclude.py
+// (Tess commit d533373, 2026-05-10).
+[JsonSerializable(typeof(MissionConcludeRequestDto))]
+[JsonSerializable(typeof(MissionConcludeResponseDto))]
+[JsonSerializable(typeof(RollBreakdownEntryDto))]
+[JsonSerializable(typeof(CharacterStateWireDto))]
+[JsonSerializable(typeof(IList<CharacterStateWireDto>))]
+[JsonSerializable(typeof(IList<RollBreakdownEntryDto>))]
 internal sealed partial class ApiJsonContext : JsonSerializerContext
 {
     // Body intentionally empty — the source generator emits the

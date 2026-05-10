@@ -237,4 +237,16 @@
     <Compile Include="..\scripts\screens\M1SliceLogic.cs" Link="src\M1SliceLogic.cs" />
   </ItemGroup>
 
+  <!-- M2-advance step 2 (mission duration + server-authority outcome
+       roll / 2026-05-10): MissionConcludeDtos for the new
+       POST /api/world/mission/conclude wire, plus MissionDurationLogic
+       for the pure-C# active-mission state (countdown suffix,
+       persona-busy lookup, conclude-request projection from
+       CharacterStateDto). The Godot-bound ActiveMissions slot on
+       GameState + the WorldSimTick countdown loop are scene-tree
+       runtime ; xUnit pins the data-flow contracts here. -->
+  <ItemGroup>
+    <Compile Include="..\services\Dtos\MissionConcludeDtos.cs" Link="src\MissionConcludeDtos.cs" />
+  </ItemGroup>
+
 </Project>

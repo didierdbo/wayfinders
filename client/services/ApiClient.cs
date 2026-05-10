@@ -552,4 +552,157 @@ public partial class ApiClient : Node
                 new ApiError.DeserializationError(ex.Message));
         }
     }
+
+    /// <summary>
+    /// Hits <c>POST /api/world/mission/conclude</c> with a
+    /// <see cref="MissionConcludeRequestDto"/> payload and deserialises
+    /// the response into a <see cref="MissionConcludeResponseDto"/>.
+    /// M2-advance step 2 boundary call (server schema in
+    /// <c>wayfinders/api/mission_conclude.py</c>, Tess commit d533373).
+    ///
+    /// <para>
+    /// <b>What this method does, vs <see cref="ResolveMissionAsync"/>.</b>
+    /// Same shape (typed request, typed response, linked CTS, every
+    /// catch arm produces a typed <see cref="ApiError"/>) but routes
+    /// to the <c>/conclude</c> endpoint where the server computes the
+    /// outcome via a deterministic SHA-256-derived weighted roll
+    /// (Varn-locked probability table 2026-05-10). The client trusts
+    /// the server <see cref="MissionConcludeResponseDto.Outcome"/>
+    /// without re-rolling — same authority pattern as XCOM's
+    /// server-side hit-resolution in multiplayer.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>M2-advance contract.</b> Called at <c>tick_due</c> from the
+    /// scene-tree owner of the mission timer (M1Slice in M2 ; the
+    /// canonical TurnManager autoload in M3+). Caller's responsibility :
+    /// build the request from <c>(active_mission, persona snapshots
+    /// projected to the thin DTO)</c>, await the result, append
+    /// <see cref="MissionConcludeResponseDto.TagsCreated"/> to
+    /// <see cref="GameState.PersonaLegacy"/>, pop the active mission,
+    /// emit the <c>MissionResolved</c> signal. The thin
+    /// <see cref="CharacterStateWireDto"/> projection is built at
+    /// request-build time, NOT mirrored into <see cref="GameState"/> —
+    /// the full <see cref="CharacterStateDto"/> stays canonical
+    /// client-side.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Idempotence.</b> The server is stateless and the roll is
+    /// deterministic from
+    /// <c>(seed, tick_due, persona_id)</c> ; reposting the same
+    /// request after a transient
+    /// <see cref="ApiError.NotReachable"/> yields the same outcome
+    /// and the same tags. M2 surfaces failures to the UI with no
+    /// auto-retry policy ; M3 may add bounded retries when the
+    /// stakes (boss missions, tutorial outcomes) make it worth it.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Decline path is NOT routed here.</b> The Pydantic
+    /// <c>min_length=1</c> on <c>assigned_personas</c> rejects the
+    /// declined-mission shape ; declines keep using
+    /// <see cref="ResolveMissionAsync"/> with empty assigned + outcome
+    /// = <c>"failure"</c>. The caller picks the endpoint by mission
+    /// state (active vs declined), not by a flag on the request.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Thread-safety / cancellation.</b> Identical to the rest of
+    /// this class : linked CTS covers caller-cancel + autoload
+    /// shutdown, <c>ConfigureAwait(false)</c> on every <c>await</c>,
+    /// no scene-state touch in the autoload. The continuation in the
+    /// caller marshals back to the main thread via
+    /// <c>CallDeferred</c> before mutating
+    /// <see cref="GameState"/>.
+    /// </para>
+    /// </summary>
+    /// <param name="request">The mission-conclude payload. Caller
+    /// fills <c>seed</c> from <see cref="EmergentMissionDto.Seed"/>
+    /// and <c>tick_due</c> from the
+    /// <c>ActiveMissionDto.TickDue</c> derived at drop time.</param>
+    /// <param name="ct">Caller's cancellation token. Linked with the
+    /// autoload's shutdown token.</param>
+    public async Task<Result<MissionConcludeResponseDto, ApiError>> ConcludeMissionAsync(
+        MissionConcludeRequestDto request,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdownCts.Token);
+
+        try
+        {
+            var response = await _httpClient
+                .PostAsJsonAsync(
+                    "/api/world/mission/conclude",
+                    request,
+                    ApiJsonContext.Default.MissionConcludeRequestDto,
+                    linkedCts.Token)
+                .ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                string? body = null;
+                try
+                {
+                    body = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Best-effort body capture ; if it fails, the
+                    // status code alone is still actionable. Pydantic
+                    // v2 returns structured 422 payloads on validation
+                    // failures — capturing the body lets the caller
+                    // surface which field drifted (most likely culprit
+                    // in M2 : an unmapped DescriptorBucket value if
+                    // Varn extends the vocabulary).
+                }
+                GD.PushWarning($"[ApiClient] /api/world/mission/conclude returned {(int)response.StatusCode}");
+                return Result.Fail<MissionConcludeResponseDto, ApiError>(
+                    new ApiError.ServerError((int)response.StatusCode, body));
+            }
+
+            var concludeResponse = await response.Content
+                .ReadFromJsonAsync(
+                    ApiJsonContext.Default.MissionConcludeResponseDto,
+                    linkedCts.Token)
+                .ConfigureAwait(false);
+
+            if (concludeResponse is null)
+            {
+                return Result.Fail<MissionConcludeResponseDto, ApiError>(
+                    new ApiError.DeserializationError(
+                        "/api/world/mission/conclude returned JSON null instead of a MissionConcludeResponse object"));
+            }
+
+            return Result.Ok<MissionConcludeResponseDto, ApiError>(concludeResponse);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested || _shutdownCts.IsCancellationRequested)
+        {
+            return Result.Fail<MissionConcludeResponseDto, ApiError>(new ApiError.Cancelled());
+        }
+        catch (OperationCanceledException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/world/mission/conclude timeout: {ex.Message}");
+            return Result.Fail<MissionConcludeResponseDto, ApiError>(
+                new ApiError.NotReachable($"timeout: {ex.Message}"));
+        }
+        catch (HttpRequestException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/world/mission/conclude network error: {ex.Message}");
+            return Result.Fail<MissionConcludeResponseDto, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Net.Http.HttpIOException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/world/mission/conclude transport error: {ex.Message}");
+            return Result.Fail<MissionConcludeResponseDto, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/world/mission/conclude JSON parse error: {ex.Message}");
+            return Result.Fail<MissionConcludeResponseDto, ApiError>(
+                new ApiError.DeserializationError(ex.Message));
+        }
+    }
 }
