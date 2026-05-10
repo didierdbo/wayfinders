@@ -1,8 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    # Avoid a circular import at runtime — PersonaLegacyTag lives in the api
+    # layer; models.py is the game-logic layer.  The type annotation is kept
+    # under TYPE_CHECKING so mypy resolves it without an import cycle.
+    from wayfinders.api.world_tick_models import PersonaId, PersonaLegacyTag
 
 
 class Stat(Enum):
@@ -149,6 +155,12 @@ class GameState:
     game_hour: int
     action_templates: dict[str, ActionCard]
     event_log: list[dict[str, object]]
+    # persona_legacy tracks earned PersonaLegacyTag entries per persona.
+    # Keyed by PersonaId; values are lists ordered by earned_at_tick ascending.
+    # Default is an empty dict — no legacy at game start.
+    # The type annotation uses string forward-refs (TYPE_CHECKING guard above)
+    # to avoid importing from the api layer at runtime.
+    persona_legacy: dict[PersonaId, list[PersonaLegacyTag]] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

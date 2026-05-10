@@ -15,10 +15,17 @@ through a Varn ratification step.
 
 Field names use snake_case on the wire; the C# client maps them to
 PascalCase records via ``System.Text.Json`` naming policy.
+
+Also defines ``PersonaLegacyTag`` — an in-process frozen dataclass (not a
+Pydantic model) that records which missions a persona participated in and
+what outcome they saw.  Stored in ``GameState.persona_legacy`` (list per
+persona).  Not serialised on the wire in M1; M2 will persist it to
+WorldState snapshots.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -45,6 +52,43 @@ PersonaId = str
 
 # RegionId: free-form string for M1 (e.g. "halfgate", "ridgepass").
 RegionId = str
+
+
+# ---------------------------------------------------------------------------
+# PersonaLegacyTag — in-process dataclass (not wire format)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PersonaLegacyTag:
+    """Records a single mission outcome for a persona.
+
+    Frozen and hashable — safe to store in sets or use as dict keys.
+    Appended to ``GameState.persona_legacy[persona_id]`` by
+    ``on_mission_resolved()`` in :mod:`wayfinders.api.mission_legacy`.
+
+    Fields:
+        persona_id:    Identifier of the persona who participated.
+        mission_id:    Stable UUID-shaped id of the emergent mission.
+        mission_type:  Varn-locked closed lookup (scout_route | parley_local).
+        region:        Region where the mission took place (free-form M1).
+        actor_target:  Optional target name (e.g. NPC name for parley missions).
+                       None for scout missions where there is no named target.
+        outcome:       Resolution outcome (Varn-locked: success | partial | failure).
+        earned_at_tick: The tick at which the mission resolved.
+
+    Idempotence contract: ``on_mission_resolved`` checks for an existing tag
+    with the same ``(persona_id, mission_id)`` pair before appending.  Calling
+    the hook twice with identical inputs produces only one tag per persona.
+    """
+
+    persona_id: PersonaId
+    mission_id: str
+    mission_type: EmergenceMissionType
+    region: RegionId
+    actor_target: str | None
+    outcome: ResolutionOutcomeType
+    earned_at_tick: int
 
 
 # ---------------------------------------------------------------------------
