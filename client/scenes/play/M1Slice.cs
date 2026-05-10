@@ -582,7 +582,35 @@ public partial class M1Slice : Node2D
         Log($"[DRAG START] persona={persona.Id} (Pattern P5 cross-panel drag)");
     }
 
-    public override void _UnhandledInput(InputEvent @event)
+    /// <summary>
+    /// Drag tracking lives in <c>_Input</c>, NOT <c>_UnhandledInput</c>.
+    /// Reason : Controls with <c>mouse_filter = Stop</c> (the
+    /// CompagnieRoot SubViewportContainer at line 92 of the .tscn,
+    /// the MissionRoot Panel at line 155, the Compagnie Handle at
+    /// line 121, and every default-Stop Label in OverlayUI) consume
+    /// <c>InputEventMouseMotion</c> before <c>_UnhandledInput</c>
+    /// fires. With <c>_UnhandledInput</c>, the golden proxy froze
+    /// the instant the cursor crossed into Mission Panel territory
+    /// because every subsequent motion event was eaten by the panel
+    /// frame's mouse filter. <c>_Input</c> runs <i>before</i> GUI
+    /// hit-testing and is unaffected by Control mouse_filter — the
+    /// canonical Godot pattern for "this scene owns the gesture
+    /// during an active drag" (cf. trap memory §5 mutual
+    /// ergonomic gestures).
+    ///
+    /// <para>
+    /// Defensive : we deliberately do NOT call
+    /// <c>SetInputAsHandled</c> on motion events — other systems
+    /// (the OverlayUI live log, future hover affordances) may want
+    /// to react to the same motion. We only own the
+    /// <i>response</i>, not the <i>event</i>. The button-release
+    /// branch could theoretically be marked handled, but we leave
+    /// it loose for the same reason ; the <c>_dragPersonaId</c>
+    /// gate already makes this method a no-op when no drag is in
+    /// flight.
+    /// </para>
+    /// </summary>
+    public override void _Input(InputEvent @event)
     {
         if (_dragPersonaId is null) return;
 
@@ -602,7 +630,19 @@ public partial class M1Slice : Node2D
         var cursor = GetViewport().GetMousePosition();
         // Centre the proxy rect on the cursor.
         var rectSize = _dragProxyRect.Size;
-        _dragProxyRect.Position = new Vector2(cursor.X - rectSize.X * 0.5f, cursor.Y - rectSize.Y * 0.5f);
+        var newPos = new Vector2(cursor.X - rectSize.X * 0.5f, cursor.Y - rectSize.Y * 0.5f);
+        _dragProxyRect.Position = newPos;
+
+        // [DRAG] canary dump : if the proxy ever freezes again,
+        // watch this in the editor Output panel — a freeze means
+        // motion events stopped arriving (likely a new
+        // mouse_filter=Stop Control was added in the cursor's
+        // path). GD.Print is rate-throttled by Godot itself, so
+        // tracing every motion is fine for diagnostic builds.
+        // (Trap memory §2 : preflight + live canary > post-mortem.)
+        var layerVal = _dragProxyLayer is not null ? _dragProxyLayer.Layer : -999;
+        var visible = _dragProxyRect.Visible;
+        GD.Print($"[DRAG TRACK] persona={_dragPersonaId} cursor=({cursor.X:F0},{cursor.Y:F0}) proxyPos=({newPos.X:F0},{newPos.Y:F0}) layer={layerVal} visible={visible}");
     }
 
     private void ResolveDrop()
