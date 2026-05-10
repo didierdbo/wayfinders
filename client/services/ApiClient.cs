@@ -286,4 +286,147 @@ public partial class ApiClient : Node
                 new ApiError.DeserializationError(ex.Message));
         }
     }
+
+    /// <summary>
+    /// Hits <c>POST /api/world/tick</c> with a
+    /// <see cref="WorldTickRequestDto"/> payload and deserializes the
+    /// response into a <see cref="WorldTickResponseDto"/>. This is the
+    /// M1 mission-emergence boundary call (Etape 4a, server schema in
+    /// <c>wayfinders/api/world_tick_models.py</c>).
+    ///
+    /// <para>
+    /// <b>What this method does.</b> Serialises the request via the
+    /// source-generated <see cref="ApiJsonContext"/>, posts it as
+    /// <c>application/json</c>, reads the response body via the same
+    /// context, and surfaces the typed
+    /// <see cref="WorldTickResponseDto"/> in
+    /// <see cref="Result{T, E}.Success"/>. <see cref="ApiError"/>
+    /// variants on failure mirror <see cref="GetUnitsAsync"/> exactly :
+    /// every <c>catch</c> arm has a typed result, no exception escapes
+    /// to scene code.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Empty company on the wire.</b> M1
+    /// <see cref="WorldTickRequestDto.CompanyPersonas"/> is always
+    /// <c>[]</c> (see
+    /// <see cref="Wayfinders.Client.Services.Dtos.WorldTickDtos"/>
+    /// rationale). The server treats <c>[]</c> as Varn option (c)
+    /// "compagnie vide → mission émerge quand même" — the response will
+    /// still carry an emergent mission within a cadence window, with
+    /// <see cref="EmergentMissionDto.EligiblePersonas"/> empty. Client
+    /// renders "aucun perso éligible — décliner ?" in that case.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Thread-safety / cancellation.</b> Same contract as the rest of
+    /// this class : the linked token covers caller-cancel + shutdown,
+    /// <c>ConfigureAwait(false)</c> on every <c>await</c>, the autoload
+    /// never touches scene state. The caller is responsible for
+    /// marshalling back to the main thread before mutating scene state
+    /// with the response.
+    /// </para>
+    /// </summary>
+    /// <param name="request">
+    /// The tick payload. Caller derives <see cref="WorldTickRequestDto.Seed"/>
+    /// from <c>(world_seed, tick)</c> for reproducibility.
+    /// </param>
+    /// <param name="ct">
+    /// Caller's cancellation token. Linked with the autoload's shutdown
+    /// token.
+    /// </param>
+    public async Task<Result<WorldTickResponseDto, ApiError>> TickAsync(
+        WorldTickRequestDto request,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdownCts.Token);
+
+        try
+        {
+            // PostAsJsonAsync with an explicit JsonTypeInfo<T> uses the
+            // source-gen path (AOT-safe). Same overload as the GET-side
+            // GetFromJsonAsync(... JsonTypeInfo, ct ...).
+            var response = await _httpClient
+                .PostAsJsonAsync(
+                    "/api/world/tick",
+                    request,
+                    ApiJsonContext.Default.WorldTickRequestDto,
+                    linkedCts.Token)
+                .ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                string? body = null;
+                try
+                {
+                    body = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Best-effort body capture ; if it fails, the status
+                    // code alone is still actionable. FastAPI returns
+                    // structured 422 payloads on validation failures —
+                    // capturing the body lets callers surface the field
+                    // that drifted.
+                }
+                GD.PushWarning($"[ApiClient] /api/world/tick returned {(int)response.StatusCode}");
+                return Result.Fail<WorldTickResponseDto, ApiError>(
+                    new ApiError.ServerError((int)response.StatusCode, body));
+            }
+
+            var tickResponse = await response.Content
+                .ReadFromJsonAsync(
+                    ApiJsonContext.Default.WorldTickResponseDto,
+                    linkedCts.Token)
+                .ConfigureAwait(false);
+
+            // ReadFromJsonAsync returns null only when the body is the
+            // literal JSON `null`. The server schema declares the response
+            // as a non-Optional Pydantic model — null body is off-contract,
+            // surface it as deserialization failure rather than letting
+            // it propagate as a NullReferenceException to scene code.
+            if (tickResponse is null)
+            {
+                return Result.Fail<WorldTickResponseDto, ApiError>(
+                    new ApiError.DeserializationError(
+                        "/api/world/tick returned JSON null instead of a WorldTickResponse object"));
+            }
+
+            return Result.Ok<WorldTickResponseDto, ApiError>(tickResponse);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested || _shutdownCts.IsCancellationRequested)
+        {
+            return Result.Fail<WorldTickResponseDto, ApiError>(new ApiError.Cancelled());
+        }
+        catch (OperationCanceledException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/world/tick timeout: {ex.Message}");
+            return Result.Fail<WorldTickResponseDto, ApiError>(
+                new ApiError.NotReachable($"timeout: {ex.Message}"));
+        }
+        catch (HttpRequestException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/world/tick network error: {ex.Message}");
+            return Result.Fail<WorldTickResponseDto, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Net.Http.HttpIOException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/world/tick transport error: {ex.Message}");
+            return Result.Fail<WorldTickResponseDto, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            // Malformed JSON, missing required field, or wire/DTO drift —
+            // the integration-time canary that Coda's schema moved without
+            // the C# DTO catching up. M1 special case to watch :
+            // `eligible_personas` is now non-empty after Varn-lock 2026-05-10
+            // §1 ; if Coda extends EmergentMission with a new required
+            // field this is where it shows up first.
+            GD.PushWarning($"[ApiClient] /api/world/tick JSON parse error: {ex.Message}");
+            return Result.Fail<WorldTickResponseDto, ApiError>(
+                new ApiError.DeserializationError(ex.Message));
+        }
+    }
 }

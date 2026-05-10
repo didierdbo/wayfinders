@@ -53,6 +53,12 @@ namespace Wayfinders.Client.Services.Dtos;
 )]
 [JsonSerializable(typeof(UnitDto))]
 [JsonSerializable(typeof(IList<UnitDto>))]
+// M1 mission-emergence wire types (POST /api/world/tick). Mirrors
+// Pydantic models in wayfinders/api/world_tick_models.py — see
+// WorldTickDtos.cs for the records and the Varn-locked closed lookups.
+[JsonSerializable(typeof(WorldTickRequestDto))]
+[JsonSerializable(typeof(WorldTickResponseDto))]
+[JsonSerializable(typeof(EmergentMissionDto))]
 internal sealed partial class ApiJsonContext : JsonSerializerContext
 {
     // Body intentionally empty — the source generator emits the

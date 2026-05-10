@@ -1,0 +1,217 @@
+using System.Collections.Generic;
+
+namespace Wayfinders.Client.Services.Dtos;
+
+/// <summary>
+/// Wire-format DTOs for the <c>POST /api/world/tick</c> endpoint
+/// (M1 mission-emergence boundary, server schema in
+/// <c>wayfinders/api/world_tick_models.py</c>).
+///
+/// <para>
+/// <b>What this file is.</b> The minimum-viable mirror of the Pydantic
+/// models on the FastAPI side, sized for the M1 slice. Three records :
+/// <see cref="WorldTickRequestDto"/> (what the client posts),
+/// <see cref="WorldTickResponseDto"/> (what the server returns),
+/// <see cref="EmergentMissionDto"/> (the optional mission carried inside
+/// the response). The closed-lookup string sets are pinned as
+/// <c>const string</c> here so a typo cannot drift past compile time.
+/// </para>
+///
+/// <para>
+/// <b>What this file deliberately is NOT.</b> A mirror of the
+/// server-side <c>CharacterState</c> model. The Pydantic
+/// <c>company_personas: tuple[CharacterState, ...]</c> field defaults to
+/// the empty tuple server-side ; the M1 client posts <c>[]</c> and the
+/// server's eligible-personas filter (Varn-lock 2026-05-10 §1) returns
+/// an empty <see cref="EmergentMissionDto.EligiblePersonas"/> as
+/// option (c) "compagnie vide → mission émerge quand même". The full
+/// <c>CharacterStateDto</c> mirror is a separate slice — it has 15+
+/// fields including <c>tuple[int, int]</c> action counters and
+/// <c>Literal["barely","moderately","well","best of all"]</c> location
+/// familiarity values, neither of which round-trips cleanly without a
+/// dedicated wire-format handshake with Coda. Parked as an open
+/// question for étape 4b/4c when the company snapshot source on the
+/// client is wired up.
+/// </para>
+///
+/// <para>
+/// <b>Closed lookups (Varn-locked 2026-05-10).</b> Mission types,
+/// difficulty buckets, and resolution outcomes are pinned as
+/// <c>const string</c> below to give callers a single source of truth
+/// without dragging an enum across the wire (the wire is a string ; the
+/// server's Pydantic <c>Literal</c> validates it, and an enum on this
+/// side would force a custom <c>JsonStringEnumConverter</c> per type
+/// for the snake-case-with-hyphens <c>very-low</c>/<c>very-high</c>
+/// bucket spellings). Strings + constants is the simpler path.
+/// </para>
+///
+/// <para>
+/// <b>Naming policy.</b> Wire is snake_case ; C# is PascalCase ; the
+/// uniform <c>SnakeCaseLower</c> policy on
+/// <see cref="ApiJsonContext"/> handles the mapping. Note one subtle
+/// corner : the difficulty bucket strings <c>very-low</c> and
+/// <c>very-high</c> use a hyphen, not an underscore — that is Varn's
+/// stat-lane vocabulary lock from <c>vocabularies.py:25</c>, not the
+/// JSON naming policy. The hyphen is part of the <i>value</i>, not the
+/// field name, so the policy does not touch it.
+/// </para>
+/// </summary>
+public static class WorldTickWireFormat
+{
+    /// <summary>Mission type closed lookup (Varn-locked 2026-05-10).
+    /// Server-side <c>EmergenceMissionType = Literal["scout_route",
+    /// "parley_local"]</c>.</summary>
+    public static class MissionType
+    {
+        public const string ScoutRoute = "scout_route";
+        public const string ParleyLocal = "parley_local";
+    }
+
+    /// <summary>Difficulty bucket closed lookup (Varn-locked 2026-05-10,
+    /// reuses the stat-lane vocabulary from
+    /// <c>vocabularies.py:25</c>). M1 forces <c>Mid</c>. Note the hyphens
+    /// in <c>VeryLow</c>/<c>VeryHigh</c> are part of the wire value, not
+    /// a naming-policy artefact.</summary>
+    public static class DifficultyBucket
+    {
+        public const string VeryLow = "very-low";
+        public const string Low = "low";
+        public const string Mid = "mid";
+        public const string High = "high";
+        public const string VeryHigh = "very-high";
+    }
+
+    /// <summary>Resolution outcome closed lookup (Varn-locked
+    /// 2026-05-10). Server-side <c>ResolutionOutcomeType =
+    /// Literal["success", "partial", "failure"]</c>. Set on
+    /// <see cref="EmergentMissionDto.Outcome"/> at resolution time, not
+    /// at emergence.</summary>
+    public static class ResolutionOutcome
+    {
+        public const string Success = "success";
+        public const string Partial = "partial";
+        public const string Failure = "failure";
+    }
+}
+
+/// <summary>
+/// Input for <c>POST /api/world/tick</c>. Mirrors Pydantic
+/// <c>WorldTickRequest</c> in <c>wayfinders/api/world_tick_models.py</c>.
+///
+/// <para>
+/// <b>Field semantics.</b>
+/// <list type="bullet">
+///   <item><see cref="Tick"/> is the current tick index ; non-negative,
+///         monotonically increasing across a session. Server uses it
+///         for cadence gating and echoes it back on
+///         <see cref="WorldTickResponseDto.Tick"/> so the client can
+///         correlate async responses (relevant once the world tick is
+///         no longer in lockstep with the request).</item>
+///   <item><see cref="Seed"/> is caller-owned : derive from
+///         <c>(world_seed, tick)</c> so emergence is reproducible. The
+///         server holds no global RNG.</item>
+///   <item><see cref="ContextProse"/> is the EN-rendered world prose
+///         from the renderer — Varn-locked schema, identical slot to
+///         UC1 resolution. Must be non-empty.</item>
+///   <item><see cref="CompanyPersonas"/> is M1 always empty
+///         (<c>[]</c>) on this client — the full
+///         <c>CharacterStateDto</c> mirror is a separate slice ;
+///         until then the server treats <c>[]</c> as Varn option (c)
+///         (mission emerges with empty
+///         <see cref="EmergentMissionDto.EligiblePersonas"/>).</item>
+/// </list>
+/// </para>
+/// </summary>
+/// <param name="Tick">Current tick index (non-negative).</param>
+/// <param name="Seed">RNG seed for deterministic sampling.</param>
+/// <param name="ContextProse">EN-rendered world context, non-empty.</param>
+/// <param name="CompanyPersonas">
+/// Snapshots of the company's personas. <b>M1 always empty</b> on this
+/// client — mirrored as <see cref="IReadOnlyList{T}"/> of
+/// <see cref="object"/> rather than a typed
+/// <c>CharacterStateDto</c> because the typed mirror is parked.
+/// Source-gen JSON serialises an empty list as <c>[]</c>, which is
+/// exactly what the server expects. When a real CharacterStateDto
+/// lands the type parameter flips and this comment goes away.
+/// </param>
+public sealed record WorldTickRequestDto(
+    int Tick,
+    long Seed,
+    string ContextProse,
+    IReadOnlyList<object> CompanyPersonas
+);
+
+/// <summary>
+/// A mission that emerged at the current tick. Mirrors Pydantic
+/// <c>EmergentMission</c>. Immutable wire shape.
+///
+/// <para>
+/// <b>M1 invariants pinned by the server schema.</b>
+/// <list type="bullet">
+///   <item><see cref="Difficulty"/> is always
+///         <see cref="WorldTickWireFormat.DifficultyBucket.Mid"/> in M1
+///         (sampler disabled).</item>
+///   <item><see cref="DeadlineTicks"/> is always <c>null</c> in M1
+///         (no timer).</item>
+///   <item><see cref="Outcome"/> is always <c>null</c> at emergence ;
+///         the resolution endpoint sets it later.</item>
+///   <item><see cref="EligiblePersonas"/> is computed server-side by
+///         <c>EmergenceEngine.filter_eligible_personas()</c> using the
+///         ±1-bucket window rule (Varn-lock 2026-05-10). Empty when
+///         the company is empty or no persona is in range — mission
+///         still emerges (option (c)).</item>
+/// </list>
+/// </para>
+/// </summary>
+/// <param name="Id">Stable UUID4 generated at emergence.</param>
+/// <param name="Type">
+/// Closed lookup, see <see cref="WorldTickWireFormat.MissionType"/>.
+/// </param>
+/// <param name="NarrativeHook">1-2 line server-rendered hook.</param>
+/// <param name="EligiblePersonas">
+/// Persona ids eligible for assignment (deterministic asc order).
+/// </param>
+/// <param name="Difficulty">
+/// Closed lookup, see
+/// <see cref="WorldTickWireFormat.DifficultyBucket"/>.
+/// </param>
+/// <param name="Region">Free-form region id (M1).</param>
+/// <param name="DeadlineTicks">
+/// Ticks until expiry. <c>null</c> in M1.
+/// </param>
+/// <param name="Outcome">
+/// Closed lookup, see
+/// <see cref="WorldTickWireFormat.ResolutionOutcome"/>. <c>null</c> at
+/// emergence.
+/// </param>
+/// <param name="Seed">Spawn seed audit trail.</param>
+public sealed record EmergentMissionDto(
+    string Id,
+    string Type,
+    string NarrativeHook,
+    IReadOnlyList<string> EligiblePersonas,
+    string Difficulty,
+    string Region,
+    int? DeadlineTicks,
+    string? Outcome,
+    long Seed
+);
+
+/// <summary>
+/// Response from <c>POST /api/world/tick</c>. Mirrors Pydantic
+/// <c>WorldTickResponse</c>.
+///
+/// <para>
+/// <see cref="Mission"/> is <c>null</c> when no mission emerges this
+/// tick (cadence-gated). With the M1 sampler config (no_emergence
+/// disabled, cadence forced to every 5-10 ticks) the server returns
+/// <c>null</c> only between cadence windows ; once inside the window
+/// a mission is guaranteed.
+/// </para>
+/// </summary>
+/// <param name="Mission">The emerged mission, or <c>null</c>.</param>
+/// <param name="Tick">Echo of the request tick.</param>
+public sealed record WorldTickResponseDto(
+    EmergentMissionDto? Mission,
+    int Tick
+);

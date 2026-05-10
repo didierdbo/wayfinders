@@ -188,4 +188,20 @@
     <Compile Include="..\scripts\screens\CompagniePanelLogic.cs" Link="src\CompagniePanelLogic.cs" />
   </ItemGroup>
 
+  <!-- M1 mission-emergence (etape 4a / 2026-05-10): wire-format DTOs
+       for POST /api/world/tick + the source-gen JSON context that
+       handles them. Both files Godot-free by design (records +
+       JsonSerializerContext only) so xUnit pins the closed-lookup
+       constants (Varn-locked 2026-05-10), the snake_case naming
+       policy, and the null-mission-on-no-emergence path. The
+       Godot-bound ApiClient.TickAsync autoload method itself is
+       not xUnit-tested. Same rationale as GetUnitsAsync and
+       ClassifierService : Godot runtime not spun up in the test host,
+       end-to-end validated against a live uvicorn at etape 4d. -->
+  <ItemGroup>
+    <Compile Include="..\services\Dtos\UnitDto.cs" Link="src\UnitDto.cs" />
+    <Compile Include="..\services\Dtos\ApiJsonContext.cs" Link="src\ApiJsonContext.cs" />
+    <Compile Include="..\services\Dtos\WorldTickDtos.cs" Link="src\WorldTickDtos.cs" />
+  </ItemGroup>
+
 </Project>
