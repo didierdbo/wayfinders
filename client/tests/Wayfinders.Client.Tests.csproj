@@ -204,4 +204,17 @@
     <Compile Include="..\services\Dtos\WorldTickDtos.cs" Link="src\WorldTickDtos.cs" />
   </ItemGroup>
 
+  <!-- M1 mission-emergence (etape 4b / 2026-05-10): full CharacterState
+       mirror + mission resolution wire types + cadence helper. All
+       Godot-free by design (records + JsonSerializerContext +
+       pure-C# accumulator) so xUnit pins the round-trip + closed
+       lookups + cadence math. The Godot-bound WorldSimTick autoload
+       and the ApiClient.ResolveMissionAsync method itself are
+       end-to-end validated against a live uvicorn at etape 4d. -->
+  <ItemGroup>
+    <Compile Include="..\services\Dtos\CharacterStateDto.cs" Link="src\CharacterStateDto.cs" />
+    <Compile Include="..\services\Dtos\MissionResolveDtos.cs" Link="src\MissionResolveDtos.cs" />
+    <Compile Include="..\services\WorldSimTickCadence.cs" Link="src\WorldSimTickCadence.cs" />
+  </ItemGroup>
+
 </Project>

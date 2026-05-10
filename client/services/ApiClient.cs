@@ -429,4 +429,127 @@ public partial class ApiClient : Node
                 new ApiError.DeserializationError(ex.Message));
         }
     }
+
+    /// <summary>
+    /// Hits <c>POST /api/world/mission/resolve</c> with a
+    /// <see cref="MissionResolveRequestDto"/> payload and deserialises
+    /// the response into a <see cref="MissionResolveResponseDto"/>.
+    /// M1 substep 4b boundary call (server schema in
+    /// <c>wayfinders/api/mission_resolve.py</c>).
+    ///
+    /// <para>
+    /// <b>What this method does.</b> Same discipline as
+    /// <see cref="TickAsync"/> : source-gen JSON for both directions,
+    /// linked CTS for cancellation, <c>ConfigureAwait(false)</c> on every
+    /// <c>await</c>, no scene-state touch in the autoload. Every catch
+    /// arm produces a typed <see cref="ApiError"/> ; nothing escapes.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Idempotence contract.</b> The server is stateless ; reposting
+    /// the same payload after a transient
+    /// <see cref="ApiError.NotReachable"/> produces the same
+    /// <see cref="MissionResolveResponseDto.TagsCreated"/>. The client
+    /// is responsible for deduplication when storing tags into
+    /// <c>GameState.PersonaLegacy</c> using
+    /// <c>(persona_id, mission_id)</c> as the natural key. M1 simple
+    /// impl : append blindly ; M2 may revisit if duplicate-tag noise
+    /// shows up in a Steam build.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Empty assigned_personas.</b> When the player declined the
+    /// mission (or no persona was eligible — Varn option (c)), the
+    /// caller posts an empty
+    /// <see cref="MissionResolveRequestDto.AssignedPersonas"/>. The
+    /// server returns
+    /// <see cref="MissionResolveResponseDto.TagsCreated"/> = empty.
+    /// Always 200 ; not an error.
+    /// </para>
+    /// </summary>
+    /// <param name="request">The mission-resolve payload. Caller is
+    /// responsible for filling Outcome (M1 stub : always
+    /// <see cref="WorldTickWireFormat.ResolutionOutcome.Success"/>).</param>
+    /// <param name="ct">Caller's cancellation token. Linked with the
+    /// autoload's shutdown token.</param>
+    public async Task<Result<MissionResolveResponseDto, ApiError>> ResolveMissionAsync(
+        MissionResolveRequestDto request,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdownCts.Token);
+
+        try
+        {
+            var response = await _httpClient
+                .PostAsJsonAsync(
+                    "/api/world/mission/resolve",
+                    request,
+                    ApiJsonContext.Default.MissionResolveRequestDto,
+                    linkedCts.Token)
+                .ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                string? body = null;
+                try
+                {
+                    body = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Best-effort body capture ; if it fails, the
+                    // status code alone is still actionable. Pydantic
+                    // v2 returns structured 422 payloads on validation
+                    // failures — capturing the body lets the caller
+                    // surface which field drifted.
+                }
+                GD.PushWarning($"[ApiClient] /api/world/mission/resolve returned {(int)response.StatusCode}");
+                return Result.Fail<MissionResolveResponseDto, ApiError>(
+                    new ApiError.ServerError((int)response.StatusCode, body));
+            }
+
+            var resolveResponse = await response.Content
+                .ReadFromJsonAsync(
+                    ApiJsonContext.Default.MissionResolveResponseDto,
+                    linkedCts.Token)
+                .ConfigureAwait(false);
+
+            if (resolveResponse is null)
+            {
+                return Result.Fail<MissionResolveResponseDto, ApiError>(
+                    new ApiError.DeserializationError(
+                        "/api/world/mission/resolve returned JSON null instead of a MissionResolveResponse object"));
+            }
+
+            return Result.Ok<MissionResolveResponseDto, ApiError>(resolveResponse);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested || _shutdownCts.IsCancellationRequested)
+        {
+            return Result.Fail<MissionResolveResponseDto, ApiError>(new ApiError.Cancelled());
+        }
+        catch (OperationCanceledException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/world/mission/resolve timeout: {ex.Message}");
+            return Result.Fail<MissionResolveResponseDto, ApiError>(
+                new ApiError.NotReachable($"timeout: {ex.Message}"));
+        }
+        catch (HttpRequestException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/world/mission/resolve network error: {ex.Message}");
+            return Result.Fail<MissionResolveResponseDto, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Net.Http.HttpIOException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/world/mission/resolve transport error: {ex.Message}");
+            return Result.Fail<MissionResolveResponseDto, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/world/mission/resolve JSON parse error: {ex.Message}");
+            return Result.Fail<MissionResolveResponseDto, ApiError>(
+                new ApiError.DeserializationError(ex.Message));
+        }
+    }
 }

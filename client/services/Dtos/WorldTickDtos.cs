@@ -8,8 +8,8 @@ namespace Wayfinders.Client.Services.Dtos;
 /// <c>wayfinders/api/world_tick_models.py</c>).
 ///
 /// <para>
-/// <b>What this file is.</b> The minimum-viable mirror of the Pydantic
-/// models on the FastAPI side, sized for the M1 slice. Three records :
+/// <b>What this file is.</b> Mirror of the Pydantic
+/// models on the FastAPI side. Three records :
 /// <see cref="WorldTickRequestDto"/> (what the client posts),
 /// <see cref="WorldTickResponseDto"/> (what the server returns),
 /// <see cref="EmergentMissionDto"/> (the optional mission carried inside
@@ -18,20 +18,16 @@ namespace Wayfinders.Client.Services.Dtos;
 /// </para>
 ///
 /// <para>
-/// <b>What this file deliberately is NOT.</b> A mirror of the
-/// server-side <c>CharacterState</c> model. The Pydantic
-/// <c>company_personas: tuple[CharacterState, ...]</c> field defaults to
-/// the empty tuple server-side ; the M1 client posts <c>[]</c> and the
-/// server's eligible-personas filter (Varn-lock 2026-05-10 §1) returns
-/// an empty <see cref="EmergentMissionDto.EligiblePersonas"/> as
-/// option (c) "compagnie vide → mission émerge quand même". The full
-/// <c>CharacterStateDto</c> mirror is a separate slice — it has 15+
-/// fields including <c>tuple[int, int]</c> action counters and
-/// <c>Literal["barely","moderately","well","best of all"]</c> location
-/// familiarity values, neither of which round-trips cleanly without a
-/// dedicated wire-format handshake with Coda. Parked as an open
-/// question for étape 4b/4c when the company snapshot source on the
-/// client is wired up.
+/// <b>4b update — typed company personas.</b> The 4a stub posted
+/// <c>company_personas: []</c> with the C# type
+/// <c>IReadOnlyList&lt;object&gt;</c> as a placeholder. After Didier
+/// ratified the full-mirror decision (memory
+/// <c>project_wayfinders_mission_emergence.md</c>, 2026-05-10 post-4a),
+/// this is now <see cref="IReadOnlyList{T}"/> of
+/// <see cref="CharacterStateDto"/> — see <c>CharacterStateDto.cs</c>
+/// for the field-by-field rationale and the
+/// <c>2026-05-10-Wayfinders-CharacterState-wire-format.md</c> doc by
+/// Tess for the canonical wire format.
 /// </para>
 ///
 /// <para>
@@ -113,11 +109,10 @@ public static class WorldTickWireFormat
 ///   <item><see cref="ContextProse"/> is the EN-rendered world prose
 ///         from the renderer — Varn-locked schema, identical slot to
 ///         UC1 resolution. Must be non-empty.</item>
-///   <item><see cref="CompanyPersonas"/> is M1 always empty
-///         (<c>[]</c>) on this client — the full
-///         <c>CharacterStateDto</c> mirror is a separate slice ;
-///         until then the server treats <c>[]</c> as Varn option (c)
-///         (mission emerges with empty
+///   <item><see cref="CompanyPersonas"/> are the typed
+///         <see cref="CharacterStateDto"/> snapshots — see
+///         <c>CharacterStateDto.cs</c>. Empty list when the company is
+///         empty (Varn option (c) — mission still emerges, with empty
 ///         <see cref="EmergentMissionDto.EligiblePersonas"/>).</item>
 /// </list>
 /// </para>
@@ -126,19 +121,16 @@ public static class WorldTickWireFormat
 /// <param name="Seed">RNG seed for deterministic sampling.</param>
 /// <param name="ContextProse">EN-rendered world context, non-empty.</param>
 /// <param name="CompanyPersonas">
-/// Snapshots of the company's personas. <b>M1 always empty</b> on this
-/// client — mirrored as <see cref="IReadOnlyList{T}"/> of
-/// <see cref="object"/> rather than a typed
-/// <c>CharacterStateDto</c> because the typed mirror is parked.
-/// Source-gen JSON serialises an empty list as <c>[]</c>, which is
-/// exactly what the server expects. When a real CharacterStateDto
-/// lands the type parameter flips and this comment goes away.
+/// Typed <see cref="CharacterStateDto"/> snapshots of the company.
+/// Source-gen JSON serialises each entry with the snake_case naming
+/// policy (so PascalCase C# property names map to snake_case wire
+/// fields). Empty list when the company is empty.
 /// </param>
 public sealed record WorldTickRequestDto(
     int Tick,
     long Seed,
     string ContextProse,
-    IReadOnlyList<object> CompanyPersonas
+    IReadOnlyList<CharacterStateDto> CompanyPersonas
 );
 
 /// <summary>

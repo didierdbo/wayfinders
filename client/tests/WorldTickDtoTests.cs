@@ -102,7 +102,7 @@ public sealed class WorldTickDtoTests
             Tick: 7,
             Seed: 42L,
             ContextProse: "The forest is quiet.",
-            CompanyPersonas: new List<object>());
+            CompanyPersonas: System.Array.Empty<CharacterStateDto>());
 
         var json = JsonSerializer.Serialize(
             request,
@@ -133,7 +133,7 @@ public sealed class WorldTickDtoTests
             Tick: 0,
             Seed: 0L,
             ContextProse: "x",
-            CompanyPersonas: new List<object>());
+            CompanyPersonas: System.Array.Empty<CharacterStateDto>());
 
         var json = JsonSerializer.Serialize(
             request,
@@ -329,7 +329,7 @@ public sealed class WorldTickDtoTests
             Tick: 42,
             Seed: long.MaxValue,
             ContextProse: "le brouillard se lève sur la vallée",
-            CompanyPersonas: new List<object>());
+            CompanyPersonas: System.Array.Empty<CharacterStateDto>());
 
         var json = JsonSerializer.Serialize(
             original,

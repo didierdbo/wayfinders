@@ -46,6 +46,22 @@ namespace Wayfinders.Client.Services.Dtos;
 /// returns as a list. Do not forget — missing entries fail at runtime
 /// with a <c>NotSupportedException</c>, not at compile time.
 /// </para>
+///
+/// <para>
+/// <b>4b additions.</b> Mission-emergence resolution wire types
+/// (<see cref="MissionResolveRequestDto"/>,
+/// <see cref="MissionResolveResponseDto"/>,
+/// <see cref="PersonaLegacyTagDto"/>) and the now-typed
+/// <see cref="CharacterStateDto"/> +
+/// <see cref="EpisodicEventDto"/> +
+/// <see cref="BondDto"/> mirror used inside
+/// <see cref="WorldTickRequestDto.CompanyPersonas"/>. The dictionaries
+/// inside <see cref="CharacterStateDto"/> use
+/// <c>IReadOnlyDictionary&lt;string, T&gt;</c> for the contract but
+/// the source-gen needs the closed concrete instantiations registered
+/// here — STJ source-gen does not auto-recurse into property types
+/// at compile time when those types are open generics.
+/// </para>
 /// </summary>
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
@@ -59,6 +75,19 @@ namespace Wayfinders.Client.Services.Dtos;
 [JsonSerializable(typeof(WorldTickRequestDto))]
 [JsonSerializable(typeof(WorldTickResponseDto))]
 [JsonSerializable(typeof(EmergentMissionDto))]
+// 4b — typed CharacterState mirror for company_personas. Pydantic
+// schema source : wayfinders/ml/schemas/character.py (Varn 2026-04-30).
+// Wire format doc : Owner's Inbox/2026-05-10-Wayfinders-CharacterState-wire-format.md.
+[JsonSerializable(typeof(CharacterStateDto))]
+[JsonSerializable(typeof(IList<CharacterStateDto>))]
+[JsonSerializable(typeof(EpisodicEventDto))]
+[JsonSerializable(typeof(BondDto))]
+// 4b — mission resolution wire types (POST /api/world/mission/resolve).
+// Mirrors Pydantic MissionResolveRequest / Response /
+// PersonaLegacyTagWire in wayfinders/api/mission_resolve.py.
+[JsonSerializable(typeof(MissionResolveRequestDto))]
+[JsonSerializable(typeof(MissionResolveResponseDto))]
+[JsonSerializable(typeof(PersonaLegacyTagDto))]
 internal sealed partial class ApiJsonContext : JsonSerializerContext
 {
     // Body intentionally empty — the source generator emits the
