@@ -754,7 +754,19 @@ public partial class CompagniePanelProbe : Node2D
             GD.Print("[CANARY OK] SubViewport.PhysicsObjectPicking = true");
         }
 
-        // Inv. 2 : Camera3D current INSIDE the SubViewport.
+        // Inv. 2 : Camera3D current INSIDE the SubViewport, AND looking
+        // at the scene origin. The .tscn ships an iso-flavoured
+        // Transform3D basis ; we re-derive it defensively at _Ready via
+        // LookAt so a malformed basis (sign flip on the Z column, drift
+        // from a Godot .tscn rewrite, etc.) cannot silently leave the
+        // camera pointing AWAY from the personas.
+        //
+        // Visibility regression 2026-05-10 : Didier could not see any
+        // Label3D -- root-cause investigation traced this to a Z-column
+        // sign flip in the .tscn that pointed the camera forward at
+        // (+0.7071, +0.3536, -0.6124) ie. away from origin. LookAt is
+        // idempotent for a correctly-authored .tscn and corrective for
+        // a drifted one. Cheap belt-and-braces.
         if (_subSpaceCamera3D is null)
         {
             GD.PushError("[CANARY FAIL] SubSpaceCamera3D not resolvable.");
@@ -762,7 +774,20 @@ public partial class CompagniePanelProbe : Node2D
         else
         {
             _subSpaceCamera3D.MakeCurrent();
-            GD.Print($"[CANARY OK] SubSpaceCamera3D.Current=true position={_subSpaceCamera3D.Position}");
+            // Force the camera to look at the scene centre (origin in
+            // sub-space coords). Up vector = world Y (standard iso).
+            _subSpaceCamera3D.LookAt(new Vector3(0, 0, 0), Vector3.Up);
+            // Forward in Godot = -Z in camera basis. Compute it for the
+            // log so we have eyes-on proof in the Output panel.
+            var forward = -_subSpaceCamera3D.GlobalTransform.Basis.Z;
+            GD.Print(
+                $"[CANARY OK] SubSpaceCamera3D.Current=true " +
+                $"globalPos={_subSpaceCamera3D.GlobalPosition} " +
+                $"forward={forward} " +
+                $"projection={_subSpaceCamera3D.Projection} " +
+                $"size={_subSpaceCamera3D.Size} " +
+                $"near={_subSpaceCamera3D.Near} far={_subSpaceCamera3D.Far} " +
+                $"cullMask=0x{_subSpaceCamera3D.CullMask:X}");
         }
 
         // Inv. 3-5 : per-persona Area3D + Shape3D health.
@@ -819,6 +844,92 @@ public partial class CompagniePanelProbe : Node2D
         }
         if (autonomyOk)
             GD.Print($"[CANARY OK] all {_personaVisuals.Count} personas live under PersonasContainer (NPC autonomy invariant held at boot)");
+
+        // Inv. 8 (NEW 2026-05-10) : Label3D rendering preflight. Memory
+        // feedback_godot_rendering_input_traps.md : "preflight GD.Print
+        // mandatory" before claiming a rendering bug is solved. Dump
+        // the global position, visibility, render layer, and modulate
+        // alpha of every Label3D so a follow-up visual regression
+        // (Didier reports "I cannot see Label X") has observable proof
+        // in the Output panel of where the label thinks it is and what
+        // its visibility flags are.
+        DumpLabel3DRenderingPreflight();
+    }
+
+    /// <summary>
+    /// Walk every Label3D under the SubSpaceRoot3D and log its
+    /// rendering-relevant state. Read-only diagnostic ; never mutates.
+    /// Triggered from <see cref="AssertCanaryInvariants"/>.
+    /// </summary>
+    private void DumpLabel3DRenderingPreflight()
+    {
+        if (_subSpaceRoot3D is null)
+        {
+            GD.PushError("[CANARY FAIL] SubSpaceRoot3D not resolvable -- cannot run Label3D preflight.");
+            return;
+        }
+
+        var labels = new List<Label3D>();
+        CollectLabel3D(_subSpaceRoot3D, labels);
+
+        GD.Print($"[LABEL3D PREFLIGHT] found {labels.Count} Label3D under SubSpaceRoot3D");
+
+        foreach (var lbl in labels)
+        {
+            // IsVisibleInTree = AND of every ancestor's Visible flag,
+            // which is the only flag Godot actually consults at render
+            // time. Visible alone can mislead if a parent Node3D was
+            // hidden.
+            var visibleInTree = lbl.IsVisibleInTree();
+            var globalPos = lbl.GlobalPosition;
+            var modulate = lbl.Modulate;
+            var renderLayer = lbl.Layers;
+            var path = lbl.GetPath();
+
+            // Camera frustum sanity : project the label world-pos to
+            // the SubViewport NDC coords. Outside [-1, +1] on either
+            // axis means the label is off-screen ; behind the camera
+            // means the iso math is wrong.
+            string ndcStr = "n/a";
+            if (_subSpaceCamera3D is not null)
+            {
+                var ndc = _subSpaceCamera3D.UnprojectPosition(globalPos);
+                ndcStr = $"screenPx={ndc} (SubViewport size={_subViewport?.Size})";
+            }
+
+            GD.Print(
+                $"[LABEL3D] path={path} " +
+                $"text=\"{lbl.Text}\" " +
+                $"globalPos={globalPos} " +
+                $"visibleInTree={visibleInTree} " +
+                $"modulate={modulate} " +
+                $"renderLayers=0x{renderLayer:X} " +
+                $"noDepthTest={lbl.NoDepthTest} " +
+                $"billboard={lbl.Billboard} " +
+                $"fontSize={lbl.FontSize} " +
+                $"projected: {ndcStr}");
+        }
+
+        // Also dump the personas container itself in case its Visible
+        // flag was flipped off (would cascade to children).
+        if (_personasContainer is not null)
+            GD.Print(
+                $"[LABEL3D PREFLIGHT] PersonasContainer.Visible={_personasContainer.Visible} " +
+                $"VisibleInTree={_personasContainer.IsVisibleInTree()} " +
+                $"GlobalPos={_personasContainer.GlobalPosition}");
+        if (_missionSlot is not null)
+            GD.Print(
+                $"[LABEL3D PREFLIGHT] MissionSlot.Visible={_missionSlot.Visible} " +
+                $"VisibleInTree={_missionSlot.IsVisibleInTree()} " +
+                $"GlobalPos={_missionSlot.GlobalPosition}");
+    }
+
+    private static void CollectLabel3D(Node node, List<Label3D> sink)
+    {
+        if (node is Label3D lbl)
+            sink.Add(lbl);
+        foreach (var child in node.GetChildren())
+            CollectLabel3D(child, sink);
     }
 
     // ====================================================================
