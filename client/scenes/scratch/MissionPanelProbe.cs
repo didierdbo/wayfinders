@@ -61,15 +61,22 @@ namespace Wayfinders.Client.Scenes.Scratch;
 /// </summary>
 public partial class MissionPanelProbe : Node2D
 {
-    [Export] public NodePath HeaderLabelPath { get; set; } = "Panel/HeaderLabel";
-    [Export] public NodePath HookLabelPath { get; set; } = "Panel/HookLabel";
-    [Export] public NodePath EligibleLabelPath { get; set; } = "Panel/EligibleLabel";
-    [Export] public NodePath PersonasContainerPath { get; set; } = "Panel/PersonasContainer";
-    [Export] public NodePath AffectButtonPath { get; set; } = "Panel/AffectButton";
-    [Export] public NodePath DeclineButtonPath { get; set; } = "Panel/DeclineButton";
-    [Export] public NodePath ToastLabelPath { get; set; } = "Panel/ToastLabel";
-    [Export] public NodePath QueueStatusLabelPath { get; set; } = "Panel/QueueStatusLabel";
-    [Export] public NodePath TickLabelPath { get; set; } = "Panel/TickLabel";
+    // Bindings : NodePaths default to the actual scene hierarchy in
+    // MissionPanelProbe.tscn, where the Panel lives under a CanvasLayer
+    // "UI" (layer=10) so it renders on top of the Background2D
+    // CanvasLayer. The original "Panel/HeaderLabel" defaults silently
+    // resolved to null because the CanvasLayer parent was missing from
+    // the path -- this is the trap the binding preflight below now
+    // catches. See feedback_godot_rendering_input_traps memory.
+    [Export] public NodePath HeaderLabelPath { get; set; } = "UI/Panel/HeaderLabel";
+    [Export] public NodePath HookLabelPath { get; set; } = "UI/Panel/HookLabel";
+    [Export] public NodePath EligibleLabelPath { get; set; } = "UI/Panel/EligibleLabel";
+    [Export] public NodePath PersonasContainerPath { get; set; } = "UI/Panel/PersonasContainer";
+    [Export] public NodePath AffectButtonPath { get; set; } = "UI/Panel/AffectButton";
+    [Export] public NodePath DeclineButtonPath { get; set; } = "UI/Panel/DeclineButton";
+    [Export] public NodePath ToastLabelPath { get; set; } = "UI/Panel/ToastLabel";
+    [Export] public NodePath QueueStatusLabelPath { get; set; } = "UI/Panel/QueueStatusLabel";
+    [Export] public NodePath TickLabelPath { get; set; } = "UI/Panel/TickLabel";
 
     private Label? _headerLabel;
     private Label? _hookLabel;
@@ -115,6 +122,16 @@ public partial class MissionPanelProbe : Node2D
         if (_apiClient is null) GD.PushError("[PROBE Mission] ApiClient autoload missing");
         if (_worldSimTick is null) GD.PushError("[PROBE Mission] WorldSimTick autoload missing");
 
+        // Inv. preflight : verify every NodePath export resolved to a
+        // real Label / Container / Button. The original 4c bug was that
+        // the defaults missed the "UI/" CanvasLayer prefix, so every
+        // GetNodeOrNull returned null silently and the panel stayed at
+        // its placeholder text even after MissionEmerged fired. Defense
+        // in depth, cohérent avec feedback_godot_rendering_input_traps :
+        // if a binding is broken, surface it loudly + visually instead
+        // of letting the probe look like the API/signal layer is wrong.
+        RunBindingPreflight();
+
         SeedCompany();
         WireSignals();
         RenderEmpty();
@@ -132,6 +149,50 @@ public partial class MissionPanelProbe : Node2D
         }
         if (_affectButton is not null) _affectButton.Pressed -= OnAffectPressed;
         if (_declineButton is not null) _declineButton.Pressed -= OnDeclinePressed;
+    }
+
+    /// <summary>
+    /// Inv. preflight for the Label/Button/Container bindings. Logs a
+    /// PushError per broken binding and paints a red banner in
+    /// <see cref="_toastLabel"/> if it itself resolved (so the bug is
+    /// visible in the running scene, not buried in Output). Idempotent
+    /// and side-effect free outside logging + the toast paint.
+    ///
+    /// <para>
+    /// <b>Why this exists.</b> M1 substep 4c shipped with NodePath
+    /// defaults that silently resolved to null ("Panel/HeaderLabel"
+    /// instead of "UI/Panel/HeaderLabel"), which made the e2e test
+    /// look like the signal/API layer was broken when in fact the bind
+    /// was. Same pattern as the SubViewport / CanvasLayer / InputMap
+    /// preflights in the rendering-traps memory : check the engine
+    /// invariants at _Ready and shout if they don't hold.
+    /// </para>
+    /// </summary>
+    private void RunBindingPreflight()
+    {
+        var broken = new System.Collections.Generic.List<string>();
+        if (_headerLabel is null) broken.Add($"HeaderLabel ({HeaderLabelPath})");
+        if (_hookLabel is null) broken.Add($"HookLabel ({HookLabelPath})");
+        if (_eligibleLabel is null) broken.Add($"EligibleLabel ({EligibleLabelPath})");
+        if (_personasContainer is null) broken.Add($"PersonasContainer ({PersonasContainerPath})");
+        if (_affectButton is null) broken.Add($"AffectButton ({AffectButtonPath})");
+        if (_declineButton is null) broken.Add($"DeclineButton ({DeclineButtonPath})");
+        if (_toastLabel is null) broken.Add($"ToastLabel ({ToastLabelPath})");
+        if (_queueStatusLabel is null) broken.Add($"QueueStatusLabel ({QueueStatusLabelPath})");
+        if (_tickLabel is null) broken.Add($"TickLabel ({TickLabelPath})");
+
+        if (broken.Count == 0)
+        {
+            GD.Print("[PROBE Mission] Inv. preflight OK -- all 9 bindings resolved");
+            return;
+        }
+
+        var msg = $"[PROBE Mission] Inv. preflight FAILED -- {broken.Count} broken binding(s) : {string.Join(" ; ", broken)}";
+        GD.PushError(msg);
+        // If the toast itself resolved, paint the failure on it so the
+        // running scene shows the bug instead of looking dead.
+        if (_toastLabel is not null)
+            _toastLabel.Text = $"[BINDING ERROR] {broken.Count} NodePath(s) unresolved -- check Output";
     }
 
     /// <summary>
