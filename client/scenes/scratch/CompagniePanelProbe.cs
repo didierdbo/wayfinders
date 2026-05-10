@@ -266,6 +266,35 @@ public partial class CompagniePanelProbe : Node2D
 
         GD.Print("[PROBE Compagnie] node references resolved -- building sub-space contents");
 
+        // ----------------------------------------------------------------
+        // World3D defensive init (Godot 4.6 quirk discovered 2026-05-10).
+        //
+        // Setting own_world_3d=true in the .tscn does NOT lazy-init a
+        // World3D in Godot 4.6 -- the SubViewport.World3D getter returns
+        // null until you assign one explicitly. Symptom : Camera3D current,
+        // 3D nodes in the tree, OwnWorld3D=true, yet the SubViewport
+        // renders an empty image because the camera is current in a NULL
+        // world. Round-2 preflight on commit 571b615 surfaced this :
+        // OwnWorld3D=True, World3D=null, sharedWithRoot=False.
+        //
+        // Fix : assign new World3D() once at _Ready BEFORE BuildSubSpaceContents.
+        // The .tscn-declared Node3D children (SubSpaceRoot3D, Camera3D,
+        // Personas, MissionSlot) are already in the tree at this point ;
+        // assigning World3D causes the SubViewport to migrate its 3D
+        // descendants into the new world (documented Godot behaviour).
+        // BuildSubSpaceContents then adds its programmatic Node3D into the
+        // same world.
+        //
+        // Note this is conditioned on OwnWorld3D=true -- if a future .tscn
+        // edit flips that off, we do nothing here and Inv. 2b in the
+        // canary will catch it. Idempotent : if World3D is already non-null
+        // (e.g. Godot 4.7+ fixes the lazy-init), we skip.
+        if (_subViewport is not null && _subViewport.OwnWorld3D && _subViewport.World3D is null)
+        {
+            _subViewport.World3D = new World3D();
+            GD.Print("[PROBE Compagnie] World3D was null despite OwnWorld3D=true -- assigned a fresh World3D (Godot 4.6 quirk)");
+        }
+
         BuildSubSpaceContents();
         ApplySubViewportContainerPosition();
         WireSignals();
@@ -888,6 +917,26 @@ public partial class CompagniePanelProbe : Node2D
                 "SubViewport live in the PARENT viewport's World3D, NOT the SubViewport's. " +
                 "The Camera3D inside is current but renders an empty world. " +
                 "Fix : set own_world_3d=true on the SubViewport node in the .tscn.");
+        }
+        // Defense in depth (2026-05-10) : even with OwnWorld3D=true, Godot 4.6
+        // does NOT lazy-init the World3D -- the getter returns null. _Ready
+        // assigns a fresh World3D() to compensate ; the canary asserts the
+        // assignment took effect, so a future regression (e.g. someone moves
+        // the assignment after BuildSubSpaceContents, or removes it on the
+        // assumption that Godot 4.7 fixes the quirk without verifying) gets
+        // caught at the very next probe boot.
+        else if (world3D is null)
+        {
+            GD.PushError(
+                "[CANARY FAIL] SubViewport.OwnWorld3D=true BUT World3D=null -- the _Ready " +
+                "defensive assignment did not run, or ran too late, or was removed. The " +
+                "Camera3D is current in a null world ; SubViewport will blit empty. Fix : " +
+                "verify the _subViewport.World3D = new World3D() call near the top of " +
+                "_Ready, before BuildSubSpaceContents.");
+        }
+        else
+        {
+            GD.Print($"[CANARY OK] SubViewport.World3D={world3D.GetInstanceId()} (non-null after _Ready defensive init)");
         }
 
         // Inv. 2c : enumerate every Camera3D in the whole scene and log
