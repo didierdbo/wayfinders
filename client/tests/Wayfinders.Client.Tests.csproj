@@ -217,4 +217,14 @@
     <Compile Include="..\services\WorldSimTickCadence.cs" Link="src\WorldSimTickCadence.cs" />
   </ItemGroup>
 
+  <!-- M1 mission-emergence (etape 4c / 2026-05-10): MissionPanelLogic
+       pure-C# decision helper for the M1 text-only Mission panel
+       (Affect / Decliner button states, resolve request build, status
+       text format). Godot-bound MissionPanelProbe wires Buttons +
+       Labels + the async ApiClient.ResolveMissionAsync call ; xUnit
+       pins the contract here. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\MissionPanelLogic.cs" Link="src\MissionPanelLogic.cs" />
+  </ItemGroup>
+
 </Project>
