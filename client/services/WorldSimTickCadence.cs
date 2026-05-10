@@ -43,11 +43,12 @@ namespace Wayfinders.Client.Services;
 /// </summary>
 public sealed class WorldSimTickCadence
 {
-    /// <summary>Wall-clock interval between ticks. Locked at 1 s by
-    /// Didier's 2026-05-10 ratification (memory
-    /// <c>project_wayfinders_mission_emergence.md</c>) — gives the
-    /// game-loop pace a "real second" feel and removes API-burst
-    /// risk that 1-tick-per-frame would create.</summary>
+    /// <summary>Wall-clock interval between ticks. Default 5 s
+    /// (Didier 2026-05-10, retuned post-4d e2e probe — see
+    /// <see cref="WorldSimTick.TickIntervalSeconds"/> docstring for
+    /// the rationale). Server-side mission-emergence fenetre stays
+    /// 5-10 ticks (Varn-locked) ; the wall-clock stretch happens
+    /// here, by widening what a "tick" means in real seconds.</summary>
     public double IntervalSeconds { get; }
 
     /// <summary>Accumulated frame deltas modulo

@@ -26,7 +26,7 @@ namespace Wayfinders.Client.Services;
 /// </list>
 ///
 /// <para>
-/// <b>Cadence — 1 tick / 1 second.</b> Locked by Didier 2026-05-10
+/// <b>Cadence — 1 tick / 5 seconds.</b> Locked by Didier 2026-05-10
 /// (memory <c>project_wayfinders_mission_emergence.md</c>) — gives
 /// the world-loop a real-second pace and removes the API-burst risk
 /// that 1-tick-per-frame would create on a 144 Hz monitor. The
@@ -86,10 +86,16 @@ namespace Wayfinders.Client.Services;
 /// </summary>
 public partial class WorldSimTick : Node
 {
-    /// <summary>Wall-clock seconds between ticks. Default 1.0
-    /// (Didier 2026-05-10). Exported so a probe scene can override
-    /// for diagnostic speed-ups (e.g. 0.1 s for a smoke test).</summary>
-    [Export] public double TickIntervalSeconds { get; set; } = 1.0;
+    /// <summary>Wall-clock seconds between ticks. Default 5.0
+    /// (Didier 2026-05-10, retuned post-4d e2e probe). At 1.0 s the
+    /// observable cadence was 1 mission every 5-10 s wall-clock
+    /// (server-side fenetre 5-10 ticks Varn-locked, unchanged) —
+    /// too dense for observation/jouabilite. 5.0 s stretches the
+    /// definition of a tick to 25-50 s wall-clock between missions,
+    /// preserving the server lock. Exported so a probe scene can
+    /// override (e.g. 0.1 s for a smoke test, or M2 game-design
+    /// retune without recompile).</summary>
+    [Export] public double TickIntervalSeconds { get; set; } = 5.0;
 
     /// <summary>Initial seed for the world. The per-tick seed is
     /// derived as <c>WorldSeed * 0x9E3779B1L + tick</c> (golden-ratio

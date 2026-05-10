@@ -153,4 +153,38 @@ public sealed class WorldSimTickCadenceTests
         Assert.Equal(10, bumped);
         Assert.Equal(10, c.Tick);
     }
+
+    [Fact]
+    public void Custom_interval_five_seconds_bumps_once_per_five_seconds()
+    {
+        // Pin the M1-probe default (5 s/tick — Didier 2026-05-10
+        // retune post-4d e2e). 4.99 s = no bump ; 5.00 s = one bump.
+        // Frame-rate-independent : we feed the threshold via two
+        // half-frames to mimic a real game loop.
+        var c = new WorldSimTickCadence(5.0);
+        Assert.Equal(0, c.Advance(2.5));
+        Assert.Equal(0, c.Tick);
+        Assert.Equal(0, c.Advance(2.49));
+        Assert.Equal(0, c.Tick);
+        // Crossing 5.0 — accumulator was 4.99, +0.02 = 5.01, bump once.
+        Assert.Equal(1, c.Advance(0.02));
+        Assert.Equal(1, c.Tick);
+        Assert.Equal(0.01, c.Accumulator, precision: 10);
+    }
+
+    [Fact]
+    public void Configurable_interval_propagates_to_IntervalSeconds()
+    {
+        // Defensive : the export-driven contract (Godot inspector
+        // ----> WorldSimTickCadence ctor) is that whatever the
+        // autoload's TickIntervalSeconds is set to, the cadence
+        // helper honours it verbatim. M2 game-design will retune
+        // this without recompile via the inspector ; this test pins
+        // the seam.
+        foreach (var interval in new[] { 0.1, 1.0, 5.0, 10.0, 30.0 })
+        {
+            var c = new WorldSimTickCadence(interval);
+            Assert.Equal(interval, c.IntervalSeconds);
+        }
+    }
 }
