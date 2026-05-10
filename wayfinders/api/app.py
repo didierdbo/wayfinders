@@ -14,6 +14,11 @@ Endpoints:
   (tick index, seed, context_prose) and returns a ``WorldTickResponse``
   (emergent mission or None). Always returns 200; degrades gracefully to
   uniform sampling when the predictor is not ready.
+* ``POST /api/world/mission/resolve`` — Mission resolution. Takes a
+  ``MissionResolveRequest`` (mission fields + outcome + assigned personas)
+  and returns a ``MissionResolveResponse`` with ``PersonaLegacyTag`` objects
+  for the client to store in its GameState. Always returns 200. Stateless:
+  no GameState is persisted server-side (NPC-autonomy lock 2026-05-09).
 
 Run locally::
 
@@ -34,6 +39,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 
+from wayfinders.api.mission_resolve import (
+    MissionResolveRequest,
+    MissionResolveResponse,
+    resolve_mission,
+)
 from wayfinders.api.models import (
     HealthResponse,
     UC1InfoResponse,
@@ -192,3 +202,35 @@ def world_tick(payload: WorldTickRequest, request: Request) -> WorldTickResponse
     predictor: Predictor = request.app.state.predictor
     engine = EmergenceEngine(predictor=predictor)
     return engine.process_tick(payload)
+
+
+@app.post(
+    "/api/world/mission/resolve",
+    response_model=MissionResolveResponse,
+    tags=["world"],
+    summary="Mission resolution — produce PersonaLegacyTags",
+)
+def mission_resolve(payload: MissionResolveRequest) -> MissionResolveResponse:
+    """Resolve a mission and return the ``PersonaLegacyTag`` objects for the client.
+
+    Stateless: no ``GameState`` is persisted server-side.  The server
+    reconstructs the ``EmergentMission`` from the request fields, runs the
+    ``on_mission_resolved`` hook against a transient ``GameState``, and
+    returns the produced tags.  The client stores them in its own Godot-side
+    ``GameState.PersonaLegacy`` (NPC-autonomy lock 2026-05-09).
+
+    Idempotence: same ``(mission_id, outcome, tick, assigned_personas)``
+    always produces the same tags.  The client is responsible for
+    deduplication across retries using ``(persona_id, mission_id)`` as the
+    natural key.
+
+    Edge cases:
+    - ``assigned_personas=[]``: mission was declined or no personas participated.
+      Returns ``tags_created=[]``. Always 200.
+    - ``assigned_personas`` with persona names not matching any filter:
+      tags are still created (the resolution hook does not re-filter eligibility;
+      that is the gameplay layer's responsibility).
+
+    Always returns HTTP 200.
+    """
+    return resolve_mission(payload)
