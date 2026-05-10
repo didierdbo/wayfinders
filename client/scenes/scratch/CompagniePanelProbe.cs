@@ -175,6 +175,47 @@ public partial class CompagniePanelProbe : Node2D
     /// without overlap.</summary>
     private const float PersonaSpacingWorldUnits = 96f;
 
+    /// <summary>
+    /// Wayfinders sub-space convention for <see cref="Label3D.PixelSize"/>
+    /// (locked 2026-05-10, this probe is the seed of the convention).
+    ///
+    /// <para>
+    /// <b>The invariant.</b> Label3D readability is governed by the ratio
+    /// <c>(SubViewport.Size.Y) / (Camera3D.Size)</c> -- ie. screen-pixels
+    /// per world-unit on the viewport short axis -- multiplied by
+    /// <c>FontSize * PixelSize</c> (= label glyph world-height).
+    /// Concretely, on-screen glyph height in pixels =
+    /// <c>FontSize * PixelSize * (SubViewport.Size.Y / Camera3D.Size)</c>.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why the default is wrong here.</b> Godot 4's Label3D ships with
+    /// <c>PixelSize = 0.005</c> -- that default is calibrated for a
+    /// perspective camera viewing labels at ~1 m, NOT for an iso ortho
+    /// camera with a large world-unit size. With FontSize=24, PixelSize=0.005,
+    /// SubViewport=560 px, Camera Size=400 wu : screen-glyph-height =
+    /// <c>24 * 0.005 * (560/400) = 0.17 px</c>. Sub-pixel = invisible.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The convention.</b> 0.5 wu/font-unit. With our standing
+    /// FontSize=24-28 and the ortho-size=400 / SubViewport=560 sub-space :
+    /// screen-glyph-height = <c>24 * 0.5 * (560/400) = 16.8 px</c> at
+    /// FontSize=24, ~19.6 px at FontSize=28. Both readable. World-height
+    /// ~12-14 wu, which floats sensibly above a 64-wu-tall persona cube
+    /// without colliding with the next persona laterally.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>If a future sub-space changes Camera3D.Size or SubViewport.Size,</b>
+    /// recompute the recipe : aim for ~16-24 px on-screen glyph height,
+    /// and verify with the LABEL3D PREFLIGHT dump that pixelSize is the
+    /// value you intended (the round-2 visibility incident root-cause was
+    /// trusting the implicit 0.005 default).
+    /// </para>
+    /// </summary>
+    private const float Label3DPixelSize = 0.5f;
+
     /// <summary>Local-bus signal fired by the probe-only debug
     /// "Open another layer" button. Drives Pattern P4 (auto-rabat).
     /// The production version promotes this to a global autoload signal
@@ -421,6 +462,9 @@ public partial class CompagniePanelProbe : Node2D
                 Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
                 NoDepthTest = true,
                 FontSize = 28,
+                // PixelSize : Wayfinders sub-space convention -- see
+                // Label3DPixelSize XML doc for the recipe + math.
+                PixelSize = Label3DPixelSize,
                 OutlineSize = 6,
                 OutlineModulate = new Color(0, 0, 0, 1),
             };
@@ -482,6 +526,9 @@ public partial class CompagniePanelProbe : Node2D
             Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
             NoDepthTest = true,
             FontSize = 24,
+            // PixelSize : Wayfinders sub-space convention -- see
+            // Label3DPixelSize XML doc for the recipe + math.
+            PixelSize = Label3DPixelSize,
             OutlineSize = 6,
             OutlineModulate = new Color(0, 0, 0, 1),
         };
@@ -1120,6 +1167,35 @@ public partial class CompagniePanelProbe : Node2D
                 ndcStr = $"screenPx={ndc} (SubViewport size={_subViewport?.Size})";
             }
 
+            // Round-3 (2026-05-10) defense in depth : the round-2 dump
+            // surfaced 3 cubes + slot + backdrop visible but 0 labels
+            // visible. Hypothesis : Label3D PixelSize default 0.005 in
+            // ortho-size=400 sub-space => sub-pixel glyph height. The
+            // round-3 dump explicitly logs every Label3D rendering
+            // surface that could cause invisibility, NOT just the few
+            // we initially suspected. Cheap belt-and-braces : if a
+            // future regression breaks one of these, Output panel pins
+            // the exact culprit unambiguously.
+            //
+            // pixelSize -- the round-2 missing piece, governs glyph
+            //   world-height with FontSize.
+            // font -- null means default theme font (works at runtime,
+            //   but a stale Font ResourceUid pointing nowhere can
+            //   silently render glyphless boxes).
+            // outlineSize/outlineModulate -- if outline is tiny + outline
+            //   color is transparent + glyph color is also low-contrast,
+            //   the label is technically rendered but invisible against
+            //   the backdrop.
+            // alphaCut -- if alpha cut mode is OpaquePrepass with a
+            //   threshold mismatched to the antialiased glyph alpha,
+            //   the glyph fragments get culled.
+            // width -- if width > 0 forces autowrap on a tiny glyph,
+            //   the label rect can shrink to zero-visibility.
+            var fontInfo = lbl.Font is null ? "null(default-theme)" : lbl.Font.GetType().Name;
+            var screenGlyphPx = lbl.FontSize * lbl.PixelSize * (
+                _subViewport is not null && _subSpaceCamera3D is not null && _subSpaceCamera3D.Size > 0f
+                    ? (float)_subViewport.Size.Y / _subSpaceCamera3D.Size
+                    : 0f);
             GD.Print(
                 $"[LABEL3D] path={path} " +
                 $"text=\"{lbl.Text}\" " +
@@ -1130,7 +1206,23 @@ public partial class CompagniePanelProbe : Node2D
                 $"noDepthTest={lbl.NoDepthTest} " +
                 $"billboard={lbl.Billboard} " +
                 $"fontSize={lbl.FontSize} " +
+                $"pixelSize={lbl.PixelSize} " +
+                $"font={fontInfo} " +
+                $"outlineSize={lbl.OutlineSize} " +
+                $"outlineModulate={lbl.OutlineModulate} " +
+                $"alphaCut={lbl.AlphaCut} " +
+                $"width={lbl.Width} " +
+                $"computedScreenGlyphPx~{screenGlyphPx:F2} " +
                 $"projected: {ndcStr}");
+
+            if (screenGlyphPx > 0f && screenGlyphPx < 4f)
+            {
+                GD.PushWarning(
+                    $"[LABEL3D SUB-PX] path={path} computed glyph height ~{screenGlyphPx:F2} px -- " +
+                    $"label is at risk of being invisible. Recipe : " +
+                    $"FontSize * PixelSize * (SubViewport.Y / Camera.Size). " +
+                    $"Bump PixelSize ; see Label3DPixelSize convention doc.");
+            }
         }
 
         // Also dump the personas container itself in case its Visible
