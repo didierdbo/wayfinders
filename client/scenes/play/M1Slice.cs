@@ -654,10 +654,34 @@ public partial class M1Slice : Node2D
 
         if (mb.Pressed)
         {
-            // Press : start a drag if persona is not already in mission.
-            if (_personasInMission.Contains(persona.Id))
+            // M2-advance step 2b — busy check reads canonical
+            // GameState.ActiveMissions via MissionDurationLogic.IsPersonaBusy.
+            // The transient _personasInMission set is kept for the
+            // visual flip (FlipPersonaToInMission below) but the gate
+            // is now the data-driven check : if the persona is bound
+            // to any active mission, the drag is refused. Spec
+            // 2026-05-10 : "pas d'erreur visuelle agressive, juste
+            // pas de proxy spawn".
+            var activeMissions = _gameState is not null
+                ? (System.Collections.Generic.IReadOnlyList<ActiveMissionDto>)_gameState.ActiveMissions
+                : System.Array.Empty<ActiveMissionDto>();
+            if (MissionDurationLogic.IsPersonaBusy(persona.Id, activeMissions))
             {
-                Log($"persona {persona.Id} already in mission — drag refused (v1, no recall)");
+                // Find the bound mission for the diagnostic log.
+                string? boundMission = null;
+                for (var i = 0; i < activeMissions.Count && boundMission is null; i++)
+                {
+                    var m = activeMissions[i];
+                    for (var j = 0; j < m.AssignedPersonas.Count; j++)
+                    {
+                        if (m.AssignedPersonas[j] == persona.Id)
+                        {
+                            boundMission = m.Mission.Id;
+                            break;
+                        }
+                    }
+                }
+                Log($"[DRAG BLOCKED] persona={persona.Id} is in mission={boundMission ?? "(unknown)"}");
                 return;
             }
             BeginDrag(persona);
@@ -786,7 +810,14 @@ public partial class M1Slice : Node2D
         if (_gameState is not null && _gameState.PendingMissions.Count > 0)
             mission = _gameState.PendingMissions[0];
 
-        var alreadyAssigned = _personasInMission.Contains(personaId);
+        // M2-advance step 2b — alreadyAssigned reads from
+        // GameState.ActiveMissions (canonical) rather than the
+        // transient _personasInMission set. Keeps the drop decision
+        // symmetric with the OnPersonaInputEvent busy gate above.
+        var activeForCheck = _gameState is not null
+            ? (System.Collections.Generic.IReadOnlyList<ActiveMissionDto>)_gameState.ActiveMissions
+            : System.Array.Empty<ActiveMissionDto>();
+        var alreadyAssigned = MissionDurationLogic.IsPersonaBusy(personaId, activeForCheck);
         var inEligible = mission is not null && IsPersonaInEligibleList(personaId, mission.EligiblePersonas);
 
         var decision = DecideDropOutcome(
@@ -818,9 +849,13 @@ public partial class M1Slice : Node2D
             // persona Node3D is NOT re-parented).
             FlipPersonaToInMission(personaId);
 
-            // Fire the resolve pipeline — same path as Mission panel's
-            // OnAffectPressed.
-            _ = ResolveAcceptedAssignment(mission, personaId);
+            // M2-advance step 2b pivot — drop-accept does NOT
+            // fire conclude immediately. It transitions the mission
+            // from PendingMissions to ActiveMissions and starts the
+            // 5-tick countdown. The conclude pipeline fires from
+            // OnTickAdvanced when MissionDurationLogic.IsMissionDue
+            // returns true on this entry.
+            StartActiveMissionFromAccept(mission, personaId, isAffect: true);
         }
         else
         {
@@ -933,26 +968,66 @@ public partial class M1Slice : Node2D
     }
 
     /// <summary>
-    /// Run the same Affect-equivalent resolve flow as
-    /// <see cref="MissionPanelLogic.BuildAffectRequest"/> + ApiClient.ResolveMissionAsync.
-    /// Async fire-and-forget at the caller site.
+    /// M2-advance step 2b — transition a freshly-accepted mission
+    /// from <see cref="GameState.PendingMissions"/> to
+    /// <see cref="GameState.ActiveMissions"/> and start the
+    /// <see cref="MissionDurationLogic.DurationTicks"/>-tick
+    /// countdown. NO HTTP call here ; the conclude round-trip
+    /// fires later at <c>tick_due</c> from
+    /// <see cref="OnTickAdvanced"/>.
+    ///
+    /// <para>
+    /// <b>Why a sync method, not async.</b> The accept path is
+    /// pure state mutation : build an ActiveMissionDto, append it
+    /// to GameState.ActiveMissions, pop the head of PendingMissions,
+    /// flip the persona's visual indicator, refresh the head-mission
+    /// render. None of that touches the network. Keeping it sync
+    /// avoids an unnecessary continuation marshal back to the main
+    /// thread.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why we still flip <c>_personasInMission</c>.</b> The set
+    /// is the runtime's in-mission visual marker (drives label
+    /// modulate colour and the [mission] indicator on Label3D). The
+    /// canonical source of truth is now
+    /// <see cref="GameState.ActiveMissions"/>, but the visual flag
+    /// is faster to query in the per-frame label refresh than
+    /// scanning the active-missions list. Kept in sync via Add
+    /// here and Remove in <see cref="OnConcludeSuccessApply"/>.
+    /// </para>
     /// </summary>
-    private async Task ResolveAcceptedAssignment(EmergentMissionDto mission, string personaId)
+    private void StartActiveMissionFromAccept(
+        EmergentMissionDto mission,
+        string personaId,
+        bool isAffect)
     {
-        if (_apiClient is null || _gameState is null) return;
+        if (_gameState is null) return;
 
-        var request = MissionPanelLogic.BuildAffectRequest(mission, personaId, _currentTick);
-        var result = await _apiClient.ResolveMissionAsync(request);
+        var active = MissionDurationLogic.BuildActiveMission(
+            mission, personaId, tickStarted: _currentTick);
+        _gameState.ActiveMissions.Add(active);
 
-        switch (result)
+        // Pop from pending — same defensive helper as the M1 path.
+        var poppedId = PopHeadMission(_gameState.PendingMissions);
+        Log($"[ACTIVE START] mission={mission.Id} persona={personaId} tickStarted={active.TickStarted} tickDue={active.TickDue} (popped pending : {poppedId ?? "(queue was already empty)"})");
+
+        // Flip the persona's visual indicator (NPC autonomy : the
+        // persona Node3D is NOT re-parented).
+        FlipPersonaToInMission(personaId);
+
+        if (_missionToast is not null)
         {
-            case Result<MissionResolveResponseDto, ApiError>.Success ok:
-                ApplyResolutionSuccess(ok.Value, mission, isAffect: true);
-                break;
-            case Result<MissionResolveResponseDto, ApiError>.Failure fail:
-                ApplyResolutionFailure(fail.Error);
-                break;
+            var verb = isAffect ? "AFFECTED" : "ACCEPTED";
+            _missionToast.Text = $"[{verb}] mission={mission.Id} -> countdown 5/5 (concludes at tick {active.TickDue})";
         }
+
+        // Refresh the head-mission render (queue may have a
+        // follow-up mission, or we go to the empty state).
+        RenderHeadMission();
+        // Refresh persona labels so the [mission 5/5] suffix lands
+        // immediately rather than waiting for the next tick.
+        RefreshPersonaLegacyLabels();
     }
 
     // ====================================================================
@@ -1094,6 +1169,382 @@ public partial class M1Slice : Node2D
     {
         _currentTick = tick;
         if (_tickLabel is not null) _tickLabel.Text = $"tick: {tick}";
+
+        // M2-advance step 2b — every tick :
+        //   1. Refresh persona Label3D suffixes so the
+        //      [mission X/5] countdown decrements visually
+        //      (every persona in an active mission updates).
+        //   2. Scan ActiveMissions for due entries and fire the
+        //      conclude pipeline asynchronously (one task per due
+        //      mission ; in M2 that is at most one).
+        //
+        // The two ops are deliberately ordered : refresh first
+        // (cheap, sync) so the player sees the 0/5 frame even if
+        // the conclude round-trip lands on the same tick before
+        // the next render. Then we kick off the conclude tasks ;
+        // their continuations marshal back via OnConcludeSuccessApply
+        // / OnConcludeFailureApply and remove the mission from
+        // ActiveMissions on success.
+        RefreshPersonaLegacyLabels();
+        ScanAndConcludeDueMissions();
+    }
+
+    /// <summary>
+    /// M2-advance step 2b — iterate <see cref="GameState.ActiveMissions"/>
+    /// and fire the conclude pipeline for every entry where
+    /// <see cref="MissionDurationLogic.IsMissionDue"/> returns true.
+    ///
+    /// <para>
+    /// <b>Why we copy the list before iterating.</b> The conclude
+    /// pipeline may complete synchronously in degenerate cases
+    /// (e.g. a unit-test ApiClient that returns a pre-populated
+    /// Task) and would mutate the list while we iterate. The copy
+    /// is cheap (≤5 entries in M2) and removes the foreach-mutation
+    /// hazard.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Idempotence.</b> An <see cref="ActiveMissionDto"/> is
+    /// removed from the list at conclude-success time
+    /// (see <see cref="OnConcludeSuccessApply"/>). If the same
+    /// mission appears as due on two consecutive ticks (e.g. the
+    /// first conclude failed transiently and the next tick scan
+    /// retries), the server's deterministic SHA-256-derived roll
+    /// guarantees the same outcome and same tags — the client is
+    /// safe to retry. M1 simple impl : we just kick off another
+    /// task ; M3 may add a per-mission "in flight" guard if the
+    /// double-fire becomes a real problem.
+    /// </para>
+    /// </summary>
+    private void ScanAndConcludeDueMissions()
+    {
+        if (_gameState is null || _apiClient is null) return;
+        if (_gameState.ActiveMissions.Count == 0) return;
+
+        // Defensive copy : the conclude pipeline may mutate the
+        // list (sync test paths, future cancellation that pops
+        // mid-iter, etc.).
+        var snapshot = _gameState.ActiveMissions.ToArray();
+
+        // Build the company snapshot once — every due mission this
+        // tick reads from the same map.
+        var companyById = BuildCompanyById();
+
+        for (var i = 0; i < snapshot.Length; i++)
+        {
+            var active = snapshot[i];
+            if (!MissionDurationLogic.IsMissionDue(active, _currentTick)) continue;
+
+            Log($"[CONCLUDE FIRE] mission={active.Mission.Id} tickDue={active.TickDue} currentTick={_currentTick}");
+            _ = ConcludeOneAsync(active, companyById);
+        }
+    }
+
+    /// <summary>
+    /// M2-advance step 2b — async pipeline for one due mission.
+    /// Builds the request via
+    /// <see cref="MissionDurationLogic.BuildConcludeRequest"/>,
+    /// posts to <c>/api/world/mission/conclude</c>, marshals the
+    /// response back to the main thread via <c>CallDeferred</c>.
+    /// </summary>
+    private async Task ConcludeOneAsync(
+        ActiveMissionDto active,
+        System.Collections.Generic.IReadOnlyDictionary<string, CharacterStateDto> companyById)
+    {
+        if (_apiClient is null) return;
+
+        MissionConcludeRequestDto request;
+        try
+        {
+            request = MissionDurationLogic.BuildConcludeRequest(active, companyById);
+        }
+        catch (System.Exception ex)
+        {
+            // Defensive : a contract violation here means the
+            // company snapshot is missing a persona that is in the
+            // active mission. Surface to the toast and remove the
+            // active mission so we don't loop firing failed builds.
+            GD.PushError($"[CONCLUDE BUILD FAILED] mission={active.Mission.Id} : {ex.Message}");
+            CallDeferred(MethodName.OnConcludeBuildFailedApply,
+                active.Mission.Id, ex.Message);
+            return;
+        }
+
+        var result = await _apiClient.ConcludeMissionAsync(request).ConfigureAwait(false);
+
+        switch (result)
+        {
+            case Result<MissionConcludeResponseDto, ApiError>.Success ok:
+                // Marshal the wire DTO back via CallDeferred. Godot
+                // signals don't support arbitrary C# records as
+                // Variant args ; we package the relevant scalars +
+                // a string payload (mission id) so the deferred
+                // handler can re-resolve the active mission and
+                // process the response.
+                var response = ok.Value;
+                CallDeferred(MethodName.OnConcludeSuccessApply,
+                    active.Mission.Id,
+                    response.Outcome,
+                    BuildTagsPayloadString(response.TagsCreated),
+                    response.TagsCreated.Count);
+                break;
+            case Result<MissionConcludeResponseDto, ApiError>.Failure fail:
+                // Unpack the typed ApiError into a string for the
+                // CallDeferred Variant payload (Godot signals do not
+                // marshal arbitrary C# records). Same shape as
+                // WorldSimTick.FailureMessageOf.
+                var failureMsg = fail.Error switch
+                {
+                    ApiError.NotReachable nr => nr.Reason,
+                    ApiError.ServerError se => $"{se.StatusCode} {se.Body}",
+                    ApiError.DeserializationError de => de.Reason,
+                    ApiError.Cancelled => "cancelled",
+                    _ => "(unknown)"
+                };
+                CallDeferred(MethodName.OnConcludeFailureApply,
+                    active.Mission.Id,
+                    fail.Error.GetType().Name,
+                    failureMsg);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Marshalled-to-main-thread handler for a successful conclude
+    /// response. Mutates <see cref="GameState"/> (appends tags,
+    /// removes the active mission), refreshes labels, emits
+    /// <c>MissionResolved</c>.
+    ///
+    /// <para>
+    /// <b>Why we re-find the active mission by id.</b> We could not
+    /// pass the <see cref="ActiveMissionDto"/> directly through
+    /// <c>CallDeferred</c> (Godot Variant marshalling does not
+    /// support arbitrary C# records). Instead we pass the mission
+    /// id and look it up here. If the mission was already removed
+    /// (e.g. a duplicate fire from the previous tick scan landed
+    /// first) we simply log and bail — idempotence preserved.
+    /// </para>
+    /// </summary>
+    private void OnConcludeSuccessApply(
+        string missionId,
+        string outcome,
+        string tagsPayload,
+        int tagsCreatedCount)
+    {
+        if (_gameState is null) return;
+
+        // Find and remove the active mission. RemoveAll lets us
+        // handle the absent case cleanly.
+        var removed = 0;
+        EmergentMissionDto? originalMission = null;
+        var assignedPersonaIds = new System.Collections.Generic.List<string>();
+        for (var i = _gameState.ActiveMissions.Count - 1; i >= 0; i--)
+        {
+            var am = _gameState.ActiveMissions[i];
+            if (am.Mission.Id != missionId) continue;
+            originalMission = am.Mission;
+            for (var j = 0; j < am.AssignedPersonas.Count; j++)
+                assignedPersonaIds.Add(am.AssignedPersonas[j]);
+            _gameState.ActiveMissions.RemoveAt(i);
+            removed++;
+        }
+        if (removed == 0)
+        {
+            Log($"[CONCLUDE LATE] mission={missionId} already removed (duplicate fire ?) — ignoring");
+            return;
+        }
+
+        // Parse the payload string back into typed tags. Format :
+        // "personaId|missionId|missionType|region|actorTarget|outcome|earnedAtTick"
+        // joined by "::" between entries. See
+        // BuildTagsPayloadString for the symmetric serialiser.
+        var tags = ParseTagsPayloadString(tagsPayload);
+
+        // Append every tag through the pure-C# helper so the same
+        // create-list-if-missing semantics apply as the M1 resolve
+        // path.
+        for (var i = 0; i < tags.Count; i++)
+        {
+            var tag = tags[i];
+            AppendTagToLegacyMap(_gameState.PersonaLegacy, tag);
+            Log($"[LEGACY TAG STORED] persona={tag.PersonaId} mission={tag.MissionId} outcome={tag.Outcome}");
+        }
+
+        // Free the persona's in-mission visual flag so the next
+        // RefreshPersonaLegacyLabels strips the [mission X/5]
+        // suffix and folds the new legacy tag into the
+        // " • N missions : ..." suffix.
+        for (var i = 0; i < assignedPersonaIds.Count; i++)
+            _personasInMission.Remove(assignedPersonaIds[i]);
+
+        // Reset the persona body Modulate to neutral (the warm-earth
+        // tints) so the visual flip-back is symmetric with
+        // FlipPersonaToInMission.
+        for (var i = 0; i < assignedPersonaIds.Count; i++)
+        {
+            var pid = assignedPersonaIds[i];
+            var placeholder = FindPersonaPlaceholder(pid);
+            if (_personaVisuals.TryGetValue(pid, out var pv))
+            {
+                pv.Label.Modulate = new Color(0.95f, 0.92f, 0.80f, 1f);
+            }
+            // The placeholder is unused here ; kept defensively for
+            // future per-tint flip-back symmetry.
+            _ = placeholder;
+        }
+
+        if (_missionToast is not null)
+        {
+            _missionToast.Text = $"[CONCLUDE {outcome.ToUpperInvariant()}] mission={missionId} tags={tagsCreatedCount}";
+        }
+
+        // Refresh labels — the [mission X/5] suffix disappears, the
+        // legacy " • N missions : ..." suffix appears.
+        RefreshPersonaLegacyLabels();
+
+        // Emit MissionResolved so 5d listeners (legacy label refresh,
+        // future analytics) react. The signal payload is the same
+        // shape as the M1 resolve path : (missionId, tagsCreatedCount).
+        EmitSignal(SignalName.MissionResolved, missionId, tagsCreatedCount);
+        Log($"[EVENT {MissionResolvedEventName}] mission={missionId} outcome={outcome} tags={tagsCreatedCount}");
+    }
+
+    private void OnConcludeFailureApply(string missionId, string errorVariant, string message)
+    {
+        // M2 simple impl — surface the failure on the toast, leave
+        // the active mission in place (next tick scan will retry
+        // because the deterministic server roll yields the same
+        // outcome). M3 may add a bounded retry policy or a
+        // user-facing "abandon mission" verb.
+        GD.PushWarning($"[CONCLUDE FAILED] mission={missionId} : {errorVariant} {message}");
+        if (_missionToast is not null)
+            _missionToast.Text = $"[CONCLUDE ERROR {errorVariant}] mission={missionId}";
+    }
+
+    private void OnConcludeBuildFailedApply(string missionId, string message)
+    {
+        // The request build threw — usually because a persona is
+        // missing from the company snapshot. Remove the active
+        // mission to break the loop ; the user sees the toast and
+        // the mission is lost (no tags created). Acceptable in M2 ;
+        // M3+ may stash the unbuilt request for retry after a
+        // company-snapshot resync.
+        if (_gameState is null) return;
+        for (var i = _gameState.ActiveMissions.Count - 1; i >= 0; i--)
+        {
+            if (_gameState.ActiveMissions[i].Mission.Id == missionId)
+            {
+                var dropped = _gameState.ActiveMissions[i];
+                _gameState.ActiveMissions.RemoveAt(i);
+                for (var j = 0; j < dropped.AssignedPersonas.Count; j++)
+                    _personasInMission.Remove(dropped.AssignedPersonas[j]);
+                break;
+            }
+        }
+        if (_missionToast is not null)
+            _missionToast.Text = $"[CONCLUDE BUILD FAILED] {missionId} dropped : {message}";
+        RefreshPersonaLegacyLabels();
+    }
+
+    /// <summary>
+    /// M2-advance step 2b — build the persona-id → CharacterStateDto
+    /// lookup snapshot from <see cref="GameState.CompanyPersonas"/>.
+    /// O(personas) ; called once per tick scan. The lookup is fed
+    /// to <see cref="MissionDurationLogic.BuildConcludeRequest"/>
+    /// for projection to <see cref="CharacterStateWireDto"/>.
+    ///
+    /// <para>
+    /// <b>Defensive against duplicate Names.</b> The M1 seeder uses
+    /// distinct lowercase names ; if a future flow accidentally
+    /// adds two personas with the same Name, we keep the FIRST
+    /// occurrence (stable behaviour) and log a warning. A throw
+    /// would break the conclude path for unrelated missions.
+    /// </para>
+    /// </summary>
+    private System.Collections.Generic.IReadOnlyDictionary<string, CharacterStateDto> BuildCompanyById()
+    {
+        var map = new System.Collections.Generic.Dictionary<string, CharacterStateDto>();
+        if (_gameState is null) return map;
+        for (var i = 0; i < _gameState.CompanyPersonas.Count; i++)
+        {
+            var p = _gameState.CompanyPersonas[i];
+            if (string.IsNullOrEmpty(p.Name)) continue;
+            if (!map.ContainsKey(p.Name)) map[p.Name] = p;
+            else GD.PushWarning($"[BuildCompanyById] duplicate persona Name={p.Name} — keeping first");
+        }
+        return map;
+    }
+
+    /// <summary>
+    /// Serialise a list of <see cref="PersonaLegacyTagDto"/> to a
+    /// flat string suitable for <c>CallDeferred</c> Variant
+    /// marshalling. Each tag is "personaId|missionId|missionType|
+    /// region|actorTarget|outcome|earnedAtTick" ; entries are
+    /// joined by "::". <see cref="ParseTagsPayloadString"/> is the
+    /// symmetric deserialiser.
+    ///
+    /// <para>
+    /// <b>Why a flat string and not Godot.Collections.Array.</b>
+    /// PersonaLegacyTagDto is a C# record ; passing it through
+    /// CallDeferred would require either (a) registering it with
+    /// Godot's Variant marshalling (not feasible without a
+    /// [GodotObject]-derived wrapper), or (b) packing each field
+    /// into a Godot.Collections.Array for each tag, then a parent
+    /// Array of Arrays. The flat string is the simplest seam :
+    /// one Variant arg, parsed back into typed records on the
+    /// main thread.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why the pipe and double-colon separators.</b> Neither
+    /// character appears in canonical persona ids, mission ids,
+    /// mission types, region ids, or outcome strings (Varn-locked
+    /// closed lookups). actor_target is free-form but M1 templates
+    /// always render with null. If a future region ever contains
+    /// either character, this seam needs revisiting (replace with
+    /// Godot.Collections.Array of typed Arrays).
+    /// </para>
+    /// </summary>
+    private static string BuildTagsPayloadString(
+        System.Collections.Generic.IReadOnlyList<PersonaLegacyTagDto> tags)
+    {
+        if (tags is null || tags.Count == 0) return "";
+        var parts = new System.Collections.Generic.List<string>(tags.Count);
+        for (var i = 0; i < tags.Count; i++)
+        {
+            var t = tags[i];
+            parts.Add(string.Join("|",
+                t.PersonaId,
+                t.MissionId,
+                t.MissionType,
+                t.Region,
+                t.ActorTarget ?? "",
+                t.Outcome,
+                t.EarnedAtTick.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        }
+        return string.Join("::", parts);
+    }
+
+    private static System.Collections.Generic.IReadOnlyList<PersonaLegacyTagDto> ParseTagsPayloadString(string payload)
+    {
+        if (string.IsNullOrEmpty(payload))
+            return System.Array.Empty<PersonaLegacyTagDto>();
+        var entries = payload.Split("::");
+        var list = new System.Collections.Generic.List<PersonaLegacyTagDto>(entries.Length);
+        for (var i = 0; i < entries.Length; i++)
+        {
+            var fields = entries[i].Split('|');
+            if (fields.Length != 7) continue;
+            list.Add(new PersonaLegacyTagDto(
+                PersonaId: fields[0],
+                MissionId: fields[1],
+                MissionType: fields[2],
+                Region: fields[3],
+                ActorTarget: string.IsNullOrEmpty(fields[4]) ? null : fields[4],
+                Outcome: fields[5],
+                EarnedAtTick: int.TryParse(fields[6], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var t) ? t : 0));
+        }
+        return list;
     }
 
     private void OnMissionEmerged(string missionId)
@@ -1242,15 +1693,20 @@ public partial class M1Slice : Node2D
         return n;
     }
 
-    private async void OnAffectPressed()
+    private void OnAffectPressed()
     {
-        if (_gameState is null || _apiClient is null) return;
+        // M2-advance step 2b — keyboard-first Affect path is now
+        // symmetric with the drag-drop accept path : both call
+        // StartActiveMissionFromAccept. NO HTTP at this stage ;
+        // the conclude round-trip fires at tick_due from
+        // OnTickAdvanced. Method body is sync now (was async to
+        // await the resolve round-trip in M1).
+        if (_gameState is null) return;
         if (_gameState.PendingMissions.Count == 0) return;
         if (string.IsNullOrEmpty(_selectedPersonaId)) return;
 
         var mission = _gameState.PendingMissions[0];
-        var request = MissionPanelLogic.BuildAffectRequest(mission, _selectedPersonaId, _currentTick);
-        await ResolveAndApply(request, mission, isAffect: true);
+        StartActiveMissionFromAccept(mission, _selectedPersonaId, isAffect: true);
     }
 
     private async void OnDeclinePressed()
@@ -1372,21 +1828,49 @@ public partial class M1Slice : Node2D
     // 5d — legacy-tag visualisation helpers
     // ====================================================================
 
-    /// <summary>5d — assemble the canonical Label3D text for a
-    /// persona, combining the display name, the short status, the
-    /// optional [mission] indicator, and the legacy-tag suffix
-    /// produced by <see cref="M1SliceLogic.ComputeLegacyLabelSuffix"/>.
+    /// <summary>5d + M2-advance step 2b — assemble the
+    /// canonical Label3D text for a persona. Priority order :
+    /// <list type="number">
+    ///   <item>If the persona is in an active mission (countdown
+    ///         in progress), render
+    ///         <c>"{Name} -- {Status} [mission X/5]"</c>. The
+    ///         countdown suffix replaces the static <c>[mission]</c>
+    ///         indicator from M1 — the count-down strictly
+    ///         carries more information.</item>
+    ///   <item>Otherwise, render the canonical
+    ///         <c>"{Name} -- {Status}"</c> plus the legacy-tag
+    ///         suffix from
+    ///         <see cref="M1SliceLogic.ComputeLegacyLabelSuffix"/>.</item>
+    /// </list>
     /// Single source of truth so the click-to-affect path, the
-    /// drag-drop path, the snap-back path, and the MissionResolved
-    /// refresh all stay byte-for-byte symmetric.</summary>
+    /// drag-drop path, the snap-back path, the per-tick suffix
+    /// refresh, and the MissionResolved refresh all stay
+    /// byte-for-byte symmetric.</summary>
     private string BuildPersonaLabelText(string personaId)
     {
         var p = FindPersonaPlaceholder(personaId);
         var displayName = p?.DisplayName ?? personaId;
         var status = p?.ShortStatus ?? "";
-        var inMission = _personasInMission.Contains(personaId);
-        var missionTag = inMission ? " [mission]" : "";
 
+        // M2-advance step 2b : countdown suffix has priority over
+        // both the [mission] static indicator and the legacy-tag
+        // suffix. Computed via the pure-C# helper for symmetry
+        // with the MissionDurationLogicTests pin (no Godot deps).
+        if (_gameState is not null)
+        {
+            var activeMissions = (System.Collections.Generic.IReadOnlyList<ActiveMissionDto>)_gameState.ActiveMissions;
+            var countdown = MissionDurationLogic.ComputeMissionCountdownSuffix(
+                personaId, activeMissions, _currentTick);
+            if (countdown is not null)
+            {
+                return $"{displayName} -- {status}{countdown}";
+            }
+        }
+
+        // Not in an active mission — fall back to the legacy
+        // suffix (5d behaviour preserved). The transient
+        // _personasInMission set is no longer used here ; it is
+        // kept for the body Modulate flip-back in the runtime.
         IReadOnlyList<PersonaLegacyTagDto>? tags = null;
         if (_gameState is not null && _gameState.PersonaLegacy.TryGetValue(personaId, out var list))
         {
@@ -1394,7 +1878,7 @@ public partial class M1Slice : Node2D
         }
         var suffix = M1SliceLogic.ComputeLegacyLabelSuffix(tags);
 
-        return $"{displayName} -- {status}{missionTag}{suffix}";
+        return $"{displayName} -- {status}{suffix}";
     }
 
     /// <summary>5d — re-render every persona Label3D in the

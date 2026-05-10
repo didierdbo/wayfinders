@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Godot;
+using Wayfinders.Client.Scripts.Screens;
 using Wayfinders.Client.Services.Dtos;
 
 namespace Wayfinders.Client.Services;
@@ -40,6 +41,26 @@ namespace Wayfinders.Client.Services;
 /// </para>
 ///
 /// <para>
+/// <b>M2-advance step 2 addition (2026-05-10).</b> One more
+/// authoritative-on-client slot :
+/// <list type="bullet">
+///   <item><see cref="ActiveMissions"/> — list of
+///         <see cref="ActiveMissionDto"/> in flight (player accepted,
+///         server has not yet concluded). Replaces the M1
+///         "drop = immediate resolve" path with "drop = countdown
+///         start ; tick scan triggers conclude at <c>tick_due</c>".
+///         Mission stays in this list throughout the
+///         <see cref="MissionDurationLogic.DurationTicks"/>-tick
+///         window ; popped on successful conclude
+///         response.</item>
+/// </list>
+/// Server stays stateless ; no Pydantic mirror exists for
+/// <see cref="ActiveMissionDto"/> — it is a pure client construct.
+/// See <c>MissionDurationLogic.cs</c> for the decision contracts
+/// over this slot.
+/// </para>
+///
+/// <para>
 /// <b>Why an autoload, not static.</b> Same rationale as
 /// <see cref="ApiClient"/>: the autoload lives in the scene tree, can be
 /// remote-inspected, has predictable _Ready/_ExitTree lifetimes, and
@@ -52,7 +73,9 @@ namespace Wayfinders.Client.Services;
 /// shape but does not write to disk ; HasSave starts false and can be
 /// flipped via a debug button if needed. The 4b slots
 /// (<see cref="CompanyPersonas"/>, <see cref="PendingMissions"/>,
-/// <see cref="PersonaLegacy"/>) are session-only too — saves land in M2.
+/// <see cref="PersonaLegacy"/>) plus the M2-advance
+/// <see cref="ActiveMissions"/> slot are session-only too — saves
+/// land in M2 (post-step-2).
 /// </para>
 ///
 /// <para>
@@ -119,11 +142,59 @@ public partial class GameState : Node
     /// <b>Lifecycle.</b> Appended by
     /// <see cref="WorldSimTick.OnMissionEmergedDeferred"/> on the
     /// main thread when a tick produces a mission. Removed by the
-    /// Mission panel after the player accepts or declines and the
-    /// resolution endpoint succeeds.
+    /// Mission panel after the player accepts (mission moves to
+    /// <see cref="ActiveMissions"/>) or declines (mission resolved
+    /// immediately via the legacy <c>/resolve</c> endpoint).
     /// </para>
     /// </summary>
     public List<EmergentMissionDto> PendingMissions { get; } = new();
+
+    /// <summary>
+    /// Missions accepted by the player and counting down to
+    /// conclusion. M2-advance step 2 addition (Didier 2026-05-10).
+    /// Replaces the M1 immediate-resolve path : at drop-accept time
+    /// an <see cref="ActiveMissionDto"/> is appended here ; at every
+    /// <c>TickAdvanced</c> the runtime scans this list, calls
+    /// <see cref="MissionDurationLogic.IsMissionDue"/> per entry,
+    /// and fires <c>POST /api/world/mission/conclude</c> for the
+    /// due ones. On a successful conclude response the mission is
+    /// removed from this list and the resulting tags are appended
+    /// to <see cref="PersonaLegacy"/>.
+    ///
+    /// <para>
+    /// <b>Lifecycle.</b>
+    /// <list type="number">
+    ///   <item>Appended by <c>M1Slice.ResolveAcceptedAssignment</c>
+    ///         at drop-accept (or <c>OnAffectPressed</c> on the
+    ///         keyboard backup path).</item>
+    ///   <item>Read at every tick by
+    ///         <c>M1Slice.OnTickAdvanced</c> for the countdown
+    ///         suffix render + the due-mission scan.</item>
+    ///   <item>Removed by <c>M1Slice.OnConcludeSuccess</c> after
+    ///         the conclude response lands and the tags have been
+    ///         appended to <see cref="PersonaLegacy"/>.</item>
+    /// </list>
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why a list, not a dictionary keyed by mission id.</b> The
+    /// runtime scans every entry on every tick (≤5 active missions
+    /// in the M2 horizon) ; a list is O(n) but n is tiny. A
+    /// dictionary would add a re-hashing cost per add/remove and
+    /// would need a stable insertion order separately for the
+    /// "render the active missions" UI hook (M3+). List is simpler
+    /// and matches <see cref="PendingMissions"/>'s shape.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Mutation contract.</b> Same as
+    /// <see cref="PendingMissions"/> : main-thread mutation only.
+    /// The conclude response lands on a thread-pool thread (the
+    /// HTTP continuation) ; <c>M1Slice</c> uses <c>CallDeferred</c>
+    /// to marshal back before adding/removing entries here.
+    /// </para>
+    /// </summary>
+    public List<ActiveMissionDto> ActiveMissions { get; } = new();
 
     /// <summary>
     /// Per-persona list of legacy tags. Server returns these in the

@@ -247,6 +247,7 @@
        runtime ; xUnit pins the data-flow contracts here. -->
   <ItemGroup>
     <Compile Include="..\services\Dtos\MissionConcludeDtos.cs" Link="src\MissionConcludeDtos.cs" />
+    <Compile Include="..\scripts\screens\MissionDurationLogic.cs" Link="src\MissionDurationLogic.cs" />
   </ItemGroup>
 
 </Project>
