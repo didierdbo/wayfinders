@@ -227,4 +227,14 @@
     <Compile Include="..\scripts\screens\MissionPanelLogic.cs" Link="src\MissionPanelLogic.cs" />
   </ItemGroup>
 
+  <!-- M1 slice 5ab (composite Compagnie + Mission scene / 2026-05-10):
+       M1SliceLogic decision helper for the cross-panel drag-drop
+       (Pattern P5), the auto-rabat lock (Pattern P6, Mission stays
+       fixed and never broadcasts), and the screen-rect hit test.
+       Godot-bound M1Slice scene wires SubViewportContainers + golden
+       2D proxy + signals ; xUnit pins the decision table here. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\M1SliceLogic.cs" Link="src\M1SliceLogic.cs" />
+  </ItemGroup>
+
 </Project>
