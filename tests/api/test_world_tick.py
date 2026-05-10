@@ -285,14 +285,15 @@ class TestWorldTickResponseSchema:
         assert mission is not None
         assert mission["outcome"] is None
 
-    def test_mission_eligible_personas_empty_stub(
+    def test_mission_eligible_personas_empty_when_no_company(
         self, client_ready: tuple[TestClient, MagicMock]
     ) -> None:
-        """M1 stub: eligible_personas is always []."""
+        """When no company_personas are sent, eligible_personas is empty (option c)."""
         tc, _ = client_ready
         seed = 42
         in_window_tick = next(t for t in range(200) if _in_cadence_window(t, seed))
 
+        # No company_personas field → defaults to empty tuple.
         payload = {"tick": in_window_tick, "seed": seed, "context_prose": _CONTEXT_PROSE}
         response = tc.post("/api/world/tick", json=payload)
 

@@ -25,16 +25,14 @@ Varn's scope doc (2026-05-10 §6) and Tess's tech decisions (§2):
 
   4. Mission struct assembly: ``id`` is a UUID4 stable per
      ``(tick, seed)``; ``narrative_hook`` is a server-side f-string
-     template; ``eligible_personas`` is always ``[]`` in M1 (stub,
-     flagged for Varn ratification before Etape 3).
+     template; ``eligible_personas`` is computed by
+     ``filter_eligible_personas()`` (Varn-lock 2026-05-10 §2).
 
 All randomness is seeded from the caller-provided ``seed`` — the server
 holds no global RNG state.  Same ``(tick, seed, context_prose)`` always
 produces the same mission.
 
 OPEN — Varn-flagged items:
-  - ``eligible_personas`` filter (DEX/WIS tag match) not spec'd in detail.
-    Stub is ``[]`` until Varn ratifies the filter rule.
   - ``region`` is derived from ``context_prose`` by a simple heuristic in M1.
     M2 will pass it explicitly from WorldState.
   - The proxy logit derivation is a M1 approximation.  A proper multi-class
@@ -47,14 +45,18 @@ import hashlib
 import logging
 import random
 import uuid
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from wayfinders.api.world_tick_models import (
     EmergenceMissionType,
     EmergentMission,
+    PersonaId,
     WorldTickRequest,
     WorldTickResponse,
 )
+from wayfinders.ml.schemas.character import CharacterState
+from wayfinders.ml.schemas.vocabularies import DescriptorBucket
 
 if TYPE_CHECKING:
     from wayfinders.api.predictor import Predictor
@@ -220,6 +222,91 @@ def _sample_class(probs: dict[str, float], rng: random.Random) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Eligible-persona filter (Varn-lock 2026-05-10 §2)
+# ---------------------------------------------------------------------------
+
+# Canonical order of DescriptorBucket values — used for ±1 window arithmetic.
+# Varn-lock 2026-04-30 / 2026-05-10: tirets, not underscores.
+_BUCKET_ORDER: tuple[DescriptorBucket, ...] = ("very-low", "low", "mid", "high", "very-high")
+_BUCKET_INDEX: dict[DescriptorBucket, int] = {b: i for i, b in enumerate(_BUCKET_ORDER)}
+
+# Mapping from EmergenceMissionType to the CharacterState attribute it interrogates.
+# Varn-lock 2026-05-10 §2 table — any extension goes through Varn.
+_MISSION_STAT_LANE: dict[EmergenceMissionType, str] = {
+    "scout_route": "dex_bucket",
+    "parley_local": "wis_bucket",
+}
+
+
+def filter_eligible_personas(
+    mission_type: EmergenceMissionType,
+    difficulty_bucket: DescriptorBucket,
+    company_personas: Iterable[CharacterState],
+) -> tuple[PersonaId, ...]:
+    """Return PersonaIds eligible for ``mission_type`` at ``difficulty_bucket``.
+
+    Eligibility rule (Varn-lock 2026-05-10 §2): a persona is eligible iff
+    its stat bucket for the mission's stat-lane is within ±1 of
+    ``difficulty_bucket`` in canonical order
+    ``very-low < low < mid < high < very-high``.
+
+    Args:
+        mission_type:       ``scout_route`` or ``parley_local`` (M1 closed lookup).
+        difficulty_bucket:  Difficulty of the emerging mission.
+        company_personas:   Iterable of CharacterState snapshots (from the
+                            Godot client via WorldTickRequest.company_personas).
+
+    Returns:
+        Tuple of PersonaId strings, sorted ascending, deduplicated, deterministic.
+
+    Raises:
+        KeyError:   If ``mission_type`` is not in the M1 stat-lane mapping.
+                    (Forward-compat guard — unknown future types fail loudly.)
+        ValueError: If a persona's stat bucket is missing or invalid.
+                    (Schema contract: dex_bucket / wis_bucket are non-optional
+                    per Varn-lock 2026-04-30; corruption → hard fail, not skip.)
+    """
+    # KeyError is intentional if mission_type is not mapped (see docstring).
+    stat_attr = _MISSION_STAT_LANE[mission_type]
+
+    diff_idx = _BUCKET_INDEX[difficulty_bucket]
+    window_min = max(0, diff_idx - 1)
+    window_max = min(len(_BUCKET_ORDER) - 1, diff_idx + 1)
+
+    seen: set[PersonaId] = set()
+    eligible: list[PersonaId] = []
+
+    for persona in company_personas:
+        persona_id: PersonaId = persona.name  # PersonaId is the persona's name in M1
+
+        # Deduplication: first occurrence wins (stable order = GameState.compagnie order).
+        if persona_id in seen:
+            continue
+        seen.add(persona_id)
+
+        # Hard fail on missing/invalid bucket — schema contract violation.
+        raw_bucket = getattr(persona, stat_attr, None)
+        if raw_bucket is None:
+            raise ValueError(
+                f"Persona {persona_id!r}: attribute {stat_attr!r} is None — "
+                f"expected a DescriptorBucket (Varn-lock 2026-04-30)."
+            )
+        if raw_bucket not in _BUCKET_INDEX:
+            raise ValueError(
+                f"Persona {persona_id!r}: {stat_attr}={raw_bucket!r} is not a valid "
+                f"DescriptorBucket. Valid values: {list(_BUCKET_ORDER)}."
+            )
+
+        # raw_bucket is a valid DescriptorBucket — membership confirmed by the check above.
+        persona_idx = _BUCKET_INDEX[raw_bucket]
+        if window_min <= persona_idx <= window_max:
+            eligible.append(persona_id)
+
+    # Deterministic: PersonaId ascending (Varn-lock 2026-05-10 §3).
+    return tuple(sorted(eligible))
+
+
+# ---------------------------------------------------------------------------
 # Public API: EmergenceEngine
 # ---------------------------------------------------------------------------
 
@@ -296,12 +383,18 @@ class EmergenceEngine:
 
         # --- 5. Assemble mission ---
         region = _extract_region_from_prose(context_prose)
+        difficulty: DescriptorBucket = "mid"  # forced M1 (sampler disabled per spec §6)
+        eligible = filter_eligible_personas(
+            mission_type=mission_type,
+            difficulty_bucket=difficulty,
+            company_personas=request.company_personas,
+        )
         mission = EmergentMission(
             id=_stable_mission_id(tick, seed),
             type=mission_type,
             narrative_hook=_render_narrative_hook(mission_type, region),
-            eligible_personas=[],  # M1 stub — flagged for Varn (Etape 3)
-            difficulty="mid",  # forced M1 (sampler disabled per spec §6)
+            eligible_personas=eligible,
+            difficulty=difficulty,
             region=region,
             deadline_ticks=None,  # M1 — no timer
             outcome=None,  # set at resolution, not at emergence

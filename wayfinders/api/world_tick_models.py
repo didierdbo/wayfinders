@@ -21,6 +21,16 @@ Pydantic model) that records which missions a persona participated in and
 what outcome they saw.  Stored in ``GameState.persona_legacy`` (list per
 persona).  Not serialised on the wire in M1; M2 will persist it to
 WorldState snapshots.
+
+Architecture note (2026-05-10): Varn's spec §1 assumed the server reads
+``GameState.compagnie`` to populate the filter inputs.  The server is in
+fact stateless — there is no persisted GameState on the Python side (NPC
+autonomy lock 2026-05-09 puts the authoritative GameState on the Godot
+client).  The company snapshots therefore travel in ``WorldTickRequest``
+as ``company_personas``, which defaults to an empty tuple for backward
+compatibility.  The filter still runs fully server-side (option a): the
+client provides the raw ``CharacterState`` snapshots; the server computes
+``eligible_personas``; the client reads the result and does not re-filter.
 """
 
 from __future__ import annotations
@@ -29,6 +39,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from wayfinders.ml.schemas.character import CharacterState
 
 # ---------------------------------------------------------------------------
 # Varn-locked type aliases (2026-05-10) — DO NOT EDIT without Varn ratification
@@ -137,6 +149,19 @@ class WorldTickRequest(BaseModel):
             "Must be non-empty. EN-pinned regardless of UI locale."
         ),
     )
+    company_personas: tuple[CharacterState, ...] = Field(
+        default=(),
+        description=(
+            "Snapshots of CharacterState for each persona currently in the company. "
+            "Used by EmergenceEngine.filter_eligible_personas() to compute "
+            "eligible_personas on the mission (Varn-lock 2026-05-10 §1). "
+            "Defaults to empty — a mission emerges with eligible_personas=() when "
+            "the company is empty (Varn option (c)). "
+            "Architecture note: the server is stateless; Varn's §1 assumed server-side "
+            "GameState access, but the authoritative GameState lives in the Godot client. "
+            "The client sends character snapshots; the server filters and returns results."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -181,13 +206,17 @@ class EmergentMission(BaseModel):
             "M2+: UC1 prose renderer or sibling model."
         ),
     )
-    eligible_personas: list[PersonaId] = Field(
-        default_factory=list,
+    eligible_personas: tuple[PersonaId, ...] = Field(
+        default=(),
         description=(
             "Persona IDs eligible to be assigned to this mission. "
-            "M1 stub: always [] — eligibility filter (DEX/WIS tag match) "
-            "is Etape 3 scope.  OPEN: Varn has not yet spec'd the filter rule "
-            "in detail — flag for ratification before Etape 3 implementation."
+            "Computed server-side by EmergenceEngine.filter_eligible_personas() "
+            "(Varn-lock 2026-05-10): ±1 bucket window on the stat-lane for the "
+            "mission type (scout_route → dex_bucket, parley_local → wis_bucket). "
+            "Empty tuple when company is empty or no persona is in range — "
+            "mission still emerges per Varn option (c); client shows "
+            "'aucun perso éligible — décliner ?'. "
+            "Order: PersonaId ascending, deterministic cross-tick."
         ),
     )
     difficulty: DifficultyBucket = Field(
