@@ -330,6 +330,12 @@ public partial class M1Slice : Node2D
             _dropSlot.MouseEntered -= OnDropSlotMouseEntered;
             _dropSlot.MouseExited -= OnDropSlotMouseExited;
         }
+        // 5d — mirror the WireMissionPanel subscription. Disconnection
+        // discipline matters here because M1Slice both emits and listens
+        // on MissionResolved ; if a future scene reload didn't unwind
+        // the subscription, the new instance's handler would still be
+        // queued behind the freed instance's slot.
+        MissionResolved -= OnMissionResolvedRefreshLabels;
 
         // 5c — kill any in-flight snap-back tween before the scene
         // tears down ; otherwise the tween's Finished callback can
@@ -902,10 +908,12 @@ public partial class M1Slice : Node2D
         if (!_personaVisuals.TryGetValue(personaId, out var pv)) return;
         _personasInMission.Add(personaId);
 
-        var p = FindPersonaPlaceholder(personaId);
-        var displayName = p?.DisplayName ?? personaId;
-        var status = p?.ShortStatus ?? "";
-        pv.Label.Text = $"{displayName} -- {status} [mission]";
+        // 5d — delegate text assembly to BuildPersonaLabelText so the
+        // legacy-tag suffix is included the instant the persona is
+        // flipped. The runtime also calls this from
+        // RefreshPersonaLegacyLabels on MissionResolved, so suffix
+        // updates are symmetric across both paths.
+        pv.Label.Text = BuildPersonaLabelText(personaId);
         pv.Label.Modulate = new Color(1.0f, 0.85f, 0.30f, 1f);
 
         // NPC autonomy live canary.
@@ -1022,6 +1030,13 @@ public partial class M1Slice : Node2D
             EnsureDropSlotStyles();
             ApplyDropSlotVisualState();
         }
+        // 5d — self-subscribe to MissionResolved so the persona labels
+        // refresh their legacy-tag suffix the instant a resolve round-trip
+        // commits. We emit + listen on the same signal because (i) it
+        // keeps the resolve path linear (mutate state -> emit -> render
+        // off the emit), (ii) future listeners (analytics, save trigger)
+        // can hang off the same signal without touching the resolve flow.
+        MissionResolved += OnMissionResolvedRefreshLabels;
     }
 
     private void WireWorldSimTick()
@@ -1351,6 +1366,67 @@ public partial class M1Slice : Node2D
 
         if (_liveLogLabel is not null)
             _liveLogLabel.Text = string.Join("\n", _liveLog);
+    }
+
+    // ====================================================================
+    // 5d — legacy-tag visualisation helpers
+    // ====================================================================
+
+    /// <summary>5d — assemble the canonical Label3D text for a
+    /// persona, combining the display name, the short status, the
+    /// optional [mission] indicator, and the legacy-tag suffix
+    /// produced by <see cref="M1SliceLogic.ComputeLegacyLabelSuffix"/>.
+    /// Single source of truth so the click-to-affect path, the
+    /// drag-drop path, the snap-back path, and the MissionResolved
+    /// refresh all stay byte-for-byte symmetric.</summary>
+    private string BuildPersonaLabelText(string personaId)
+    {
+        var p = FindPersonaPlaceholder(personaId);
+        var displayName = p?.DisplayName ?? personaId;
+        var status = p?.ShortStatus ?? "";
+        var inMission = _personasInMission.Contains(personaId);
+        var missionTag = inMission ? " [mission]" : "";
+
+        IReadOnlyList<PersonaLegacyTagDto>? tags = null;
+        if (_gameState is not null && _gameState.PersonaLegacy.TryGetValue(personaId, out var list))
+        {
+            tags = list;
+        }
+        var suffix = M1SliceLogic.ComputeLegacyLabelSuffix(tags);
+
+        return $"{displayName} -- {status}{missionTag}{suffix}";
+    }
+
+    /// <summary>5d — re-render every persona Label3D in the
+    /// Compagnie sub-space using the latest
+    /// <c>GameState.PersonaLegacy</c> snapshot. Called on
+    /// MissionResolved (self-signal) and once at boot for the case
+    /// where a future save-load lands tags before the scene wires up.
+    /// O(personas) per call ; the tag count per persona stays small
+    /// (1-10 in the M1 horizon), so the cost is dominated by the
+    /// Label3D.Text assignment cross-boundary call -- well under a
+    /// frame budget for the 3-persona placeholder roster.</summary>
+    private void RefreshPersonaLegacyLabels()
+    {
+        foreach (var kv in _personaVisuals)
+        {
+            kv.Value.Label.Text = BuildPersonaLabelText(kv.Key);
+        }
+    }
+
+    /// <summary>5d — handler bound to the self-emitted
+    /// MissionResolved signal. Refreshes every persona label so the
+    /// suffix update is immediate (no waiting for the next tick or
+    /// the next click). The signal payload is logged but not used
+    /// for filtering : we refresh the whole roster, not just the
+    /// assigned persona, because (i) the per-persona delta is cheap,
+    /// (ii) a future cascade rule (e.g. "a successful Halfgate
+    /// mission also flips the regional flavour suffix on Hodge")
+    /// would still work without rewiring this handler.</summary>
+    private void OnMissionResolvedRefreshLabels(string missionId, int tagsCreatedCount)
+    {
+        Log($"[5d] MissionResolved received -> refreshing legacy labels (mission={missionId}, tagsCreated={tagsCreatedCount})");
+        RefreshPersonaLegacyLabels();
     }
 
     private sealed record PersonaVisual(

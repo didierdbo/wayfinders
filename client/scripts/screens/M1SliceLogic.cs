@@ -75,6 +75,30 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// </para>
 ///
 /// <para>
+/// <b>5d additions (2026-05-10).</b> One pure-C# helper added for the
+/// legacy-tag visualisation on the Compagnie persona Label3D :
+/// <see cref="ComputeLegacyLabelSuffix"/>. Format is Option A
+/// (text suffix on the existing Label3D), chosen over Option B
+/// (sibling glyph MeshInstance3D) and Option C (secondary Label3D)
+/// because (i) it is the minimal mutation that respects the
+/// locked <c>Label3DPixelSize=0.5f</c> sub-iso rendering invariant
+/// (no new node, no new pixel-size to tune), (ii) it is symmetric
+/// with the Mission panel's text-only rendering pattern, and
+/// (iii) it survives the NPC-autonomy lock 2026-05-09 : we mutate
+/// the persona's existing Label3D in place, never re-parent or
+/// add siblings.
+///
+/// The helper does NOT touch any Label3D ; the runtime
+/// <see cref="Wayfinders.Client.Scenes.Play.M1Slice.RefreshPersonaLegacyLabels"/>
+/// reads <c>GameState.PersonaLegacy</c> after each
+/// <see cref="MissionResolvedEventName"/>, asks
+/// <see cref="ComputeLegacyLabelSuffix"/> for the suffix string,
+/// and concatenates it to the canonical
+/// <c>"{DisplayName} -- {ShortStatus}"</c> base text (plus the
+/// existing <c>[mission]</c> indicator when applicable).
+/// </para>
+///
+/// <para>
 /// <b>What this helper does NOT do.</b>
 /// <list type="bullet">
 ///   <item>It does not own any Node, Sprite2D, signal, or
@@ -415,5 +439,145 @@ public static class M1SliceLogic
                 nameof(pendingMissionCount),
                 "pending mission count cannot be negative");
         return pendingMissionCount == 0;
+    }
+
+    // ====================================================================
+    // 5d (2026-05-10) -- legacy-tag visualisation suffix
+    // ====================================================================
+
+    /// <summary>
+    /// Maximum number of distinct regions to spell out in the
+    /// suffix before falling back to a "+K" overflow indicator.
+    /// 3 keeps the suffix readable in sub-iso projection at
+    /// <c>Label3DPixelSize=0.5f</c> ; longer strings start
+    /// drifting off the persona's vertical column on the iso
+    /// floor. Pinned as a constant so xUnit can verify the
+    /// truncation boundary.
+    /// </summary>
+    public const int LegacyLabelRegionCap = 3;
+
+    /// <summary>
+    /// Compute the text suffix appended to a persona's Label3D
+    /// to visualise the legacy tags they have accumulated. Spec
+    /// 5d (Didier 2026-05-10), Option A : text-only mutation of
+    /// the existing Label3D, no sibling glyph node, no new
+    /// pixel-size to tune.
+    ///
+    /// <para>
+    /// <b>Format pinned by xUnit :</b>
+    /// <code>
+    ///   0 tags                 -> ""                                            (no suffix, no separator)
+    ///   1 tag, region "halfgate" -> " &#8226; 1 mission : halfgate"
+    ///   2 tags, same region    -> " &#8226; 2 missions : halfgate"             (region deduplicated)
+    ///   3 tags, 2 regions      -> " &#8226; 3 missions : halfgate, brescaille"
+    ///   N tags, &lt;= 3 regions   -> " &#8226; N missions : r1, r2, r3"
+    ///   N tags, &gt; 3 regions    -> " &#8226; N missions : r1, r2, r3 +K"     (K = extra regions over the cap)
+    /// </code>
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why " &#8226; " (bullet U+2022) as separator.</b> Reads cleanly
+    /// in the warm-earth label palette (parchment cream on umber
+    /// outline), distinct from the existing " -- " separator the
+    /// runtime uses between display name and short status. A
+    /// future regression that swaps it for "|" or "*" breaks the
+    /// xUnit pin.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why count missions, not regions.</b> The mission count
+    /// is the gameplay-meaningful metric ("how seasoned is this
+    /// persona"). The region list is the flavour : where they
+    /// have been. Counting tags rather than regions also avoids
+    /// the awkward "1 region : halfgate" reading for the common
+    /// early-game case of a persona with three Halfgate missions
+    /// (count = 3, regions = halfgate -- the count is what feels
+    /// earned).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Region order.</b> First-seen wins (insertion order
+    /// preserved). The first three regions a persona earns tags
+    /// in are the ones spelled out ; the rest collapse into the
+    /// "+K" overflow. This gives the early-game flavour ("Hodge
+    /// went to Halfgate first") priority over late-game noise.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Defensive contract.</b> Null tag list is treated as
+    /// empty (caller-friendly : <c>GameState.PersonaLegacy</c>
+    /// returns null on a missing persona key when read via
+    /// <c>TryGetValue</c>'s out param). Empty list returns
+    /// <see cref="string.Empty"/> -- explicitly NOT
+    /// <c>" &#8226; 0 missions"</c>, because a fresh persona
+    /// should look unchanged from boot.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>What this helper does NOT do.</b> It does not touch
+    /// <see cref="Godot.Label3D.Text"/> -- the runtime
+    /// <see cref="Wayfinders.Client.Scenes.Play.M1Slice.RefreshPersonaLegacyLabels"/>
+    /// concatenates the suffix to the canonical
+    /// <c>"{DisplayName} -- {ShortStatus}"</c> base text plus
+    /// the existing <c>[mission]</c> indicator. This helper just
+    /// produces the suffix string.
+    /// </para>
+    /// </summary>
+    /// <param name="tags">The persona's accumulated legacy tags.
+    /// May be null or empty -- both produce
+    /// <see cref="string.Empty"/>. Order is the chronological
+    /// order in which tags were appended (oldest first).</param>
+    /// <returns>The suffix string, including the leading
+    /// " &#8226; " separator when non-empty. Empty string
+    /// when <paramref name="tags"/> is null or empty.</returns>
+    public static string ComputeLegacyLabelSuffix(IReadOnlyList<PersonaLegacyTagDto>? tags)
+    {
+        if (tags is null || tags.Count == 0) return string.Empty;
+
+        var count = tags.Count;
+        var noun = count == 1 ? "mission" : "missions";
+
+        // Dedup regions while preserving first-seen order.
+        // HashSet for O(1) "have I seen this" + List for order.
+        // Defensive : skip null/empty regions rather than render
+        // " ,  ," holes, but never throw -- a missing region is
+        // a server-contract issue, not a UI crash trigger.
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var ordered = new List<string>(capacity: count);
+        for (var i = 0; i < tags.Count; i++)
+        {
+            var t = tags[i];
+            if (t is null) continue;
+            var region = t.Region;
+            if (string.IsNullOrEmpty(region)) continue;
+            if (seen.Add(region))
+            {
+                ordered.Add(region);
+            }
+        }
+
+        // Special case : tags but no usable region. Show count
+        // anyway so the suffix is not silent. The "from elsewhere"
+        // wording is a defensive fallback the player should
+        // basically never see -- if they do, it surfaces a server
+        // bug rather than hiding it.
+        if (ordered.Count == 0)
+        {
+            return $" • {count} {noun}";
+        }
+
+        string regionPart;
+        if (ordered.Count <= LegacyLabelRegionCap)
+        {
+            regionPart = string.Join(", ", ordered);
+        }
+        else
+        {
+            var keep = ordered.GetRange(0, LegacyLabelRegionCap);
+            var overflow = ordered.Count - LegacyLabelRegionCap;
+            regionPart = $"{string.Join(", ", keep)} +{overflow}";
+        }
+
+        return $" • {count} {noun} : {regionPart}";
     }
 }

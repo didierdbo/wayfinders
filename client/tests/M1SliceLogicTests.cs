@@ -459,6 +459,169 @@ public sealed class M1SliceLogicTests
     }
 
     // ====================================================================
+    // 5d -- ComputeLegacyLabelSuffix
+    // ====================================================================
+
+    [Fact]
+    public void Legacy_suffix_is_empty_when_persona_has_no_tags()
+    {
+        // Fresh persona at boot : no tags appended yet. The Label3D
+        // text must look exactly like it did before 5d -- no trailing
+        // separator, no "0 missions" text. Pinned because a regression
+        // that always emits the bullet would visually clutter every
+        // unaffected persona on the Compagnie panel.
+        Assert.Equal(string.Empty, ComputeLegacyLabelSuffix(null));
+        Assert.Equal(string.Empty, ComputeLegacyLabelSuffix(new List<PersonaLegacyTagDto>()));
+    }
+
+    [Fact]
+    public void Legacy_suffix_with_one_tag_uses_singular_mission()
+    {
+        // Singular form on count=1 -- "1 mission", not "1 missions".
+        // English grammar pin.
+        var tags = new List<PersonaLegacyTagDto>
+        {
+            SampleTag(missionId: "m1", region: "halfgate"),
+        };
+        Assert.Equal(" • 1 mission : halfgate", ComputeLegacyLabelSuffix(tags));
+    }
+
+    [Fact]
+    public void Legacy_suffix_with_two_tags_uses_plural_missions()
+    {
+        // Plural form on count >= 2.
+        var tags = new List<PersonaLegacyTagDto>
+        {
+            SampleTag(missionId: "m1", region: "halfgate"),
+            SampleTag(missionId: "m2", region: "brescaille"),
+        };
+        Assert.Equal(" • 2 missions : halfgate, brescaille", ComputeLegacyLabelSuffix(tags));
+    }
+
+    [Fact]
+    public void Legacy_suffix_dedups_repeated_regions()
+    {
+        // Spec edge case : multi-mission same region must NOT render
+        // "halfgate, halfgate, halfgate". The mission count still
+        // climbs (3 missions earned), but the region list dedups.
+        var tags = new List<PersonaLegacyTagDto>
+        {
+            SampleTag(missionId: "m1", region: "halfgate"),
+            SampleTag(missionId: "m2", region: "halfgate"),
+            SampleTag(missionId: "m3", region: "halfgate"),
+        };
+        Assert.Equal(" • 3 missions : halfgate", ComputeLegacyLabelSuffix(tags));
+    }
+
+    [Fact]
+    public void Legacy_suffix_preserves_first_seen_region_order()
+    {
+        // First-seen wins -- "halfgate" appears before "brescaille"
+        // in the input, so it appears first in the output. Catches a
+        // regression where the dedup uses an unordered HashSet for
+        // both presence AND output (we use HashSet for presence, List
+        // for order).
+        var tags = new List<PersonaLegacyTagDto>
+        {
+            SampleTag(missionId: "m1", region: "halfgate"),
+            SampleTag(missionId: "m2", region: "brescaille"),
+            SampleTag(missionId: "m3", region: "halfgate"),
+            SampleTag(missionId: "m4", region: "ostavar"),
+        };
+        Assert.Equal(" • 4 missions : halfgate, brescaille, ostavar", ComputeLegacyLabelSuffix(tags));
+    }
+
+    [Fact]
+    public void Legacy_suffix_caps_regions_at_three_with_overflow_marker()
+    {
+        // Spec : truncate to 3 regions ("first-seen wins") and append
+        // "+K" for the rest. Sub-iso label real estate is finite ;
+        // 10+ regions would drift off the persona's vertical column
+        // at Label3DPixelSize=0.5f.
+        var tags = new List<PersonaLegacyTagDto>
+        {
+            SampleTag(missionId: "m1", region: "halfgate"),
+            SampleTag(missionId: "m2", region: "brescaille"),
+            SampleTag(missionId: "m3", region: "ostavar"),
+            SampleTag(missionId: "m4", region: "korren"),
+            SampleTag(missionId: "m5", region: "valduin"),
+        };
+        Assert.Equal(" • 5 missions : halfgate, brescaille, ostavar +2", ComputeLegacyLabelSuffix(tags));
+    }
+
+    [Fact]
+    public void Legacy_suffix_caps_at_three_when_exactly_one_overflow()
+    {
+        // Boundary : 4 regions = 3 spelled + "+1". Catches a
+        // fence-post error where the overflow trigger is "> 3" vs
+        // ">= 3".
+        var tags = new List<PersonaLegacyTagDto>
+        {
+            SampleTag(missionId: "m1", region: "halfgate"),
+            SampleTag(missionId: "m2", region: "brescaille"),
+            SampleTag(missionId: "m3", region: "ostavar"),
+            SampleTag(missionId: "m4", region: "korren"),
+        };
+        Assert.Equal(" • 4 missions : halfgate, brescaille, ostavar +1", ComputeLegacyLabelSuffix(tags));
+    }
+
+    [Fact]
+    public void Legacy_suffix_does_not_cap_at_exactly_three_regions()
+    {
+        // Boundary : 3 regions = 3 spelled, no overflow. Catches the
+        // other side of the fence-post -- a regression that always
+        // appends "+0" would break this test.
+        var tags = new List<PersonaLegacyTagDto>
+        {
+            SampleTag(missionId: "m1", region: "halfgate"),
+            SampleTag(missionId: "m2", region: "brescaille"),
+            SampleTag(missionId: "m3", region: "ostavar"),
+        };
+        Assert.Equal(" • 3 missions : halfgate, brescaille, ostavar", ComputeLegacyLabelSuffix(tags));
+    }
+
+    [Fact]
+    public void Legacy_suffix_skips_tags_with_empty_region()
+    {
+        // Defensive : a server-contract regression that returned an
+        // empty region must not produce ", , halfgate" with holes.
+        // The mission count still includes those tags (the persona
+        // earned them) ; only the region rendering filters them.
+        var tags = new List<PersonaLegacyTagDto>
+        {
+            SampleTag(missionId: "m1", region: ""),
+            SampleTag(missionId: "m2", region: "halfgate"),
+        };
+        Assert.Equal(" • 2 missions : halfgate", ComputeLegacyLabelSuffix(tags));
+    }
+
+    [Fact]
+    public void Legacy_suffix_falls_back_to_count_only_when_no_region_usable()
+    {
+        // Defensive : every tag has an empty region (server bug).
+        // We still surface the count -- silence would hide the bug.
+        // The "from elsewhere" wording is intentionally NOT used to
+        // keep the suffix terse and so this fallback is visually
+        // distinguishable from the normal " : region" branch.
+        var tags = new List<PersonaLegacyTagDto>
+        {
+            SampleTag(missionId: "m1", region: ""),
+            SampleTag(missionId: "m2", region: ""),
+        };
+        Assert.Equal(" • 2 missions", ComputeLegacyLabelSuffix(tags));
+    }
+
+    [Fact]
+    public void Legacy_label_region_cap_is_three()
+    {
+        // Pin the constant numerically -- a future refactor that
+        // tunes this based on screen DPI or label pixel size must
+        // break the test and force the conversation about the
+        // sub-iso label real estate budget.
+        Assert.Equal(3, LegacyLabelRegionCap);
+    }
+
+    // ====================================================================
     // Helpers
     // ====================================================================
 
