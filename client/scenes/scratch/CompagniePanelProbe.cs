@@ -218,11 +218,40 @@ public partial class CompagniePanelProbe : Node2D
     private System.Action? _handleClickHandler;
     private System.Action? _otherLayerClickHandler;
 
+    /// <summary>
+    /// _EnterTree fires BEFORE _Ready on the same node, and BEFORE
+    /// CallDeferred-scheduled work inside autoloads. Printing a banner
+    /// here gives Didier a copy-paste-survivable sentinel that any
+    /// missing canary lines below can be diagnosed against.
+    ///
+    /// <para>
+    /// 2026-05-10 (Rune) -- Didier reported the runtime click logs
+    /// landing in Output but no <c>[CANARY OK]</c> nor
+    /// <c>[LABEL3D PREFLIGHT]</c> lines visible. Root cause turned out
+    /// to be the Output panel scroll buffer + a partial copy-paste --
+    /// the canary HAD run, but the early lines had scrolled off and
+    /// were not in the snippet sent for review. Defence : a banner
+    /// that is impossible to miss (5 stars in a row, distinct ASCII
+    /// signature) and a try/catch wrap around the canary so a future
+    /// silent exception cannot mask the prints either.
+    /// </para>
+    /// </summary>
+    public override void _EnterTree()
+    {
+        GD.Print("*****");
+        GD.Print("***** [PROBE Compagnie] _EnterTree -- scene is loading the CompagniePanelProbe class");
+        GD.Print("***** [PROBE Compagnie] if you see this, the C# binary is current ; if not, F5/F6 did not rebuild");
+        GD.Print("*****");
+    }
+
     public override void _Ready()
     {
-        // Canary -- prints first so Didier knows immediately which
-        // scene loaded (Pattern J 1bis : "PROBE Xxx scene started").
-        GD.Print("[PROBE Compagnie] scene started -- CompagniePanelProbe._Ready entered");
+        // Banner : 5 stars + repeated tag so even an aggressive copy-paste
+        // tail of the Output panel includes at least one identifiable boot
+        // marker. See _EnterTree docstring for the 2026-05-10 incident.
+        GD.Print("*****");
+        GD.Print("***** [PROBE Compagnie] _Ready ENTERED -- starting boot sequence");
+        GD.Print("*****");
 
         _subViewportContainer = GetNode<SubViewportContainer>(SubViewportContainerPath);
         _subViewport = GetNode<SubViewport>(SubViewportPath);
@@ -235,6 +264,8 @@ public partial class CompagniePanelProbe : Node2D
         _statusLabel = GetNodeOrNull<Label>(StatusLabelPath);
         _liveLogLabel = GetNodeOrNull<Label>(LiveLogLabelPath);
 
+        GD.Print("[PROBE Compagnie] node references resolved -- building sub-space contents");
+
         BuildSubSpaceContents();
         ApplySubViewportContainerPosition();
         WireSignals();
@@ -243,7 +274,22 @@ public partial class CompagniePanelProbe : Node2D
         // sub-space probe. The flag and the camera now live in the
         // SubViewport, NOT the root viewport -- that distinction is
         // the new invariant compared to J2.
-        AssertCanaryInvariants();
+        //
+        // Wrapped in try/catch so a future regression that throws
+        // partway through the canary still produces an observable
+        // PushError instead of silently swallowing the rest of _Ready.
+        // Defensive belt-and-braces for the 2026-05-10 visibility
+        // incident.
+        GD.Print("===== [PREFLIGHT START] CompagniePanelProbe canary invariants =====");
+        try
+        {
+            AssertCanaryInvariants();
+        }
+        catch (System.Exception ex)
+        {
+            GD.PushError($"[PREFLIGHT THREW] {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+        }
+        GD.Print("===== [PREFLIGHT END] CompagniePanelProbe canary invariants =====");
 
         UpdateStatusLabel();
         Log("PROBE Compagnie ready -- click HANDLE (left edge) to slide panel ; click PERSONA to drag-drop to mission ; click OTHER LAYER to test auto-rabat");
