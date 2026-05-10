@@ -33,7 +33,9 @@ holds no global RNG state.  Same ``(tick, seed, context_prose)`` always
 produces the same mission.
 
 OPEN — Varn-flagged items:
-  - ``region`` is derived from ``context_prose`` by a simple heuristic in M1.
+  - ``region`` is derived from ``context_prose`` by a heuristic in M1 that
+    normalises matches against the Varn-locked RegionId closed lookup and
+    falls back to seeded uniform sampling when no match is found.
     M2 will pass it explicitly from WorldState.
   - The proxy logit derivation is a M1 approximation.  A proper multi-class
     head (Varn §5 "bolt-on or sibling") is M2 scope.
@@ -49,9 +51,11 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from wayfinders.api.world_tick_models import (
+    REGION_IDS,
     EmergenceMissionType,
     EmergentMission,
     PersonaId,
+    RegionId,
     WorldTickRequest,
     WorldTickResponse,
 )
@@ -114,25 +118,58 @@ def _render_narrative_hook(mission_type: EmergenceMissionType, region: str) -> s
 # ---------------------------------------------------------------------------
 
 
-def _extract_region_from_prose(context_prose: str) -> str:
-    """Derive a region label from context_prose for M1.
+def _extract_region_from_prose(context_prose: str, seed: int = 0) -> RegionId:
+    """Derive a canonical RegionId from context_prose for M1.
 
-    M1 heuristic: look for a capitalised proper noun after "in ", "near ",
-    "at " — common patterns in the Varn context renderer output.
-    Falls back to ``"the region"`` if no match is found.
+    M1 heuristic: look for a word (or hyphenated word) after "in ", "near ",
+    "at " and attempt a case-insensitive match against the Varn-locked
+    RegionId closed lookup.
 
-    This is a heuristic stub.  In M2, region will be passed explicitly
+    Matching rules:
+      1. Extract candidate tokens after "in/near/at" (Title Case or lowercase).
+      2. Normalise to lowercase, strip trailing punctuation.
+      3. Match against REGION_IDS (e.g. "Halfgate" → "halfgate").
+      4. If no match, fall back to seeded uniform sampling over REGION_IDS
+         (deterministic: same seed → same fallback region).
+
+    Fallback is seeded from the caller-provided seed (domain-separated with
+    0xF11_BEEF) so that the same (context_prose, seed) pair always yields
+    the same region — even when the prose contains no recognisable region name.
+
+    This is a M1 heuristic stub.  In M2, region will be passed explicitly
     as a field in WorldState, removing this inference entirely.
+
+    Args:
+        context_prose: EN-rendered context prose from the Varn renderer.
+        seed:          Caller-provided tick seed (for deterministic fallback).
+
+    Returns:
+        A valid ``RegionId`` from the Varn-locked closed lookup.
     """
     import re
 
-    # Look for "in <Title Case word>" / "near <Title Case word>" / "at <Title Case word>"
-    # The region prose renders names like "Halfgate", "Ridgepass", "Ironshore".
-    pattern = r"\b(?:in|near|at)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)"
+    # Capture a single token (possibly hyphenated) after in/near/at.
+    # Handles "Halfgate", "Roches-Closes", "roches-closes", etc.
+    # A space-separated second word is NOT captured — multi-word region names
+    # in this lookup are hyphenated (roches-closes), not space-separated.
+    pattern = r"\b(?:in|near|at)\s+([A-Za-z][A-Za-z]*(?:-[A-Za-z]+)*)"
     matches: list[str] = re.findall(pattern, context_prose)
-    if matches:
-        return matches[0]
-    return "the region"
+
+    for raw in matches:
+        normalised = raw.lower().strip()
+        if normalised in REGION_IDS:
+            # REGION_IDS membership check is sufficient for mypy to narrow str → RegionId.
+            return normalised
+
+    # No recognisable region in prose — seeded uniform fallback.
+    rng = random.Random(seed ^ 0xF11_BEEF)
+    chosen: RegionId = rng.choice(REGION_IDS)
+    logger.debug(
+        "world_tick: no region matched in prose — seeded fallback → %r (seed=%d)",
+        chosen,
+        seed,
+    )
+    return chosen
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +419,7 @@ class EmergenceEngine:
         assert mission_type in _MISSION_TYPES, f"unexpected mission type: {mission_type!r}"
 
         # --- 5. Assemble mission ---
-        region = _extract_region_from_prose(context_prose)
+        region = _extract_region_from_prose(context_prose, seed=seed)
         difficulty: DescriptorBucket = "mid"  # forced M1 (sampler disabled per spec §6)
         eligible = filter_eligible_personas(
             mission_type=mission_type,

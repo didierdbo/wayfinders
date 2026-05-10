@@ -43,7 +43,7 @@ def _make_mission(
     *,
     mission_id: str = "test-mission-001",
     mission_type: str = "scout_route",
-    region: str = "Fendelune",
+    region: str = "fendelune",
     seed: int = 42,
 ) -> EmergentMission:
     """Build a minimal EmergentMission for testing."""
@@ -183,7 +183,7 @@ class TestPersonaLegacyTagDataclass:
             persona_id="kira",
             mission_id="m001",
             mission_type="scout_route",
-            region="Fendelune",
+            region="fendelune",
             actor_target=None,
             outcome="success",
             earned_at_tick=5,
@@ -197,7 +197,7 @@ class TestPersonaLegacyTagDataclass:
             persona_id="kira",
             mission_id="m001",
             mission_type="scout_route",
-            region="Fendelune",
+            region="fendelune",
             actor_target=None,
             outcome="success",
             earned_at_tick=5,
@@ -211,7 +211,7 @@ class TestPersonaLegacyTagDataclass:
             persona_id="kira",
             mission_id="m001",
             mission_type="scout_route",
-            region="Fendelune",
+            region="fendelune",
             actor_target=None,
             outcome="success",
             earned_at_tick=5,
@@ -220,7 +220,7 @@ class TestPersonaLegacyTagDataclass:
             persona_id="kira",
             mission_id="m001",
             mission_type="scout_route",
-            region="Fendelune",
+            region="fendelune",
             actor_target=None,
             outcome="success",
             earned_at_tick=5,
@@ -234,7 +234,7 @@ class TestPersonaLegacyTagDataclass:
             persona_id="hodge",
             mission_id="m002",
             mission_type="parley_local",
-            region="Brescaille",
+            region="brescaille",
             actor_target="bourgmestre",
             outcome="partial",
             earned_at_tick=10,
@@ -253,7 +253,7 @@ class TestPersonaLegacyTagDataclass:
             persona_id="kira",
             mission_id="m003",
             mission_type="scout_route",
-            region="Ridgepass",
+            region="veillemont",
             actor_target=None,
             outcome="failure",
             earned_at_tick=3,
@@ -266,7 +266,7 @@ class TestPersonaLegacyTagDataclass:
             "persona_id": "kira",
             "mission_id": "m001",
             "mission_type": "scout_route",
-            "region": "Fendelune",
+            "region": "fendelune",
             "actor_target": None,
             "earned_at_tick": 5,
         }
@@ -293,7 +293,7 @@ class TestGameStatePersonaLegacySlot:
             persona_id="kira",
             mission_id="m001",
             mission_type="scout_route",
-            region="Fendelune",
+            region="fendelune",
             actor_target=None,
             outcome="success",
             earned_at_tick=5,
@@ -309,7 +309,7 @@ class TestGameStatePersonaLegacySlot:
             persona_id="kira",
             mission_id="m001",
             mission_type="scout_route",
-            region="Fendelune",
+            region="fendelune",
             actor_target=None,
             outcome="success",
             earned_at_tick=5,
@@ -318,7 +318,7 @@ class TestGameStatePersonaLegacySlot:
             persona_id="kira",
             mission_id="m002",
             mission_type="parley_local",
-            region="Brescaille",
+            region="brescaille",
             actor_target=None,
             outcome="partial",
             earned_at_tick=10,
@@ -334,7 +334,7 @@ class TestGameStatePersonaLegacySlot:
             persona_id="kira",
             mission_id="m001",
             mission_type="scout_route",
-            region="Fendelune",
+            region="fendelune",
             actor_target=None,
             outcome="success",
             earned_at_tick=5,
@@ -343,7 +343,7 @@ class TestGameStatePersonaLegacySlot:
             persona_id="hodge",
             mission_id="m001",
             mission_type="scout_route",
-            region="Fendelune",
+            region="fendelune",
             actor_target=None,
             outcome="success",
             earned_at_tick=5,
@@ -363,7 +363,7 @@ class TestGameStatePersonaLegacySlot:
             persona_id="kira",
             mission_id="m001",
             mission_type="scout_route",
-            region="Fendelune",
+            region="fendelune",
             actor_target=None,
             outcome="success",
             earned_at_tick=5,
@@ -394,7 +394,7 @@ class TestOnMissionResolved:
         mission = _make_mission(
             mission_id="m-abc",
             mission_type="parley_local",
-            region="Brescaille",
+            region="brescaille",
         )
         on_mission_resolved(mission, "partial", tick=7, game_state=gs, persona_ids=["hodge"])
 
@@ -402,7 +402,7 @@ class TestOnMissionResolved:
         assert tag.persona_id == "hodge"
         assert tag.mission_id == "m-abc"
         assert tag.mission_type == "parley_local"
-        assert tag.region == "Brescaille"
+        assert tag.region == "brescaille"
         assert tag.outcome == "partial"
         assert tag.earned_at_tick == 7
 
@@ -452,7 +452,7 @@ class TestOnMissionResolved:
         """Two different missions for the same persona produce two tags."""
         gs = _make_game_state()
         m1 = _make_mission(mission_id="m-001")
-        m2 = _make_mission(mission_id="m-002", region="Ironshore")
+        m2 = _make_mission(mission_id="m-002", region="roches-closes")
         on_mission_resolved(m1, "success", tick=5, game_state=gs, persona_ids=["kira"])
         on_mission_resolved(m2, "partial", tick=10, game_state=gs, persona_ids=["kira"])
 
@@ -504,19 +504,19 @@ class TestEnrichCharProse:
         assert result == render_character(char)
 
     def test_scout_success(self) -> None:
-        """scout_route + success → 'Has scouted the route to Fendelune.'"""
+        """scout_route + success → 'Has scouted the route to fendelune.'"""
         char = _make_char_state()
         tag = PersonaLegacyTag(
             persona_id="kira",
             mission_id="m001",
             mission_type="scout_route",
-            region="Fendelune",
+            region="fendelune",
             actor_target=None,
             outcome="success",
             earned_at_tick=5,
         )
         result = enrich_char_prose(char, [tag])
-        assert "Has scouted the route to Fendelune." in result
+        assert "Has scouted the route to fendelune." in result
 
     def test_scout_partial(self) -> None:
         """scout_route + partial → hedged sentence."""
@@ -525,13 +525,13 @@ class TestEnrichCharProse:
             persona_id="kira",
             mission_id="m002",
             mission_type="scout_route",
-            region="Ridgepass",
+            region="veillemont",
             actor_target=None,
             outcome="partial",
             earned_at_tick=8,
         )
         result = enrich_char_prose(char, [tag])
-        assert "Ridgepass" in result
+        assert "veillemont" in result
         assert "incomplete" in result
 
     def test_scout_failure(self) -> None:
@@ -541,13 +541,13 @@ class TestEnrichCharProse:
             persona_id="kira",
             mission_id="m003",
             mission_type="scout_route",
-            region="Ironshore",
+            region="roches-closes",
             actor_target=None,
             outcome="failure",
             earned_at_tick=12,
         )
         result = enrich_char_prose(char, [tag])
-        assert "Attempted to scout the route to Ironshore but failed." in result
+        assert "Attempted to scout the route to roches-closes but failed." in result
 
     def test_parley_with_target_partial(self) -> None:
         """parley_local + actor_target + partial → '(uncertain outcome)' sentence."""
@@ -556,14 +556,14 @@ class TestEnrichCharProse:
             persona_id="hodge",
             mission_id="m004",
             mission_type="parley_local",
-            region="Brescaille",
+            region="brescaille",
             actor_target="bourgmestre",
             outcome="partial",
             earned_at_tick=6,
         )
         result = enrich_char_prose(char, [tag])
         assert "bourgmestre" in result
-        assert "Brescaille" in result
+        assert "brescaille" in result
         assert "uncertain outcome" in result
 
     def test_parley_anon_success(self) -> None:
@@ -573,14 +573,14 @@ class TestEnrichCharProse:
             persona_id="kira",
             mission_id="m005",
             mission_type="parley_local",
-            region="Halfgate",
+            region="halfgate",
             actor_target=None,
             outcome="success",
             earned_at_tick=4,
         )
         result = enrich_char_prose(char, [tag])
         assert "local contact" in result
-        assert "Halfgate" in result
+        assert "halfgate" in result
 
     def test_parley_anon_failure(self) -> None:
         """parley_local + actor_target=None + failure → 'contact refused' sentence."""
@@ -589,13 +589,13 @@ class TestEnrichCharProse:
             persona_id="kira",
             mission_id="m006",
             mission_type="parley_local",
-            region="Vauldrun",
+            region="halfgate",
             actor_target=None,
             outcome="failure",
             earned_at_tick=9,
         )
         result = enrich_char_prose(char, [tag])
-        assert "Vauldrun" in result
+        assert "halfgate" in result
         assert "refused" in result
 
     def test_multiple_tags_chronological_order(self) -> None:
@@ -605,7 +605,7 @@ class TestEnrichCharProse:
             persona_id="kira",
             mission_id="m001",
             mission_type="scout_route",
-            region="Fendelune",
+            region="fendelune",
             actor_target=None,
             outcome="success",
             earned_at_tick=3,
@@ -614,15 +614,15 @@ class TestEnrichCharProse:
             persona_id="kira",
             mission_id="m002",
             mission_type="scout_route",
-            region="Ridgepass",
+            region="veillemont",
             actor_target=None,
             outcome="partial",
             earned_at_tick=10,
         )
         # Pass in reverse order — output must still be chronological.
         result = enrich_char_prose(char, [tag_late, tag_early])
-        fendelune_pos = result.index("Fendelune")
-        ridgepass_pos = result.index("Ridgepass")
+        fendelune_pos = result.index("fendelune")
+        ridgepass_pos = result.index("veillemont")
         assert fendelune_pos < ridgepass_pos, (
             "Earlier tick (Fendelune) must appear before later tick (Ridgepass)"
         )
@@ -634,7 +634,7 @@ class TestEnrichCharProse:
             persona_id="kira",
             mission_id="m001",
             mission_type="scout_route",
-            region="Fendelune",
+            region="fendelune",
             actor_target=None,
             outcome="success",
             earned_at_tick=5,
@@ -652,7 +652,7 @@ class TestEnrichCharProse:
             persona_id="kira",
             mission_id="m001",
             mission_type="scout_route",
-            region="Fendelune",
+            region="fendelune",
             actor_target=None,
             outcome="success",
             earned_at_tick=5,
@@ -670,7 +670,7 @@ class TestEnrichCharProse:
             persona_id="kira",
             mission_id="m001",
             mission_type="scout_route",
-            region="Fendelune",
+            region="fendelune",
             actor_target=None,
             outcome="success",
             earned_at_tick=5,

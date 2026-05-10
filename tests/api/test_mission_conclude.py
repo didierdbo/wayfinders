@@ -51,7 +51,7 @@ def _make_request(
     *,
     mission_id: str = "conclude-test-001",
     mission_type: str = "scout_route",
-    region: str = "Fendelune",
+    region: str = "fendelune",
     actor_target: str | None = None,
     difficulty: str = "mid",
     personas: list[CharacterStateWireDto] | None = None,
@@ -97,7 +97,7 @@ class TestMissionConcludeRequestValidation:
             MissionConcludeRequest(
                 mission_id="m1",
                 mission_type="scout_route",  # type: ignore[arg-type]
-                region="Fendelune",
+                region="fendelune",
                 difficulty="mid",  # type: ignore[arg-type]
                 assigned_personas=(),
                 seed=1,
@@ -109,7 +109,7 @@ class TestMissionConcludeRequestValidation:
             MissionConcludeRequest(
                 mission_id="m1",
                 mission_type="ambush",  # type: ignore[arg-type]
-                region="Fendelune",
+                region="fendelune",
                 difficulty="mid",  # type: ignore[arg-type]
                 assigned_personas=(_make_persona(),),
                 seed=1,
@@ -121,7 +121,7 @@ class TestMissionConcludeRequestValidation:
             MissionConcludeRequest(
                 mission_id="m1",
                 mission_type="scout_route",  # type: ignore[arg-type]
-                region="Fendelune",
+                region="fendelune",
                 difficulty="impossible",  # type: ignore[arg-type]
                 assigned_personas=(_make_persona(),),
                 seed=1,
@@ -133,7 +133,7 @@ class TestMissionConcludeRequestValidation:
             MissionConcludeRequest(
                 mission_id="m1",
                 mission_type="scout_route",  # type: ignore[arg-type]
-                region="Fendelune",
+                region="fendelune",
                 difficulty="mid",  # type: ignore[arg-type]
                 assigned_personas=(_make_persona(),),
                 seed=1,
@@ -145,7 +145,7 @@ class TestMissionConcludeRequestValidation:
             MissionConcludeRequest(
                 mission_id="",
                 mission_type="scout_route",  # type: ignore[arg-type]
-                region="Fendelune",
+                region="fendelune",
                 difficulty="mid",  # type: ignore[arg-type]
                 assigned_personas=(_make_persona(),),
                 seed=1,
@@ -158,7 +158,7 @@ class TestMissionConcludeRequestValidation:
                 {
                     "mission_id": "m1",
                     "mission_type": "scout_route",
-                    "region": "Fendelune",
+                    "region": "fendelune",
                     "difficulty": "mid",
                     "assigned_personas": [
                         {"persona_id": "kira", "dex_bucket": "mid", "wis_bucket": "mid"}
@@ -356,7 +356,7 @@ class TestEdgeCases:
         payload = {
             "mission_id": "m-edge-001",
             "mission_type": "scout_route",
-            "region": "Fendelune",
+            "region": "fendelune",
             "difficulty": "mid",
             "assigned_personas": [],
             "seed": 1,
@@ -467,9 +467,9 @@ class TestTagCreation:
         assert resp.tags_created[0].mission_type == "parley_local"
 
     def test_tag_region_matches_request(self) -> None:
-        req = _make_request(region="Ironshore")
+        req = _make_request(region="roches-closes")
         resp = conclude_mission(req)
-        assert resp.tags_created[0].region == "Ironshore"
+        assert resp.tags_created[0].region == "roches-closes"
 
     def test_tag_outcome_matches_computed_outcome(self) -> None:
         """The tag outcome must match the response outcome."""
@@ -569,7 +569,7 @@ class TestHTTPLayer:
         payload = {
             "mission_id": "http-conclude-001",
             "mission_type": "scout_route",
-            "region": "Fendelune",
+            "region": "fendelune",
             "difficulty": "mid",
             "assigned_personas": [{"persona_id": "kira", "dex_bucket": "mid", "wis_bucket": "mid"}],
             "seed": 42,
@@ -582,7 +582,7 @@ class TestHTTPLayer:
         payload = {
             "mission_id": "http-conclude-002",
             "mission_type": "parley_local",
-            "region": "Brescaille",
+            "region": "brescaille",
             "difficulty": "high",
             "assigned_personas": [
                 {"persona_id": "hodge", "dex_bucket": "mid", "wis_bucket": "low"}
@@ -600,7 +600,7 @@ class TestHTTPLayer:
         payload = {
             "mission_id": "http-conclude-003",
             "mission_type": "scout_route",
-            "region": "Ridgepass",
+            "region": "veillemont",
             "difficulty": "mid",
             "assigned_personas": [{"persona_id": "kira", "dex_bucket": "mid", "wis_bucket": "mid"}],
             "seed": 1,
@@ -614,7 +614,7 @@ class TestHTTPLayer:
         payload = {
             "mission_id": "http-conclude-004",
             "mission_type": "scout_route",
-            "region": "Ironshore",
+            "region": "roches-closes",
             "difficulty": "low",
             "assigned_personas": [
                 {"persona_id": "kira", "dex_bucket": "high", "wis_bucket": "mid"}
@@ -636,7 +636,7 @@ class TestHTTPLayer:
         payload = {
             "mission_id": "http-conclude-005",
             "mission_type": "parley_local",
-            "region": "Vauldrun",
+            "region": "halfgate",
             "difficulty": "mid",
             "assigned_personas": [
                 {"persona_id": "peleth", "dex_bucket": "mid", "wis_bucket": "high"}
@@ -653,7 +653,7 @@ class TestHTTPLayer:
         payload = {
             "mission_id": "http-conclude-006",
             "mission_type": "scout_route",
-            "region": "Fendelune",
+            "region": "fendelune",
             "difficulty": "mid",
             "assigned_personas": [],
             "seed": 1,
@@ -666,7 +666,7 @@ class TestHTTPLayer:
         payload = {
             "mission_id": "http-conclude-007",
             "mission_type": "sabotage",
-            "region": "Fendelune",
+            "region": "fendelune",
             "difficulty": "mid",
             "assigned_personas": [{"persona_id": "kira", "dex_bucket": "mid", "wis_bucket": "mid"}],
             "seed": 1,
@@ -680,7 +680,7 @@ class TestHTTPLayer:
         payload = {
             "mission_id": "http-det-conclude-001",
             "mission_type": "scout_route",
-            "region": "Halfgate",
+            "region": "halfgate",
             "difficulty": "mid",
             "assigned_personas": [{"persona_id": "kira", "dex_bucket": "mid", "wis_bucket": "mid"}],
             "seed": 12345,
@@ -696,7 +696,7 @@ class TestHTTPLayer:
         payload = {
             "mission_id": "http-multi-conclude-001",
             "mission_type": "scout_route",
-            "region": "Ridgepass",
+            "region": "veillemont",
             "difficulty": "low",
             "assigned_personas": [
                 {"persona_id": "kira", "dex_bucket": "high", "wis_bucket": "mid"},

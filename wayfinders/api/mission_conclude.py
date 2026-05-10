@@ -250,8 +250,11 @@ class MissionConcludeRequest(BaseModel):
     )
     region: RegionId = Field(
         ...,
-        min_length=1,
-        description="Region where the mission took place.",
+        description=(
+            "Region where the mission took place. "
+            "Varn-locked closed lookup (ratified 2026-05-10): "
+            "halfgate | brescaille | fendelune | veillemont | roches-closes."
+        ),
     )
     actor_target: str | None = Field(
         default=None,

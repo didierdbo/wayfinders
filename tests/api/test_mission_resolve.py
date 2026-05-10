@@ -29,7 +29,7 @@ def _make_request(
     *,
     mission_id: str = "test-mission-001",
     mission_type: str = "scout_route",
-    region: str = "Fendelune",
+    region: str = "fendelune",
     actor_target: str | None = None,
     outcome: str = "success",
     tick: int = 5,
@@ -86,7 +86,7 @@ class TestMissionResolveRequestValidation:
             MissionResolveRequest(
                 mission_id="m1",
                 mission_type="scout_route",  # type: ignore[arg-type]
-                region="Fendelune",
+                region="fendelune",
                 outcome="success",  # type: ignore[arg-type]
                 tick=-1,
             )
@@ -98,7 +98,7 @@ class TestMissionResolveRequestValidation:
             MissionResolveRequest(
                 mission_id="",
                 mission_type="scout_route",  # type: ignore[arg-type]
-                region="Fendelune",
+                region="fendelune",
                 outcome="success",  # type: ignore[arg-type]
                 tick=0,
             )
@@ -122,7 +122,7 @@ class TestMissionResolveRequestValidation:
             MissionResolveRequest(
                 mission_id="m1",
                 mission_type="ambush",  # type: ignore[arg-type]  # not a valid EmergenceMissionType
-                region="Fendelune",
+                region="fendelune",
                 outcome="success",  # type: ignore[arg-type]
                 tick=0,
             )
@@ -134,7 +134,7 @@ class TestMissionResolveRequestValidation:
             MissionResolveRequest(
                 mission_id="m1",
                 mission_type="scout_route",  # type: ignore[arg-type]
-                region="Fendelune",
+                region="fendelune",
                 outcome="critical",  # type: ignore[arg-type]  # not a valid ResolutionOutcomeType
                 tick=0,
             )
@@ -147,7 +147,7 @@ class TestMissionResolveRequestValidation:
                 {
                     "mission_id": "m1",
                     "mission_type": "scout_route",
-                    "region": "Fendelune",
+                    "region": "fendelune",
                     "outcome": "success",
                     "tick": 0,
                     "unexpected_field": "oops",
@@ -190,7 +190,7 @@ class TestResolveMissionLogic:
         req = _make_request(
             mission_id="m-det-001",
             mission_type="parley_local",
-            region="Brescaille",
+            region="brescaille",
             actor_target="bourgmestre",
             outcome="partial",
             tick=7,
@@ -202,7 +202,7 @@ class TestResolveMissionLogic:
         assert tag.persona_id == "hodge"
         assert tag.mission_id == "m-det-001"
         assert tag.mission_type == "parley_local"
-        assert tag.region == "Brescaille"
+        assert tag.region == "brescaille"
         assert tag.actor_target is None  # M1: _extract_actor_target always returns None
         assert tag.outcome == "partial"
         assert tag.earned_at_tick == 7
@@ -273,7 +273,7 @@ class TestResolveMissionEdgeCases:
         payload = {
             "mission_id": "m-declined",
             "mission_type": "scout_route",
-            "region": "Fendelune",
+            "region": "fendelune",
             "outcome": "failure",
             "tick": 3,
             "assigned_personas": [],
@@ -331,7 +331,7 @@ class TestMissionResolveHTTP:
         payload = {
             "mission_id": "http-test-001",
             "mission_type": "scout_route",
-            "region": "Fendelune",
+            "region": "fendelune",
             "outcome": "success",
             "tick": 5,
             "assigned_personas": ["kira"],
@@ -343,7 +343,7 @@ class TestMissionResolveHTTP:
         payload = {
             "mission_id": "http-test-002",
             "mission_type": "parley_local",
-            "region": "Brescaille",
+            "region": "brescaille",
             "outcome": "partial",
             "tick": 7,
             "assigned_personas": ["hodge"],
@@ -357,7 +357,7 @@ class TestMissionResolveHTTP:
         payload = {
             "mission_id": "http-test-003",
             "mission_type": "scout_route",
-            "region": "Ridgepass",
+            "region": "veillemont",
             "actor_target": None,
             "outcome": "failure",
             "tick": 12,
@@ -370,7 +370,7 @@ class TestMissionResolveHTTP:
         assert tag["persona_id"] == "kira"
         assert tag["mission_id"] == "http-test-003"
         assert tag["mission_type"] == "scout_route"
-        assert tag["region"] == "Ridgepass"
+        assert tag["region"] == "veillemont"
         assert tag["outcome"] == "failure"
         assert tag["earned_at_tick"] == 12
 
@@ -378,7 +378,7 @@ class TestMissionResolveHTTP:
         payload = {
             "mission_id": "http-test-004",
             "mission_type": "ambush",  # not a valid EmergenceMissionType
-            "region": "Fendelune",
+            "region": "fendelune",
             "outcome": "success",
             "tick": 1,
             "assigned_personas": ["kira"],
@@ -390,7 +390,7 @@ class TestMissionResolveHTTP:
         payload = {
             "mission_id": "http-test-005",
             "mission_type": "scout_route",
-            "region": "Fendelune",
+            "region": "fendelune",
             "outcome": "critical",  # not valid
             "tick": 1,
             "assigned_personas": ["kira"],
@@ -402,7 +402,7 @@ class TestMissionResolveHTTP:
         payload = {
             "mission_id": "http-test-006",
             "mission_type": "scout_route",
-            "region": "Fendelune",
+            "region": "fendelune",
             "outcome": "success",
             "tick": -1,
             "assigned_personas": ["kira"],
@@ -415,7 +415,7 @@ class TestMissionResolveHTTP:
         payload = {
             "mission_id": "http-det-001",
             "mission_type": "scout_route",
-            "region": "Ironshore",
+            "region": "roches-closes",
             "outcome": "success",
             "tick": 15,
             "assigned_personas": ["kira", "hodge"],
@@ -428,7 +428,7 @@ class TestMissionResolveHTTP:
         payload = {
             "mission_id": "http-multi-001",
             "mission_type": "parley_local",
-            "region": "Vauldrun",
+            "region": "halfgate",
             "outcome": "success",
             "tick": 20,
             "assigned_personas": ["kira", "hodge", "peleth"],
@@ -452,7 +452,7 @@ class TestPersonaLegacyTagWireConversion:
             persona_id="kira",
             mission_id="m-conv-001",
             mission_type="scout_route",
-            region="Fendelune",
+            region="fendelune",
             actor_target=None,
             outcome="success",
             earned_at_tick=5,
@@ -471,7 +471,7 @@ class TestPersonaLegacyTagWireConversion:
             persona_id="hodge",
             mission_id="m-conv-002",
             mission_type="parley_local",
-            region="Brescaille",
+            region="brescaille",
             actor_target="bourgmestre",
             outcome="partial",
             earned_at_tick=10,
@@ -485,7 +485,7 @@ class TestPersonaLegacyTagWireConversion:
             persona_id="kira",
             mission_id="m-conv-003",
             mission_type="scout_route",
-            region="Ridgepass",
+            region="veillemont",
             actor_target=None,
             outcome="failure",
             earned_at_tick=3,
@@ -502,7 +502,7 @@ class TestPersonaLegacyTagWireConversion:
             persona_id="kira",
             mission_id="m-conv-004",
             mission_type="scout_route",
-            region="Fendelune",
+            region="fendelune",
             actor_target=None,
             outcome="success",
             earned_at_tick=7,

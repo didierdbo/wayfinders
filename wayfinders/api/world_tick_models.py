@@ -9,6 +9,8 @@ Varn-locked closed lookups (2026-05-10):
   - ``MissionType``: ``scout_route | parley_local``
   - ``DifficultyBucket``: the five stat-lane buckets (``very-low`` … ``very-high``)
   - ``ResolutionOutcomeType``: ``success | partial | failure``
+  - ``RegionId``: the five canonical regions (ratified 2026-05-10):
+      ``halfgate | brescaille | fendelune | veillemont | roches-closes``
 
 These literals must not be silently edited by any agent; all changes go
 through a Varn ratification step.
@@ -62,8 +64,27 @@ ResolutionOutcomeType = Literal["success", "partial", "failure"]
 # roster management is Varn's lane.
 PersonaId = str
 
-# RegionId: free-form string for M1 (e.g. "halfgate", "ridgepass").
-RegionId = str
+# RegionId: Varn-locked closed lookup (ratified 2026-05-10).
+# Five canonical regions for M1.  M2+ may extend via Varn ratification only.
+# DO NOT add, rename, or remove values without a Varn ratification step.
+RegionId = Literal[
+    "halfgate",
+    "brescaille",
+    "fendelune",
+    "veillemont",
+    "roches-closes",
+]
+
+# Ordered tuple of all valid RegionId values — used for seeded fallback sampling
+# in _extract_region_from_prose() (world_tick.py).  Must stay in sync with
+# the RegionId literal above.
+REGION_IDS: tuple[RegionId, ...] = (
+    "halfgate",
+    "brescaille",
+    "fendelune",
+    "veillemont",
+    "roches-closes",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +104,7 @@ class PersonaLegacyTag:
         persona_id:    Identifier of the persona who participated.
         mission_id:    Stable UUID-shaped id of the emergent mission.
         mission_type:  Varn-locked closed lookup (scout_route | parley_local).
-        region:        Region where the mission took place (free-form M1).
+        region:        Region where the mission took place (Varn-locked RegionId).
         actor_target:  Optional target name (e.g. NPC name for parley missions).
                        None for scout missions where there is no named target.
         outcome:       Resolution outcome (Varn-locked: success | partial | failure).
@@ -228,8 +249,11 @@ class EmergentMission(BaseModel):
     )
     region: RegionId = Field(
         ...,
-        min_length=1,
-        description="Region where the mission takes place. Free-form string in M1.",
+        description=(
+            "Region where the mission takes place. "
+            "Varn-locked closed lookup (ratified 2026-05-10): "
+            "halfgate | brescaille | fendelune | veillemont | roches-closes."
+        ),
     )
     deadline_ticks: int | None = Field(
         default=None,

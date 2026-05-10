@@ -106,8 +106,11 @@ class MissionResolveRequest(BaseModel):
     )
     region: RegionId = Field(
         ...,
-        min_length=1,
-        description="Region where the mission took place. Free-form string in M1.",
+        description=(
+            "Region where the mission took place. "
+            "Varn-locked closed lookup (ratified 2026-05-10): "
+            "halfgate | brescaille | fendelune | veillemont | roches-closes."
+        ),
     )
     actor_target: str | None = Field(
         default=None,
@@ -151,7 +154,10 @@ class PersonaLegacyTagWire(BaseModel):
     mission_type: EmergenceMissionType = Field(
         ..., description="Varn-locked closed lookup: scout_route | parley_local."
     )
-    region: RegionId = Field(..., description="Region where the mission took place.")
+    region: RegionId = Field(
+        ...,
+        description=("Region where the mission took place. Varn-locked RegionId closed lookup."),
+    )
     actor_target: str | None = Field(
         default=None,
         description="Named NPC target, or None for scout/anonymous-parley missions.",
