@@ -813,6 +813,13 @@ public partial class CompagniePanelProbe : Node2D
         // (+0.7071, +0.3536, -0.6124) ie. away from origin. LookAt is
         // idempotent for a correctly-authored .tscn and corrective for
         // a drifted one. Cheap belt-and-braces.
+        //
+        // 2026-05-10 (round 2) -- preflight confirmed forward points to
+        // origin AND Label3D project inside the 560x560 SubViewport,
+        // yet Didier still sees nothing. Extended dump below for the
+        // 7 newly-suspect surfaces : SubViewport render flags, World3D
+        // ownership, Container rect, PanelLayer ordering, all-Camera3D
+        // enumeration.
         if (_subSpaceCamera3D is null)
         {
             GD.PushError("[CANARY FAIL] SubSpaceCamera3D not resolvable.");
@@ -834,6 +841,73 @@ public partial class CompagniePanelProbe : Node2D
                 $"size={_subSpaceCamera3D.Size} " +
                 $"near={_subSpaceCamera3D.Near} far={_subSpaceCamera3D.Far} " +
                 $"cullMask=0x{_subSpaceCamera3D.CullMask:X}");
+        }
+
+        // ----------------------------------------------------------------
+        // Round-2 diagnostics (2026-05-10) -- 7 new dumps for the "panel
+        // opens but nothing visible" investigation. Each one targets a
+        // distinct "could be the bug" surface so the Output panel pins
+        // down the cause unambiguously.
+        // ----------------------------------------------------------------
+
+        // Inv. 2a : SubViewport render flags (RenderTargetUpdateMode,
+        // Disable3D, TransparentBg, Size). If UpdateMode is not Always,
+        // the SubViewport silently stops re-rendering. If Disable3D is
+        // true, no 3D pass at all. TransparentBg combined with the
+        // Environment can produce a fully transparent blit.
+        GD.Print(
+            $"[VIEWPORT FLAGS] SubViewport " +
+            $"RenderTargetUpdateMode={_subViewport.RenderTargetUpdateMode} " +
+            $"(Always=4, WhenVisible=2, Once=1, Disabled=0) " +
+            $"Disable3D={_subViewport.Disable3D} " +
+            $"TransparentBg={_subViewport.TransparentBg} " +
+            $"Size={_subViewport.Size} " +
+            $"HandleInputLocally={_subViewport.HandleInputLocally} " +
+            $"Use3DAudio={_subViewport.AudioListenerEnable3D}");
+
+        // Inv. 2b : SubViewport.OwnWorld3D + World3D ref. The single
+        // most likely cause for "Camera current, Label3D in tree, but
+        // empty render" : the SubViewport shares its parent's World3D
+        // (own_world_3d=false default) so the 3D nodes are siblings in
+        // the parent World3D, but the SubViewport's camera tries to
+        // render its OWN empty world. Result : empty SubViewport.
+        // The fix is own_world_3d=true on the SubViewport .tscn.
+        var hasOwnWorld = _subViewport.OwnWorld3D;
+        var world3D = _subViewport.World3D;
+        var parentViewportWorld = _subViewport.GetTree()?.Root?.World3D;
+        GD.Print(
+            $"[VIEWPORT WORLD] SubViewport " +
+            $"OwnWorld3D={hasOwnWorld} " +
+            $"World3D={(world3D is null ? "null" : world3D.GetInstanceId().ToString())} " +
+            $"parentRootWorld3D={(parentViewportWorld is null ? "null" : parentViewportWorld.GetInstanceId().ToString())} " +
+            $"sharedWithRoot={(world3D is not null && parentViewportWorld is not null && world3D.GetInstanceId() == parentViewportWorld.GetInstanceId())}");
+        if (!hasOwnWorld)
+        {
+            GD.PushError(
+                "[CANARY FAIL] SubViewport.OwnWorld3D=false -- the 3D children of the " +
+                "SubViewport live in the PARENT viewport's World3D, NOT the SubViewport's. " +
+                "The Camera3D inside is current but renders an empty world. " +
+                "Fix : set own_world_3d=true on the SubViewport node in the .tscn.");
+        }
+
+        // Inv. 2c : enumerate every Camera3D in the whole scene and log
+        // which one(s) report Current=true. MakeCurrent is not
+        // idempotent across viewports -- another Camera3D somewhere in
+        // the parent tree could have stolen the "current" slot for the
+        // World3D the SubViewport is sharing (see Inv. 2b).
+        var allCameras = new List<Camera3D>();
+        var sceneRoot = GetTree()?.Root;
+        if (sceneRoot is not null)
+            CollectCamera3D(sceneRoot, allCameras);
+        GD.Print($"[CAMERA ENUM] found {allCameras.Count} Camera3D in the whole tree");
+        foreach (var cam in allCameras)
+        {
+            var camViewport = cam.GetViewport();
+            GD.Print(
+                $"[CAMERA] path={cam.GetPath()} " +
+                $"Current={cam.Current} " +
+                $"viewport={(camViewport is null ? "null" : camViewport.GetType().Name + ":" + camViewport.GetInstanceId())} " +
+                $"globalPos={cam.GlobalPosition}");
         }
 
         // Inv. 3-5 : per-persona Area3D + Shape3D health.
@@ -870,6 +944,60 @@ public partial class CompagniePanelProbe : Node2D
         else
         {
             GD.Print("[CANARY OK] SubViewportContainer wraps SubViewport at child[0]");
+        }
+
+        // Inv. 6a (round 2 2026-05-10) : Container actual rect on the
+        // parent screen. If the Container's Position is offscreen at
+        // _Ready (Closed state seeds it at -560x), or if Stretch is
+        // false and the Container size is 0x0 (silently swallowing the
+        // SubViewport content), the panel renders correctly into the
+        // SubViewport but blits to nothing. Also dump GlobalRect in case
+        // a parent CanvasLayer or transform offsets the visible area.
+        if (_subViewportContainer is not null)
+        {
+            GD.Print(
+                $"[CONTAINER RECT] SubViewportContainer " +
+                $"Position={_subViewportContainer.Position} " +
+                $"Size={_subViewportContainer.Size} " +
+                $"GlobalPosition={_subViewportContainer.GlobalPosition} " +
+                $"GlobalRect={_subViewportContainer.GetGlobalRect()} " +
+                $"Stretch={_subViewportContainer.Stretch} " +
+                $"Visible={_subViewportContainer.Visible} " +
+                $"VisibleInTree={_subViewportContainer.IsVisibleInTree()} " +
+                $"Modulate={_subViewportContainer.Modulate} " +
+                $"SelfModulate={_subViewportContainer.SelfModulate}");
+
+            // Sanity : at boot in Closed state we EXPECT Position.X=ClosedXPx
+            // (-560), so the Container is fully offscreen and Didier
+            // should see NOTHING from the panel until he clicks the
+            // handle. This is by design ; the print above just makes
+            // the design observable rather than implicit.
+            if (_slideState == SlideState.Closed
+                && _subViewportContainer.Position.X > -100f)
+            {
+                GD.PushWarning(
+                    "[CONTAINER POS DRIFT] state=Closed but ContainerX > -100. " +
+                    "Did the .tscn change the seed position ? Expected ~-560.");
+            }
+        }
+
+        // Inv. 6b : enumerate every CanvasLayer and log layer index +
+        // visibility. If two CanvasLayers stack at the same index, draw
+        // order is undefined ; if a higher-layer opaque CanvasLayer
+        // covers the SubViewportContainer, the panel renders correctly
+        // but is hidden behind another layer's BgRect. Dual of the
+        // existing "CanvasLayer hides Camera2D" trap from
+        // feedback_godot_rendering_input_traps.md.
+        var allLayers = new List<CanvasLayer>();
+        if (sceneRoot is not null)
+            CollectCanvasLayer(sceneRoot, allLayers);
+        GD.Print($"[CANVAS LAYERS] found {allLayers.Count} CanvasLayer in the whole tree");
+        foreach (var layer in allLayers)
+        {
+            GD.Print(
+                $"[CANVAS LAYER] path={layer.GetPath()} " +
+                $"Layer={layer.Layer} " +
+                $"Visible={layer.Visible}");
         }
 
         // Inv. 7 : persona NPC autonomy parent invariant -- live read
@@ -976,6 +1104,29 @@ public partial class CompagniePanelProbe : Node2D
             sink.Add(lbl);
         foreach (var child in node.GetChildren())
             CollectLabel3D(child, sink);
+    }
+
+    /// <summary>Recursively collect every Camera3D in the tree.
+    /// Used by Inv. 2c to enumerate "current camera" candidates and
+    /// catch a Camera3D outside the SubViewport stealing the slot.</summary>
+    private static void CollectCamera3D(Node node, List<Camera3D> sink)
+    {
+        if (node is Camera3D cam)
+            sink.Add(cam);
+        foreach (var child in node.GetChildren())
+            CollectCamera3D(child, sink);
+    }
+
+    /// <summary>Recursively collect every CanvasLayer in the tree.
+    /// Used by Inv. 6b to enumerate layer indices and catch an opaque
+    /// higher-layer CanvasLayer covering the SubViewportContainer
+    /// (the dual of the J2 trap "CanvasLayer hides Camera2D").</summary>
+    private static void CollectCanvasLayer(Node node, List<CanvasLayer> sink)
+    {
+        if (node is CanvasLayer layer)
+            sink.Add(layer);
+        foreach (var child in node.GetChildren())
+            CollectCanvasLayer(child, sink);
     }
 
     // ====================================================================
