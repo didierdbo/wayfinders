@@ -10,6 +10,10 @@ Endpoints:
 * ``POST /api/uc1/predict`` — UC1 resolution prediction. Takes three EN-rendered
   prose strings (character, action, context) and returns ``delta`` in [-5, +5].
   Returns HTTP 503 if the model ONNX sessions are not loaded.
+* ``POST /api/world/tick`` — Mission-emergence tick. Takes a ``WorldTickRequest``
+  (tick index, seed, context_prose) and returns a ``WorldTickResponse``
+  (emergent mission or None). Always returns 200; degrades gracefully to
+  uniform sampling when the predictor is not ready.
 
 Run locally::
 
@@ -39,6 +43,8 @@ from wayfinders.api.models import (
 )
 from wayfinders.api.predictor import Predictor, PredictorNotReadyError
 from wayfinders.api.seed_data import UNITS
+from wayfinders.api.world_tick import EmergenceEngine
+from wayfinders.api.world_tick_models import WorldTickRequest, WorldTickResponse
 
 logger = logging.getLogger(__name__)
 
@@ -153,3 +159,36 @@ def uc1_predict(payload: UC1PredictRequest, request: Request) -> UC1PredictRespo
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     return UC1PredictResponse(delta=delta)
+
+
+@app.post(
+    "/api/world/tick",
+    response_model=WorldTickResponse,
+    tags=["world"],
+    summary="Mission-emergence world tick",
+)
+def world_tick(payload: WorldTickRequest, request: Request) -> WorldTickResponse:
+    """Process a world tick and return an emergent mission (or None).
+
+    Implements the M1 cadence-gated emergence algorithm:
+
+    1. Cadence gate: a mission window opens every 5-10 ticks (seed-driven).
+       Ticks outside the window return ``mission=None``.
+    2. Within a window: UC1 proxy logits → softmax → seed-seeded sampling
+       over ``{scout_route, parley_local, no_emergence}``.
+    3. M1 fallback: ``no_emergence`` within a window → ``argmax`` of the
+       two active types (ensures the chain always produces a mission within
+       the window, per spec §6).
+
+    Always returns HTTP 200.  When the predictor is not ready the engine
+    falls back to uniform sampling — the endpoint does not gate on model
+    availability (unlike ``/api/uc1/predict`` which returns 503).
+
+    All prose must be EN-rendered (Renderer English-pinning contract).
+    The ``seed`` must be caller-derived from ``(world_seed, tick)`` — the
+    server holds no global RNG state.  Same ``(tick, seed, context_prose)``
+    always returns the same mission.
+    """
+    predictor: Predictor = request.app.state.predictor
+    engine = EmergenceEngine(predictor=predictor)
+    return engine.process_tick(payload)
