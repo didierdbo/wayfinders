@@ -327,12 +327,12 @@ public partial class CompagniePanelProbe : Node2D
             };
             slotMesh.MaterialOverride = new StandardMaterial3D
             {
-                AlbedoColor = new Color(0.20f, 0.18f, 0.16f, 1f), // dark slot
+                AlbedoColor = new Color(0.55f, 0.45f, 0.30f, 1f), // terracotta clair -- visibility patch (Didier 2026-05-10)
                 ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
             };
             _missionSlot.AddChild(slotMesh);
         }
-        _missionSlot.Position = new Vector3(PersonaSpacingWorldUnits * 2.5f, 0f, 0f);
+        _missionSlot.Position = new Vector3(PersonaSpacingWorldUnits * 1.8f, 0f, 0f);
 
         var slotLabel = _missionSlot.GetNodeOrNull<Label3D>("SlotLabel");
         if (slotLabel is null)
@@ -341,11 +341,11 @@ public partial class CompagniePanelProbe : Node2D
             {
                 Name = "SlotLabel",
                 Text = "[mission slot]",
-                Position = new Vector3(0, 24f, 0),
+                Position = new Vector3(0, 40f, 0),
                 Modulate = new Color(0.95f, 0.92f, 0.80f, 1f),
                 Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
                 NoDepthTest = true,
-                FontSize = 20,
+                FontSize = 28,
                 OutlineSize = 6,
                 OutlineModulate = new Color(0, 0, 0, 1),
             };
