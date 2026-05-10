@@ -1,5 +1,12 @@
 """Mission resolution endpoint — ``POST /api/world/mission/resolve``.
 
+.. deprecated::
+    Use ``POST /api/world/mission/conclude`` (``mission_conclude.py``) for new code.
+    This endpoint requires the client to supply the outcome, which violates the
+    server-authority contract for the probability table (Varn-ratified 2026-05-10).
+    Kept for backward-compatibility with M1 tests.  Will be removed at M3.
+
+
 Stateless architecture (ratified 2026-05-10): the server reconstructs an
 ``EmergentMission`` from the request fields, runs ``on_mission_resolved``
 against a *transient* ``GameState``, and returns the produced

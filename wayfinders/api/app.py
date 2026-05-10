@@ -14,11 +14,16 @@ Endpoints:
   (tick index, seed, context_prose) and returns a ``WorldTickResponse``
   (emergent mission or None). Always returns 200; degrades gracefully to
   uniform sampling when the predictor is not ready.
-* ``POST /api/world/mission/resolve`` — Mission resolution. Takes a
-  ``MissionResolveRequest`` (mission fields + outcome + assigned personas)
-  and returns a ``MissionResolveResponse`` with ``PersonaLegacyTag`` objects
-  for the client to store in its GameState. Always returns 200. Stateless:
-  no GameState is persisted server-side (NPC-autonomy lock 2026-05-09).
+* ``POST /api/world/mission/resolve`` — Mission resolution (DEPRECATED — use
+  ``/api/world/mission/conclude``). Takes a ``MissionResolveRequest`` (mission
+  fields + client-decided outcome + assigned personas) and returns
+  ``PersonaLegacyTag`` objects. Kept for backward-compat with M1 tests.
+* ``POST /api/world/mission/conclude`` — Mission conclusion. Takes a
+  ``MissionConcludeRequest`` (mission metadata + persona stat snapshots + seed
+  + tick_due) and returns a server-computed ``MissionConcludeResponse``
+  (weighted outcome roll + PersonaLegacyTags + roll_breakdown). One round-trip,
+  atomically computed. Always returns 200. Stateless (NPC-autonomy lock
+  2026-05-09).
 
 Run locally::
 
@@ -39,6 +44,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 
+from wayfinders.api.mission_conclude import (
+    MissionConcludeRequest,
+    MissionConcludeResponse,
+    conclude_mission,
+)
 from wayfinders.api.mission_resolve import (
     MissionResolveRequest,
     MissionResolveResponse,
@@ -234,3 +244,35 @@ def mission_resolve(payload: MissionResolveRequest) -> MissionResolveResponse:
     Always returns HTTP 200.
     """
     return resolve_mission(payload)
+
+
+@app.post(
+    "/api/world/mission/conclude",
+    response_model=MissionConcludeResponse,
+    tags=["world"],
+    summary="Mission conclusion — server-computed weighted outcome + PersonaLegacyTags",
+)
+def mission_conclude(payload: MissionConcludeRequest) -> MissionConcludeResponse:
+    """Conclude a mission: server computes outcome roll + creates PersonaLegacyTags atomically.
+
+    The outcome is NOT supplied by the client.  The server derives it
+    deterministically from the persona stat-buckets, mission difficulty,
+    and the seed/tick_due pair.
+
+    Roll algorithm (Varn-ratified 2026-05-10):
+    - stat lane: scout_route → dex_bucket, parley_local → wis_bucket.
+    - delta = ordinal(persona_bucket) - ordinal(difficulty).
+    - Roll seed: SHA-256(f"{seed}:{tick_due}:{persona_id}") → first 8 bytes as uint64.
+    - Outcome sampled from the probability table (see module docstring).
+    - Multi-persona (M3): best persona carries the roll.  M2: single persona.
+
+    Replaces ``/api/world/mission/resolve`` which required the client to
+    compute and send the outcome — violating the server-authority contract for
+    the probability table.
+
+    ``assigned_personas`` must contain at least one persona (422 if empty —
+    client must filter ``decline`` before calling this endpoint).
+
+    Always returns HTTP 200.
+    """
+    return conclude_mission(payload)
