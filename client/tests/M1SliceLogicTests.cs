@@ -1,4 +1,4 @@
-// M1 slice (etape 5ab / 2026-05-10) -- pin tests for
+// M1 slice (etape 5ab+5c / 2026-05-10) -- pin tests for
 // M1SliceLogic. The runtime M1Slice scene wires
 // SubViewportContainers, CanvasLayers, the golden 2D proxy, and
 // the cross-panel signal ; the contract -- drop decision table,
@@ -14,9 +14,17 @@
 //   4. AssignmentEvent payload shape + defensive empty-string throw.
 //   5. PersonaAssignedToMissionEventName stable string.
 //   6. IsPersonaInEligibleList case-sensitive string match.
+//   7. (5c) AppendTagToLegacyMap : create-list-if-missing,
+//      multiple-tags-same-persona, defensive throws.
+//   8. (5c) PopHeadMission : FIFO semantics, empty-list returns
+//      null instead of throwing.
+//   9. (5c) ShouldRenderEmptyMissionState : pop-to-empty / pop-to-
+//      non-empty / negative-input throw.
+//  10. (5c) MissionResolvedEventName stable string.
 
 using System.Collections.Generic;
 using Wayfinders.Client.Scripts.Screens;
+using Wayfinders.Client.Services.Dtos;
 using static Wayfinders.Client.Scripts.Screens.M1SliceLogic;
 
 namespace Wayfinders.Client.Tests;
@@ -248,5 +256,246 @@ public sealed class M1SliceLogicTests
         Assert.False(IsPersonaInEligibleList("hodge", System.Array.Empty<string>()));
         Assert.False(IsPersonaInEligibleList("", new[] { "hodge" }));
         Assert.False(IsPersonaInEligibleList(null!, new[] { "hodge" }));
+    }
+
+    // ====================================================================
+    // 5c -- AppendTagToLegacyMap
+    // ====================================================================
+
+    [Fact]
+    public void Append_tag_creates_list_for_first_persona_appearance()
+    {
+        // First time we see persona "hodge" : the helper must
+        // allocate a fresh List<PersonaLegacyTagDto> under that
+        // key and seed it with the tag.
+        var map = new Dictionary<string, List<PersonaLegacyTagDto>>();
+        var tag = SampleTag(personaId: "hodge", missionId: "m1");
+
+        AppendTagToLegacyMap(map, tag);
+
+        Assert.True(map.ContainsKey("hodge"));
+        Assert.Single(map["hodge"]);
+        Assert.Equal("m1", map["hodge"][0].MissionId);
+    }
+
+    [Fact]
+    public void Append_tag_appends_to_existing_persona_list()
+    {
+        // Second tag for "hodge" must end up in the same list,
+        // preserving insertion order. Mirrors the runtime case
+        // where a persona resolves multiple missions across a
+        // session.
+        var map = new Dictionary<string, List<PersonaLegacyTagDto>>();
+        AppendTagToLegacyMap(map, SampleTag(personaId: "hodge", missionId: "m1"));
+        AppendTagToLegacyMap(map, SampleTag(personaId: "hodge", missionId: "m2"));
+
+        Assert.Single(map);
+        Assert.Equal(2, map["hodge"].Count);
+        Assert.Equal("m1", map["hodge"][0].MissionId);
+        Assert.Equal("m2", map["hodge"][1].MissionId);
+    }
+
+    [Fact]
+    public void Append_tag_keeps_per_persona_lists_independent()
+    {
+        // Two personas, one tag each : each persona has their own
+        // list, no cross-contamination. Catches a regression where
+        // the helper accidentally shares one list across keys.
+        var map = new Dictionary<string, List<PersonaLegacyTagDto>>();
+        AppendTagToLegacyMap(map, SampleTag(personaId: "hodge", missionId: "m1"));
+        AppendTagToLegacyMap(map, SampleTag(personaId: "mirelle", missionId: "m2"));
+
+        Assert.Equal(2, map.Count);
+        Assert.Single(map["hodge"]);
+        Assert.Single(map["mirelle"]);
+        Assert.Equal("m1", map["hodge"][0].MissionId);
+        Assert.Equal("m2", map["mirelle"][0].MissionId);
+    }
+
+    [Fact]
+    public void Append_tag_does_not_dedup_same_persona_mission_pair()
+    {
+        // M1 simple impl : append blindly. The natural key
+        // (persona_id, mission_id) is enforced server-side inside
+        // ONE resolve call ; cross-call dedup (e.g. retrying a
+        // transient ApiError.NotReachable) is M2 work. This test
+        // pins the M1 contract -- if a future change adds dedup
+        // here, the test breaks and forces the conversation.
+        var map = new Dictionary<string, List<PersonaLegacyTagDto>>();
+        AppendTagToLegacyMap(map, SampleTag(personaId: "hodge", missionId: "m1"));
+        AppendTagToLegacyMap(map, SampleTag(personaId: "hodge", missionId: "m1"));
+
+        Assert.Equal(2, map["hodge"].Count);
+    }
+
+    [Fact]
+    public void Append_tag_throws_on_null_map()
+    {
+        Assert.Throws<System.ArgumentNullException>(() =>
+            AppendTagToLegacyMap(null!, SampleTag()));
+    }
+
+    [Fact]
+    public void Append_tag_throws_on_null_tag()
+    {
+        var map = new Dictionary<string, List<PersonaLegacyTagDto>>();
+        Assert.Throws<System.ArgumentNullException>(() =>
+            AppendTagToLegacyMap(map, null!));
+    }
+
+    [Fact]
+    public void Append_tag_throws_on_empty_persona_id()
+    {
+        // Defensive : a tag with an empty persona id is a
+        // contract violation. Throwing surfaces it loudly rather
+        // than poisoning the dictionary with an "" key.
+        var map = new Dictionary<string, List<PersonaLegacyTagDto>>();
+        Assert.Throws<System.ArgumentException>(() =>
+            AppendTagToLegacyMap(map, SampleTag(personaId: "")));
+    }
+
+    // ====================================================================
+    // 5c -- PopHeadMission FIFO + empty-list defence
+    // ====================================================================
+
+    [Fact]
+    public void Pop_head_removes_first_mission_and_returns_its_id()
+    {
+        // FIFO semantics : the head (index 0) is what gets popped,
+        // and its id comes back so the runtime can log / correlate.
+        var pending = new List<EmergentMissionDto>
+        {
+            SampleMission(id: "m1"),
+            SampleMission(id: "m2"),
+            SampleMission(id: "m3"),
+        };
+
+        var popped = PopHeadMission(pending);
+
+        Assert.Equal("m1", popped);
+        Assert.Equal(2, pending.Count);
+        Assert.Equal("m2", pending[0].Id);
+        Assert.Equal("m3", pending[1].Id);
+    }
+
+    [Fact]
+    public void Pop_head_returns_null_on_empty_list()
+    {
+        // Defensive contract : the runtime calls this AFTER a
+        // resolve round-trip succeeded, so the queue should be
+        // non-empty -- but a concurrent tick could have popped
+        // it (e.g. if a future M2 feature auto-resolves stale
+        // missions). Returning null is graceful ; throwing
+        // would crash a successful resolve.
+        var pending = new List<EmergentMissionDto>();
+        var popped = PopHeadMission(pending);
+
+        Assert.Null(popped);
+        Assert.Empty(pending);
+    }
+
+    [Fact]
+    public void Pop_head_with_single_mission_empties_the_queue()
+    {
+        var pending = new List<EmergentMissionDto> { SampleMission(id: "only") };
+        var popped = PopHeadMission(pending);
+
+        Assert.Equal("only", popped);
+        Assert.Empty(pending);
+    }
+
+    [Fact]
+    public void Pop_head_throws_on_null_list()
+    {
+        Assert.Throws<System.ArgumentNullException>(() =>
+            PopHeadMission(null!));
+    }
+
+    // ====================================================================
+    // 5c -- ShouldRenderEmptyMissionState
+    // ====================================================================
+
+    [Fact]
+    public void Empty_state_required_when_no_pending_missions()
+    {
+        // After PopHeadMission empties the queue, the panel
+        // must flip to "(none — waiting for tick cadence)".
+        Assert.True(ShouldRenderEmptyMissionState(0));
+    }
+
+    [Fact]
+    public void Empty_state_not_required_when_one_or_more_pending_missions()
+    {
+        // Multiple missions queue : the runtime renders the
+        // head, not the empty state.
+        Assert.False(ShouldRenderEmptyMissionState(1));
+        Assert.False(ShouldRenderEmptyMissionState(5));
+    }
+
+    [Fact]
+    public void Empty_state_throws_on_negative_count()
+    {
+        // Defensive : a negative pending count means the caller
+        // counted wrong (or List.Count returned a corrupted
+        // value). Surface it as a contract violation rather than
+        // returning a potentially misleading bool.
+        Assert.Throws<System.ArgumentOutOfRangeException>(() =>
+            ShouldRenderEmptyMissionState(-1));
+    }
+
+    // ====================================================================
+    // 5c -- MissionResolved event name pin
+    // ====================================================================
+
+    [Fact]
+    public void Mission_resolved_event_name_is_stable()
+    {
+        // Stable string the runtime emits after the resolve
+        // pipeline completes (tags appended, head popped). 5d
+        // visualisation + future analytics subscribe by this
+        // exact name -- a rename in M1Slice.cs alone breaks the
+        // test, not silently drops listeners.
+        Assert.Equal("mission_resolved", MissionResolvedEventName);
+    }
+
+    // ====================================================================
+    // Helpers
+    // ====================================================================
+
+    private static PersonaLegacyTagDto SampleTag(
+        string personaId = "hodge",
+        string missionId = "m1",
+        string missionType = "scout_route",
+        string region = "halfgate",
+        string outcome = "success",
+        int earnedAtTick = 5)
+    {
+        return new PersonaLegacyTagDto(
+            PersonaId: personaId,
+            MissionId: missionId,
+            MissionType: missionType,
+            Region: region,
+            ActorTarget: null,
+            Outcome: outcome,
+            EarnedAtTick: earnedAtTick);
+    }
+
+    private static EmergentMissionDto SampleMission(
+        string id = "abc-123",
+        string type = "scout_route",
+        string region = "halfgate",
+        string difficulty = "mid",
+        IReadOnlyList<string>? eligible = null)
+    {
+        return new EmergentMissionDto(
+            Id: id,
+            Type: type,
+            NarrativeHook: "Une affaire de scout_route dans halfgate.",
+            EligiblePersonas: eligible ?? new[] { "hodge", "mirelle" },
+            Difficulty: difficulty,
+            Region: region,
+            DeadlineTicks: null,
+            Outcome: null,
+            Seed: 42L);
     }
 }

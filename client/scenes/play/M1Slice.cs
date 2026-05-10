@@ -10,13 +10,15 @@ using static Wayfinders.Client.Scripts.Screens.M1SliceLogic;
 namespace Wayfinders.Client.Scenes.Play;
 
 /// <summary>
-/// M1 slice 5ab (2026-05-10) — first composite playable scene
+/// M1 slice 5ab+5c (2026-05-10) — first composite playable scene
 /// where the Compagnie panel and the Mission panel coexist in
 /// one runtime tree. This is the seed of the M1 ship-state UI :
 /// a sliding Compagnie sub-iso panel on the LEFT, a fixed
 /// text-only Mission panel on the RIGHT, with cross-panel
 /// drag-drop wired through the new
-/// <see cref="M1SliceLogic"/> contract.
+/// <see cref="M1SliceLogic"/> contract, the resolve round-trip
+/// to <c>POST /api/world/mission/resolve</c>, and the legacy-tag
+/// storage pipeline back into <c>GameState.PersonaLegacy</c>.
 ///
 /// <para>
 /// <b>Why a single composite scene rather than instancing the
@@ -48,7 +50,7 @@ namespace Wayfinders.Client.Scenes.Play;
 ///         match the persona-cube footprint when projected to
 ///         screen, used as the drag-drop target. Visual : a
 ///         dashed-border rectangle that highlights when a proxy
-///         is hovering it.</item>
+///         is hovering it (5c addition).</item>
 ///   <item>Cross-panel proxy : a golden ColorRect (40 x 40 px)
 ///         on a TOP CanvasLayer (layer=20, above both panels)
 ///         that follows the cursor while a drag is in progress
@@ -72,14 +74,38 @@ namespace Wayfinders.Client.Scenes.Play;
 ///         SubViewportContainer's GlobalPosition).</item>
 ///   <item>While LMB is held, _Input updates the proxy.Position
 ///         to follow the cursor. The Mission slot Control's
-///         GetGlobalRect() is the hit-test target.</item>
+///         GetGlobalRect() is the hit-test target. <b>5c addition :</b>
+///         when the cursor enters/exits the slot rect the
+///         StyleBoxFlat border colour pulses brighter (hover
+///         affordance), reset on drop or drag-cancel.</item>
 ///   <item>On LMB release, <see cref="M1SliceLogic.DecideDropOutcome"/>
-///         classifies the drop. Accepted : emit
-///         <see cref="PersonaAssignedToMission"/> signal +
-///         flip the persona's [mission] indicator + the Mission
-///         panel's existing OnAffectPressed pipeline takes over.
-///         Cancelled : free the proxy with a snap-back tween.</item>
+///         classifies the drop. <b>Accepted</b> : emit
+///         <see cref="PersonaAssignedToMissionEventHandler"/>
+///         signal + flip the persona's [mission] indicator + the
+///         resolve pipeline runs (POST /api/world/mission/resolve,
+///         tags appended to <c>GameState.PersonaLegacy</c>, head
+///         mission popped from <c>PendingMissions</c>,
+///         <see cref="MissionResolvedEventHandler"/> emitted).
+///         <b>Cancelled</b> : kick off a 300ms snap-back tween
+///         that animates the proxy back to the persona's
+///         screen-projected position before hiding it (5c
+///         addition ; v1 used to hide instantly).</item>
 /// </list>
+/// </para>
+///
+/// <para>
+/// <b>5c (2026-05-10) — Affect button backup path.</b> Didier
+/// validated 2026-05-10 that the click-to-dispatch button list
+/// stays available alongside the drag-drop, for keyboard-first
+/// ergonomics. <see cref="RenderHeadMission"/> dynamically builds
+/// one Button per eligible persona (under
+/// <see cref="MissionPanelLogic.FormatEligiblePersonas"/>). Click
+/// selects, click again on a different persona switches, then
+/// "Affecter" runs the same resolve pipeline as the drag-drop
+/// release. Symmetric outcome : both paths POST the same
+/// <see cref="MissionResolveRequestDto"/>, both store tags via
+/// <see cref="M1SliceLogic.AppendTagToLegacyMap"/>, both pop the
+/// head via <see cref="M1SliceLogic.PopHeadMission"/>.
 /// </para>
 ///
 /// <para>
@@ -127,6 +153,11 @@ public partial class M1Slice : Node2D
     /// <summary>Open X for the Compagnie SubViewportContainer. 0 = flush left.</summary>
     [Export] public float CompagnieOpenXPx { get; set; } = 0f;
 
+    /// <summary>5c — duration of the snap-back tween that returns
+    /// a cancelled-drop proxy to the persona's icon position before
+    /// hiding. 300ms ease-out matches Didier's spec (2026-05-10).</summary>
+    [Export] public float SnapBackDurationSec { get; set; } = 0.3f;
+
     // ---- Compagnie SubViewport bindings.
     [Export] public NodePath CompagnieContainerPath { get; set; } = "CompagnieRoot/SubViewportContainer";
     [Export] public NodePath CompagnieSubViewportPath { get; set; } = "CompagnieRoot/SubViewportContainer/SubViewport";
@@ -145,6 +176,14 @@ public partial class M1Slice : Node2D
     [Export] public NodePath MissionToastLabelPath { get; set; } = "MissionRoot/Panel/ToastLabel";
     [Export] public NodePath MissionQueueStatusLabelPath { get; set; } = "MissionRoot/Panel/QueueStatusLabel";
     [Export] public NodePath MissionTickLabelPath { get; set; } = "MissionRoot/Panel/TickLabel";
+    /// <summary>5c — anchor for the dynamic eligible-persona button list
+    /// (clavier-first backup path). The runtime adds children Buttons
+    /// under this Container during RenderHeadMission and frees them
+    /// in RenderEmptyMissionPanel. Defaults to a sibling VBox above
+    /// the Affect button ; if missing in the .tscn, the runtime falls
+    /// back to placing the buttons under the Mission Panel root with
+    /// hard-coded Y offsets.</summary>
+    [Export] public NodePath MissionPersonaButtonsContainerPath { get; set; } = "MissionRoot/Panel/PersonaButtons";
 
     // ---- Drag-drop proxy CanvasLayer.
     [Export] public NodePath DragProxyLayerPath { get; set; } = "DragProxyLayer";
@@ -165,6 +204,21 @@ public partial class M1Slice : Node2D
     /// the M1 slice.</summary>
     [Signal] public delegate void PersonaAssignedToMissionEventHandler(string personaId, string missionId);
 
+    /// <summary>5c — emitted after a successful resolve round-trip
+    /// has stored its tags into <c>GameState.PersonaLegacy</c> and
+    /// the head mission has been popped from
+    /// <c>GameState.PendingMissions</c>. Listeners (5d visualisation,
+    /// future analytics, the Compagnie panel's veteran-flip glyph)
+    /// subscribe by <see cref="M1SliceLogic.MissionResolvedEventName"/>
+    /// to react. The <c>tagsCreatedCount</c> payload is enough to
+    /// drive UI ; full tag content is read from
+    /// <c>GameState.PersonaLegacy</c> by listeners that need it
+    /// (avoids marshalling a List across the Godot/C# boundary in a
+    /// signal — Godot signals don't support generic collections
+    /// natively). Naming convention matches
+    /// <see cref="PersonaAssignedToMissionEventHandler"/>.</summary>
+    [Signal] public delegate void MissionResolvedEventHandler(string missionId, int tagsCreatedCount);
+
     private SubViewportContainer? _compagnieContainer;
     private SubViewport? _compagnieSubViewport;
     private Node3D? _compagnieRoot3D;
@@ -181,6 +235,7 @@ public partial class M1Slice : Node2D
     private Label? _missionToast;
     private Label? _queueStatusLabel;
     private Label? _tickLabel;
+    private Container? _personaButtonsContainer;
 
     private CanvasLayer? _dragProxyLayer;
     private ColorRect? _dragProxyRect;
@@ -205,6 +260,28 @@ public partial class M1Slice : Node2D
 
     // Drag state — only one drag at a time (no multi-touch in M1).
     private string? _dragPersonaId;
+    // 5c — drop slot hover state. True while the proxy is over the
+    // slot's screen-rect during a drag. Drives the StyleBoxFlat
+    // border-colour pulse on the drop slot Panel.
+    private bool _dropSlotHovered;
+    // 5c — the snap-back tween that returns a cancelled-drop proxy
+    // to the persona's icon screen-projected position. Stored so a
+    // new BeginDrag can Kill() any in-flight snap-back before
+    // starting fresh.
+    private Tween? _snapBackTween;
+    // 5c — cached StyleBox references for the drop slot's normal /
+    // hovered visuals. Lazily captured at WireMissionPanel time
+    // because the StyleBoxFlat is allocated by the .tscn loader.
+    private StyleBoxFlat? _dropSlotStyleNormal;
+    private StyleBoxFlat? _dropSlotStyleHovered;
+
+    // 5c — dynamic eligible-persona button list for the clavier-first
+    // backup path. Rebuilt each RenderHeadMission ; freed each
+    // RenderEmptyMissionPanel + _ExitTree. Each button's Pressed
+    // handler is captured by-id (closure on the button's persona id)
+    // and lives on the button itself ; freeing the button
+    // disconnects automatically.
+    private readonly List<Button> _personaButtons = new();
 
     // Live log buffer.
     private readonly Queue<string> _liveLog = new();
@@ -248,6 +325,19 @@ public partial class M1Slice : Node2D
         }
         if (_affectButton is not null) _affectButton.Pressed -= OnAffectPressed;
         if (_declineButton is not null) _declineButton.Pressed -= OnDeclinePressed;
+        if (_dropSlot is not null)
+        {
+            _dropSlot.MouseEntered -= OnDropSlotMouseEntered;
+            _dropSlot.MouseExited -= OnDropSlotMouseExited;
+        }
+
+        // 5c — kill any in-flight snap-back tween before the scene
+        // tears down ; otherwise the tween's Finished callback can
+        // fire after _ExitTree and touch a freed proxy node.
+        if (_snapBackTween is not null && _snapBackTween.IsValid())
+            _snapBackTween.Kill();
+
+        ClearPersonaButtons();
 
         foreach (var pv in _personaVisuals.Values)
         {
@@ -278,6 +368,7 @@ public partial class M1Slice : Node2D
         _missionToast = GetNodeOrNull<Label>(MissionToastLabelPath);
         _queueStatusLabel = GetNodeOrNull<Label>(MissionQueueStatusLabelPath);
         _tickLabel = GetNodeOrNull<Label>(MissionTickLabelPath);
+        _personaButtonsContainer = GetNodeOrNull<Container>(MissionPersonaButtonsContainerPath);
 
         _dragProxyLayer = GetNodeOrNull<CanvasLayer>(DragProxyLayerPath);
         _dragProxyRect = GetNodeOrNull<ColorRect>(DragProxyRectPath);
@@ -575,8 +666,17 @@ public partial class M1Slice : Node2D
     {
         if (_dragProxyRect is null) return;
 
+        // 5c — if a snap-back tween from a previous cancelled drop is
+        // still in flight, kill it so the proxy can be repositioned
+        // immediately for this new drag. Same defensive Kill() pattern
+        // as the slide tween.
+        if (_snapBackTween is not null && _snapBackTween.IsValid())
+            _snapBackTween.Kill();
+
         _dragPersonaId = persona.Id;
         _dragProxyRect.Visible = true;
+        _dropSlotHovered = false;
+        ApplyDropSlotVisualState();
         UpdateProxyToCursor();
 
         Log($"[DRAG START] persona={persona.Id} (Pattern P5 cross-panel drag)");
@@ -633,6 +733,24 @@ public partial class M1Slice : Node2D
         var newPos = new Vector2(cursor.X - rectSize.X * 0.5f, cursor.Y - rectSize.Y * 0.5f);
         _dragProxyRect.Position = newPos;
 
+        // 5c — recompute drop-slot hover state every motion event
+        // (cheap rect math). The MouseEntered / MouseExited signals
+        // on the DropSlot do NOT fire while a proxy is being dragged
+        // because the proxy lives on layer=20 (above the Mission
+        // panel) and the cursor "appears" to never leave it. We
+        // therefore drive hover from the same _Input motion path
+        // that drives the proxy.
+        if (_dropSlot is not null)
+        {
+            var slotRect = _dropSlot.GetGlobalRect();
+            var nowHovered = slotRect.HasPoint(cursor);
+            if (nowHovered != _dropSlotHovered)
+            {
+                _dropSlotHovered = nowHovered;
+                ApplyDropSlotVisualState();
+            }
+        }
+
         // [DRAG] canary dump : if the proxy ever freezes again,
         // watch this in the editor Output panel — a freeze means
         // motion events stopped arriving (likely a new
@@ -642,7 +760,7 @@ public partial class M1Slice : Node2D
         // (Trap memory §2 : preflight + live canary > post-mortem.)
         var layerVal = _dragProxyLayer is not null ? _dragProxyLayer.Layer : -999;
         var visible = _dragProxyRect.Visible;
-        GD.Print($"[DRAG TRACK] persona={_dragPersonaId} cursor=({cursor.X:F0},{cursor.Y:F0}) proxyPos=({newPos.X:F0},{newPos.Y:F0}) layer={layerVal} visible={visible}");
+        GD.Print($"[DRAG TRACK] persona={_dragPersonaId} cursor=({cursor.X:F0},{cursor.Y:F0}) proxyPos=({newPos.X:F0},{newPos.Y:F0}) layer={layerVal} visible={visible} hovered={_dropSlotHovered}");
     }
 
     private void ResolveDrop()
@@ -650,7 +768,6 @@ public partial class M1Slice : Node2D
         if (_dragPersonaId is null) return;
         var personaId = _dragPersonaId;
         _dragPersonaId = null;
-        if (_dragProxyRect is not null) _dragProxyRect.Visible = false;
 
         var cursor = GetViewport().GetMousePosition();
         var slotRect = _dropSlot is not null ? _dropSlot.GetGlobalRect() : new Rect2();
@@ -674,8 +791,16 @@ public partial class M1Slice : Node2D
 
         Log($"[DROP] persona={personaId} cursor={cursor} overSlot={overSlot} mission={(mission?.Id ?? "null")} -> {decision}");
 
+        // Reset hover state regardless of outcome — the drag is over.
+        _dropSlotHovered = false;
+        ApplyDropSlotVisualState();
+
         if (decision == DropDecision.Accepted && mission is not null)
         {
+            // Hide the proxy immediately on accept — the drop landed,
+            // no need to animate back to origin.
+            if (_dragProxyRect is not null) _dragProxyRect.Visible = false;
+
             // Emit the cross-panel signal and run the resolve pipeline.
             // Build the assignment event up-front for the contract-shape
             // pin (xUnit covers BuildAssignmentEvent's defensive throws).
@@ -691,14 +816,85 @@ public partial class M1Slice : Node2D
             // OnAffectPressed.
             _ = ResolveAcceptedAssignment(mission, personaId);
         }
-        else if (decision != DropDecision.Accepted)
+        else
         {
-            // Cancelled : a v2 nicety would tween the proxy back to the
-            // persona's position. v1 just hides it instantly.
+            // 5c — animate the proxy back to the persona's icon
+            // position over SnapBackDurationSec, then hide it.
+            // Spec : 300ms ease-out (Didier 2026-05-10).
             Log($"[DROP CANCELLED] reason={decision}");
             if (_missionToast is not null)
                 _missionToast.Text = $"[DROP CANCELLED] {decision}";
+            StartSnapBackTween(personaId);
         }
+    }
+
+    /// <summary>
+    /// 5c — kick off a 300ms ease-out tween that returns the
+    /// cancelled-drop proxy to the persona's screen-projected
+    /// icon position before hiding it. Defensive against missing
+    /// nodes : if anything is null, hide the proxy immediately
+    /// (graceful fallback to v1 behaviour).
+    /// </summary>
+    private void StartSnapBackTween(string personaId)
+    {
+        if (_dragProxyRect is null)
+        {
+            return;
+        }
+
+        var origin = ProjectPersonaToScreen(personaId);
+        if (origin is null)
+        {
+            // Could not project — hide instantly as fallback.
+            _dragProxyRect.Visible = false;
+            return;
+        }
+
+        if (_snapBackTween is not null && _snapBackTween.IsValid())
+            _snapBackTween.Kill();
+
+        var rectSize = _dragProxyRect.Size;
+        var targetPos = new Vector2(
+            origin.Value.X - rectSize.X * 0.5f,
+            origin.Value.Y - rectSize.Y * 0.5f);
+
+        _snapBackTween = CreateTween();
+        _snapBackTween.TweenProperty(
+                _dragProxyRect,
+                "position",
+                targetPos,
+                SnapBackDurationSec)
+            .SetTrans(Tween.TransitionType.Quad)
+            .SetEase(Tween.EaseType.Out);
+        _snapBackTween.Finished += OnSnapBackFinished;
+    }
+
+    private void OnSnapBackFinished()
+    {
+        if (_dragProxyRect is not null) _dragProxyRect.Visible = false;
+    }
+
+    /// <summary>
+    /// 5c — project a persona's Node3D position to screen-space
+    /// for the snap-back tween target. Returns null if the
+    /// persona, the SubViewport or the camera is missing, or if
+    /// the persona is behind the camera (UnprojectPosition
+    /// undefined). The runtime offsets the projection by the
+    /// SubViewportContainer's position so the screen-space
+    /// coordinate aligns with where the persona "appears" on
+    /// the host viewport (same maths as BeginDrag's intended
+    /// initial placement).
+    /// </summary>
+    private Vector2? ProjectPersonaToScreen(string personaId)
+    {
+        if (!_personaVisuals.TryGetValue(personaId, out var pv)) return null;
+        if (_compagnieCamera3D is null || _compagnieContainer is null) return null;
+
+        if (_compagnieCamera3D.IsPositionBehind(pv.Root.GlobalPosition))
+            return null;
+
+        var inSub = _compagnieCamera3D.UnprojectPosition(pv.Root.GlobalPosition);
+        return inSub + _compagnieContainer.GlobalPosition;
     }
 
     private void FlipPersonaToInMission(string personaId)
@@ -752,6 +948,66 @@ public partial class M1Slice : Node2D
     }
 
     // ====================================================================
+    // Drop slot hover affordance (5c)
+    // ====================================================================
+
+    /// <summary>5c — capture the StyleBoxFlat the .tscn assigned
+    /// to the drop slot, derive a "hovered" variant by brightening
+    /// the border colour, and apply the appropriate one based on
+    /// <see cref="_dropSlotHovered"/>. Cached so we are not
+    /// reallocating StyleBoxFlats every motion event.</summary>
+    private void EnsureDropSlotStyles()
+    {
+        if (_dropSlot is null) return;
+        if (_dropSlotStyleNormal is not null && _dropSlotStyleHovered is not null) return;
+
+        var existing = _dropSlot.GetThemeStylebox("panel") as StyleBoxFlat;
+        if (existing is null) return;
+
+        // Take a duplicate as the "normal" baseline so re-applying
+        // does not mutate the .tscn-loaded StyleBox shared with
+        // other Panels in the scene.
+        _dropSlotStyleNormal = (StyleBoxFlat)existing.Duplicate();
+        _dropSlotStyleHovered = (StyleBoxFlat)existing.Duplicate();
+
+        // Brighten the border for hover : push toward white, also
+        // slightly thicker on all sides for a tactile feel.
+        var n = _dropSlotStyleNormal.BorderColor;
+        var brightened = new Color(
+            (n.R + 1f) * 0.5f,
+            (n.G + 1f) * 0.5f,
+            (n.B + 1f) * 0.5f,
+            n.A);
+        _dropSlotStyleHovered.BorderColor = brightened;
+        _dropSlotStyleHovered.BorderWidthLeft = _dropSlotStyleNormal.BorderWidthLeft + 2;
+        _dropSlotStyleHovered.BorderWidthTop = _dropSlotStyleNormal.BorderWidthTop + 2;
+        _dropSlotStyleHovered.BorderWidthRight = _dropSlotStyleNormal.BorderWidthRight + 2;
+        _dropSlotStyleHovered.BorderWidthBottom = _dropSlotStyleNormal.BorderWidthBottom + 2;
+    }
+
+    private void ApplyDropSlotVisualState()
+    {
+        if (_dropSlot is null) return;
+        EnsureDropSlotStyles();
+        var style = _dropSlotHovered ? _dropSlotStyleHovered : _dropSlotStyleNormal;
+        if (style is null) return;
+        _dropSlot.AddThemeStyleboxOverride("panel", style);
+    }
+
+    private void OnDropSlotMouseEntered()
+    {
+        // Idle-time hover : we don't bother changing the visual,
+        // because the affordance is meant to fire only during a
+        // drag. Leave the no-op here so the wiring in
+        // WireMissionPanel stays symmetrical with MouseExited.
+    }
+
+    private void OnDropSlotMouseExited()
+    {
+        // Idem.
+    }
+
+    // ====================================================================
     // Mission panel wiring (mirror of MissionPanelProbe trimmed)
     // ====================================================================
 
@@ -759,6 +1015,13 @@ public partial class M1Slice : Node2D
     {
         if (_affectButton is not null) _affectButton.Pressed += OnAffectPressed;
         if (_declineButton is not null) _declineButton.Pressed += OnDeclinePressed;
+        if (_dropSlot is not null)
+        {
+            _dropSlot.MouseEntered += OnDropSlotMouseEntered;
+            _dropSlot.MouseExited += OnDropSlotMouseExited;
+            EnsureDropSlotStyles();
+            ApplyDropSlotVisualState();
+        }
     }
 
     private void WireWorldSimTick()
@@ -848,6 +1111,7 @@ public partial class M1Slice : Node2D
         if (_missionHook is not null) _missionHook.Text = mission.NarrativeHook;
         if (_missionEligible is not null) _missionEligible.Text = MissionPanelLogic.FormatEligiblePersonas(mission);
 
+        BuildEligiblePersonaButtons(mission);
         UpdateMissionButtons(mission);
         UpdateQueueStatus();
     }
@@ -858,19 +1122,85 @@ public partial class M1Slice : Node2D
         if (_missionHeader is not null) _missionHeader.Text = "[MISSION] (none — waiting for tick cadence)";
         if (_missionHook is not null) _missionHook.Text = "";
         if (_missionEligible is not null) _missionEligible.Text = "";
+        ClearPersonaButtons();
         UpdateMissionButtons(mission: null);
         UpdateQueueStatus();
+    }
+
+    /// <summary>5c — build one Button per eligible persona under the
+    /// dynamic container (or directly under the Mission panel as a
+    /// fallback). Click selects the persona and refreshes the Affect
+    /// button state. The personas already in mission are skipped (no
+    /// recall in v1). Same eligibility filter as the drag-drop path
+    /// (<see cref="M1SliceLogic.IsPersonaInEligibleList"/>) — by
+    /// construction the buttons map 1-to-1 to mission.EligiblePersonas
+    /// minus the already-assigned set.</summary>
+    private void BuildEligiblePersonaButtons(EmergentMissionDto mission)
+    {
+        ClearPersonaButtons();
+
+        var parent = _personaButtonsContainer as Node ?? _missionHeader?.GetParent();
+        if (parent is null) return;
+
+        for (var i = 0; i < mission.EligiblePersonas.Count; i++)
+        {
+            var personaId = mission.EligiblePersonas[i];
+            if (_personasInMission.Contains(personaId)) continue;
+
+            var btn = new Button
+            {
+                Text = $"-> Affecter : {personaId}",
+                Name = $"PersonaBtn_{personaId}",
+            };
+            // Place the button just under the eligible label (Y=290 in
+            // the .tscn) ; if the dynamic container is present we let
+            // it manage layout, otherwise we offset manually.
+            if (_personaButtonsContainer is null)
+            {
+                btn.Position = new Vector2(24, 290 + i * 36);
+                btn.Size = new Vector2(556, 32);
+            }
+
+            var capturedId = personaId;
+            btn.Pressed += () => OnPersonaButtonPressed(capturedId);
+
+            parent.AddChild(btn);
+            _personaButtons.Add(btn);
+        }
+
+        Log($"[5c] built {_personaButtons.Count} eligible-persona button(s) under {parent.Name}");
+    }
+
+    private void ClearPersonaButtons()
+    {
+        for (var i = 0; i < _personaButtons.Count; i++)
+        {
+            var btn = _personaButtons[i];
+            if (IsInstanceValid(btn)) btn.QueueFree();
+        }
+        _personaButtons.Clear();
+    }
+
+    private void OnPersonaButtonPressed(string personaId)
+    {
+        _selectedPersonaId = personaId;
+        Log($"[5c] selected persona via button : {personaId}");
+        if (_gameState is not null && _gameState.PendingMissions.Count > 0)
+        {
+            UpdateMissionButtons(_gameState.PendingMissions[0]);
+        }
     }
 
     private void UpdateMissionButtons(EmergentMissionDto? mission)
     {
         if (_affectButton is not null)
         {
-            // Affect button is a 5c backup path — for 5ab we keep it
-            // visible-but-disabled-without-selection (no persona button
-            // list yet ; selection happens via drag-drop). It enables
-            // when a persona has dropped onto the slot, which sets
-            // _selectedPersonaId implicitly via the cross-panel signal.
+            // Affect button is a 5c backup path — clavier-first
+            // ergonomics. Enables when a persona has been clicked
+            // in the eligible-persona button list (or implicitly
+            // selected by a successful drag-drop, but the drag-drop
+            // path runs the resolve directly without the Affect
+            // button).
             var affectState = MissionPanelLogic.DecideAffectButtonState(mission, _selectedPersonaId);
             _affectButton.Visible = affectState != MissionPanelLogic.AffectButtonState.Hidden;
             _affectButton.Disabled = affectState != MissionPanelLogic.AffectButtonState.Enabled;
@@ -946,14 +1276,33 @@ public partial class M1Slice : Node2D
     {
         if (_gameState is null) return;
 
+        // 5c — store each tag through the pure-C# helper so xUnit
+        // pins the create-list-if-missing semantics. The runtime
+        // GameState.AppendPersonaLegacyTag does the same thing but
+        // is Godot-bound and not directly testable.
         for (var i = 0; i < response.TagsCreated.Count; i++)
         {
             var tag = response.TagsCreated[i];
-            _gameState.AppendPersonaLegacyTag(tag);
-            Log($"[LEGACY TAG] persona={tag.PersonaId} mission={tag.MissionId} type={tag.MissionType} outcome={tag.Outcome}");
+            AppendTagToLegacyMap(_gameState.PersonaLegacy, tag);
+            // Spec 5c §1 — log format pinned by Didier.
+            Log($"[LEGACY TAG STORED] persona={tag.PersonaId} mission={tag.MissionId} outcome={tag.Outcome}");
         }
 
-        _gameState.PendingMissions.RemoveAt(0);
+        // 5c — pop via the pure-C# helper so the empty-list defensive
+        // branch is exercised here AND testable in xUnit. The runtime
+        // had been calling RemoveAt(0) blindly, which would throw if
+        // a concurrent tick resolution emptied the queue while the
+        // resolve round-trip was in flight.
+        var poppedId = PopHeadMission(_gameState.PendingMissions);
+        Log($"[5c] popped head mission : {poppedId ?? "(queue was already empty)"}");
+
+        // 5c — emit MissionResolved AFTER state mutation so listeners
+        // see the post-resolve world (PendingMissions popped, tags
+        // appended). tagsCreatedCount is the wire-format field the
+        // signal carries ; full tags read from GameState.PersonaLegacy
+        // by listeners that need the full content.
+        EmitSignal(SignalName.MissionResolved, mission.Id, response.TagsCreated.Count);
+        Log($"[EVENT {MissionResolvedEventName}] mission={mission.Id} tagsCreatedCount={response.TagsCreated.Count}");
 
         if (_missionToast is not null)
         {
