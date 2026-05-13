@@ -22,5 +22,18 @@ layer = -1
 anchor_right = 1.0
 anchor_bottom = 1.0
 color = Color(1, 0, 1, 1)
+mouse_filter = 2
 
 [node name="ShadowRoot3D" type="Node3D" parent="."]
+
+[node name="TooltipLayer" type="CanvasLayer" parent="."]
+layer = 100
+
+[node name="CrossfadeLayer" type="CanvasLayer" parent="."]
+layer = 200
+
+[node name="CrossfadeRect" type="ColorRect" parent="CrossfadeLayer"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0, 0, 0, 0)
+mouse_filter = 2
