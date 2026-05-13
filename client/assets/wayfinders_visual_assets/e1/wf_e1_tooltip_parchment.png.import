@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b6euqy8o31pub"
-path="res://.godot/imported/halfgate_face_b_12.png-aa0846f1de2dc9f682f0634db1839ced.ctex"
+uid="uid://d3vh7ty1bo2kk"
+path="res://.godot/imported/wf_e1_tooltip_parchment.png-d012a9ea26437bea45724632b62f027d.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/wayfinders_visual_assets/e1/halfgate_face_b/halfgate_face_b_12.png"
-dest_files=["res://.godot/imported/halfgate_face_b_12.png-aa0846f1de2dc9f682f0634db1839ced.ctex"]
+source_file="res://assets/wayfinders_visual_assets/e1/wf_e1_tooltip_parchment.png"
+dest_files=["res://.godot/imported/wf_e1_tooltip_parchment.png-d012a9ea26437bea45724632b62f027d.ctex"]
 
 [params]
 
@@ -23,7 +23,7 @@ compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0
-mipmaps/generate=true
+mipmaps/generate=false
 mipmaps/limit=-1
 roughness/mode=0
 roughness/src_normal=""

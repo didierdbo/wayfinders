@@ -19,7 +19,9 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// <b>Wire-up.</b> The 4 buttons route as follows:
 /// <list type="bullet">
 ///   <item><c>[01] Ouvrir un nouveau registre</c> --
-///         <see cref="SceneManager.NavigateTo"/> to <c>E2_WORLD</c>.</item>
+///         <see cref="GetTree"/>.<c>ChangeSceneToFile</c> to
+///         <c>IsoMapE1Probe</c> (the e1 boot/flip/POI cinematic). See the
+///         "New Game path" paragraph below.</item>
 ///   <item><c>[02] Reprendre un registre archivé</c> -- disabled when
 ///         <see cref="GameState.HasSave"/> is false (J2 default), label
 ///         swaps to <c>OpeningStrings.E1ContinueDisabled</c>.</item>
@@ -28,6 +30,22 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///   <item><c>[04] Refermer le Cadastre</c> -- opens
 ///         <c>QUIT_CONFIRM_MODAL</c>.</item>
 /// </list>
+/// </para>
+///
+/// <para>
+/// <b>New Game path (2026-05-13, Rune).</b> "Nouvelle Partie" now drives
+/// the player through the e1 cinematic (boot grid -&gt; 3D flip -&gt; POI
+/// Halfgate fade-in -&gt; hover/click) implemented in
+/// <c>scenes/scratch/IsoMapE1Probe/IsoMapE1Probe.tscn</c>. The cinematic
+/// itself ends with <c>ChangeSceneToFile</c> to E2Stub on POI click. Both
+/// hops use <c>ChangeSceneToFile</c> rather than
+/// <see cref="SceneManager.NavigateTo"/> because the cinematic is a one-way
+/// scripted sequence, not a stack-managed screen : it does not implement
+/// <see cref="IScreen"/>, it has no Back/Suspend/Resume semantics, and
+/// putting it on the navigation stack would let the wheel ladder or Esc
+/// pop the player back into a half-played cinematic. The destination after
+/// E2Stub (the real E2 world map) will rejoin the SceneManager flow once
+/// the cinematic is replaced by production assets.
 /// </para>
 ///
 /// <para>
@@ -50,6 +68,12 @@ public partial class E1Title : Control, IScreen
     public string ScreenId => "E1_TITLE";
 
     private const string OpeningStringsResPath = "res://data/opening_strings.tres";
+
+    // 2026-05-13 (Rune) -- New Game button drives the e1 cinematic scene
+    // directly via ChangeSceneToFile. See class docstring "New Game path"
+    // for the rationale (cinematic is not a stack-managed screen).
+    private const string IsoMapE1ProbeScenePath =
+        "res://scenes/scratch/IsoMapE1Probe/IsoMapE1Probe.tscn";
 
     // Asset keys -- mirror data/asset_keys.json.
     private const string BureauAssetKey = "e1.bureau";
@@ -165,10 +189,18 @@ public partial class E1Title : Control, IScreen
         _continueButton.Text = result.Label;
     }
 
-    private async void OnNewGamePressed()
+    private void OnNewGamePressed()
     {
-        var sceneManager = GetNode<SceneManager>("/root/SceneManager");
-        await sceneManager.NavigateTo("E2_WORLD");
+        // 2026-05-13 (Rune) -- route Nouvelle Partie through the e1 cinematic
+        // (IsoMapE1Probe) instead of jumping straight to E2_WORLD. The
+        // cinematic ends with its own ChangeSceneToFile to E2Stub on POI
+        // click. See class docstring "New Game path" for the rationale.
+        GD.Print($"[E1Title] Nouvelle Partie -- ChangeSceneToFile({IsoMapE1ProbeScenePath})");
+        var err = GetTree().ChangeSceneToFile(IsoMapE1ProbeScenePath);
+        if (err != Error.Ok)
+        {
+            GD.PushError($"[E1Title] ChangeSceneToFile failed with error {err} -- {IsoMapE1ProbeScenePath} introuvable ?");
+        }
     }
 
     private void OnContinuePressed()
