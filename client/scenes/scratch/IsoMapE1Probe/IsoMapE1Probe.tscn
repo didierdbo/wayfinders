@@ -1,0 +1,26 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scenes/scratch/IsoMapE1Probe/IsoMapE1Probe.cs" id="1_probe"]
+
+[node name="IsoMapE1Probe" type="Node2D"]
+script = ExtResource("1_probe")
+metadata/skip_opening_bootstrap = true
+
+[node name="WorldRoot" type="Node2D" parent="."]
+y_sort_enabled = true
+
+[node name="TileGrid" type="Node2D" parent="WorldRoot"]
+y_sort_enabled = true
+
+[node name="WorldCamera" type="Camera2D" parent="."]
+zoom = Vector2(2, 2)
+
+[node name="BackgroundLayer" type="CanvasLayer" parent="."]
+layer = -1
+
+[node name="BackgroundRect" type="ColorRect" parent="BackgroundLayer"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(1, 0, 1, 1)
+
+[node name="ShadowRoot3D" type="Node3D" parent="."]
