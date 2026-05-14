@@ -23,3 +23,12 @@ builds/
 
 # Godot per-machine editor settings
 *.vscode-godot
+
+# Baked artifacts — regenerable by client/tools/PaletteQuantizerTool.cs
+# (and other future bake tools). Never commit; rebake locally.
+assets/baked/
+
+# Editor / OS scratch files
+*.tmp
+*.bak
+mono_crash.*.json
