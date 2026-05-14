@@ -16,27 +16,17 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=500]
-        # Exceptions for legitimate production binaries:
-        #   - Phase 6 L4: the resolution-head ONNX (~1.25 MB) is the contract
-        #     artefact OnnxClassifier composes with the encoder. Ratified in
-        #     the L4 pre-brief §11.6.
-        #   - Phase 7 J2 (UI theme): EB Garamond variable fonts (~800 KB each)
-        #     are the licensed UI typography shipped with the client. Same
-        #     precedent as the ONNX above.
-        #   - PR1 POI (2026-05-14): smooth oil painting POI assets (~500 KB-2 MB
-        #     each, post Mira alpha cleanup pipeline). Temporary inclusion; Git
-        #     LFS migration planned with Rune next session to handle the full
-        #     M1 asset volume cleanly.
-        exclude: |
-          (?x)^(
-            client/ml/resolution-head-v0\.1\.onnx|
-            client/assets/fonts/EBGaramond/.*\.ttf|
-            client/assets/poi/.*\.png
-          )$
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.20.2
     hooks:
       - id: mypy
         files: ^wayfinders/
-        additional_dependencies: [numpy>=1.26, types-python-slugify, fastapi>=0.115, pydantic>=2.0, torch>=2.0]
+        additional_dependencies:
+          [
+            numpy>=1.26,
+            types-python-slugify,
+            fastapi>=0.115,
+            pydantic>=2.0,
+            torch>=2.0,
+          ]
