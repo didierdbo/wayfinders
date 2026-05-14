@@ -1,0 +1,37 @@
+# === Line endings (Windows-safe) ===
+* text=auto eol=lf
+
+# Code / config / data — explicit text
+*.cs text eol=lf
+*.gd text eol=lf
+*.tres text eol=lf
+*.tscn text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+
+# Godot sidecars — text, do NOT LFS
+*.import text eol=lf
+*.uid text eol=lf
+
+# === LFS — binary game assets under client/ ===
+client/assets/**/*.png filter=lfs diff=lfs merge=lfs -text
+client/assets/**/*.jpg filter=lfs diff=lfs merge=lfs -text
+client/assets/**/*.jpeg filter=lfs diff=lfs merge=lfs -text
+client/assets/**/*.webp filter=lfs diff=lfs merge=lfs -text
+client/assets/**/*.ttf filter=lfs diff=lfs merge=lfs -text
+client/assets/**/*.otf filter=lfs diff=lfs merge=lfs -text
+client/assets/**/*.ogg filter=lfs diff=lfs merge=lfs -text
+client/assets/**/*.wav filter=lfs diff=lfs merge=lfs -text
+client/assets/**/*.mp3 filter=lfs diff=lfs merge=lfs -text
+client/assets/**/*.mp4 filter=lfs diff=lfs merge=lfs -text
+client/assets/**/*.webm filter=lfs diff=lfs merge=lfs -text
+
+# === LFS — ML artefacts ===
+client/ml/**/*.onnx filter=lfs diff=lfs merge=lfs -text
+
+# === LFS — probe/scratch assets (lourds malgré le statut dev) ===
+client/scenes/scratch/**/*.png filter=lfs diff=lfs merge=lfs -text
