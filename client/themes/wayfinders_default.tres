@@ -1,7 +1,13 @@
-[gd_resource type="Theme" load_steps=8 format=3 uid="uid://cwfthm0001"]
+[gd_resource type="Theme" format=3 uid="uid://cwfthm0001"]
 
-[ext_resource type="FontFile" path="res://assets/fonts/EBGaramond/EBGaramond-VariableFont_wght.ttf" id="1_ebgaramond_var"]
-[ext_resource type="FontFile" path="res://assets/fonts/EBGaramond/EBGaramond-Italic-VariableFont_wght.ttf" id="2_ebgaramond_var_italic"]
+[ext_resource type="FontFile" uid="uid://uydw2pgdvgeo" path="res://assets/fonts/EBGaramond/EBGaramond-VariableFont_wght.ttf" id="1_ebgaramond_var"]
+[ext_resource type="FontFile" uid="uid://cebk33t2uqt2u" path="res://assets/fonts/EBGaramond/EBGaramond-Italic-VariableFont_wght.ttf" id="2_ebgaramond_var_italic"]
+
+[sub_resource type="FontVariation" id="FontVariation_button"]
+base_font = ExtResource("1_ebgaramond_var")
+variation_opentype = {
+"wght": 600
+}
 
 [sub_resource type="FontVariation" id="FontVariation_body"]
 base_font = ExtResource("1_ebgaramond_var")
@@ -15,18 +21,6 @@ variation_opentype = {
 "wght": 700
 }
 
-[sub_resource type="FontVariation" id="FontVariation_subheading"]
-base_font = ExtResource("1_ebgaramond_var")
-variation_opentype = {
-"wght": 600
-}
-
-[sub_resource type="FontVariation" id="FontVariation_button"]
-base_font = ExtResource("1_ebgaramond_var")
-variation_opentype = {
-"wght": 600
-}
-
 [sub_resource type="FontVariation" id="FontVariation_italic"]
 base_font = ExtResource("2_ebgaramond_var_italic")
 variation_opentype = {
@@ -36,46 +30,34 @@ variation_opentype = {
 [resource]
 default_font = SubResource("FontVariation_body")
 default_font_size = 20
-Label/font_sizes/font_size = 20
-Label/fonts/font = SubResource("FontVariation_body")
+Button/colors/font_color = Color(1, 1, 1, 1)
+Button/colors/font_disabled_color = Color(0.7, 0.7, 0.7, 1)
+Button/colors/font_focus_color = Color(1, 1, 1, 1)
+Button/colors/font_hover_color = Color(1, 1, 1, 1)
+Button/colors/font_outline_color = Color(0, 0, 0, 1)
+Button/colors/font_pressed_color = Color(1, 1, 1, 1)
+Button/constants/outline_size = 2
+Button/font_sizes/font_size = 20
+Button/fonts/font = SubResource("FontVariation_button")
 Label/colors/font_color = Color(1, 1, 1, 1)
 Label/colors/font_outline_color = Color(0, 0, 0, 1)
 Label/constants/outline_size = 2
-Button/font_sizes/font_size = 20
-Button/fonts/font = SubResource("FontVariation_button")
-Button/colors/font_color = Color(1, 1, 1, 1)
-Button/colors/font_hover_color = Color(1, 1, 1, 1)
-Button/colors/font_pressed_color = Color(1, 1, 1, 1)
-Button/colors/font_focus_color = Color(1, 1, 1, 1)
-Button/colors/font_disabled_color = Color(0.7, 0.7, 0.7, 1)
-Button/colors/font_outline_color = Color(0, 0, 0, 1)
-Button/constants/outline_size = 2
-RichTextLabel/font_sizes/normal_font_size = 20
-RichTextLabel/fonts/normal_font = SubResource("FontVariation_body")
-RichTextLabel/fonts/bold_font = SubResource("FontVariation_heading")
-RichTextLabel/fonts/italics_font = SubResource("FontVariation_italic")
-RichTextLabel/colors/default_color = Color(1, 1, 1, 1)
-RichTextLabel/colors/font_outline_color = Color(0, 0, 0, 1)
-RichTextLabel/constants/outline_size = 2
-LineEdit/fonts/font = SubResource("FontVariation_body")
-LineEdit/font_sizes/font_size = 20
+Label/font_sizes/font_size = 20
+Label/fonts/font = SubResource("FontVariation_body")
 LineEdit/colors/font_color = Color(1, 1, 1, 1)
 LineEdit/colors/font_outline_color = Color(0, 0, 0, 1)
 LineEdit/constants/outline_size = 2
-TextEdit/fonts/font = SubResource("FontVariation_body")
-TextEdit/font_sizes/font_size = 20
+LineEdit/font_sizes/font_size = 20
+LineEdit/fonts/font = SubResource("FontVariation_body")
+RichTextLabel/colors/default_color = Color(1, 1, 1, 1)
+RichTextLabel/colors/font_outline_color = Color(0, 0, 0, 1)
+RichTextLabel/constants/outline_size = 2
+RichTextLabel/font_sizes/normal_font_size = 20
+RichTextLabel/fonts/bold_font = SubResource("FontVariation_heading")
+RichTextLabel/fonts/italics_font = SubResource("FontVariation_italic")
+RichTextLabel/fonts/normal_font = SubResource("FontVariation_body")
 TextEdit/colors/font_color = Color(1, 1, 1, 1)
 TextEdit/colors/font_outline_color = Color(0, 0, 0, 1)
 TextEdit/constants/outline_size = 2
-Label/Heading/base_type = "Label"
-Label/Heading/fonts/font = SubResource("FontVariation_heading")
-Label/Heading/font_sizes/font_size = 36
-Label/Heading/colors/font_color = Color(1, 1, 1, 1)
-Label/Heading/colors/font_outline_color = Color(0, 0, 0, 1)
-Label/Heading/constants/outline_size = 3
-Label/Subheading/base_type = "Label"
-Label/Subheading/fonts/font = SubResource("FontVariation_subheading")
-Label/Subheading/font_sizes/font_size = 24
-Label/Subheading/colors/font_color = Color(1, 1, 1, 1)
-Label/Subheading/colors/font_outline_color = Color(0, 0, 0, 1)
-Label/Subheading/constants/outline_size = 2
+TextEdit/font_sizes/font_size = 20
+TextEdit/fonts/font = SubResource("FontVariation_body")

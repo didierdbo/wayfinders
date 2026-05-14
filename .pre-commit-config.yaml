@@ -23,10 +23,15 @@ repos:
         #   - Phase 7 J2 (UI theme): EB Garamond variable fonts (~800 KB each)
         #     are the licensed UI typography shipped with the client. Same
         #     precedent as the ONNX above.
+        #   - PR1 POI (2026-05-14): smooth oil painting POI assets (~500 KB-2 MB
+        #     each, post Mira alpha cleanup pipeline). Temporary inclusion; Git
+        #     LFS migration planned with Rune next session to handle the full
+        #     M1 asset volume cleanly.
         exclude: |
           (?x)^(
             client/ml/resolution-head-v0\.1\.onnx|
-            client/assets/fonts/EBGaramond/.*\.ttf
+            client/assets/fonts/EBGaramond/.*\.ttf|
+            client/assets/poi/.*\.png
           )$
 
   - repo: https://github.com/pre-commit/mirrors-mypy

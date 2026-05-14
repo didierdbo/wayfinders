@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://b5fgrmjy53ojp"]
+
+[ext_resource type="Script" uid="uid://bbc7f08ggjlds" path="res://scenes/probes/PoiLoadProbe.cs" id="1_llwtt"]
+
+[node name="PoiLoadProbe" type="Node" unique_id=1796419305]
+script = ExtResource("1_llwtt")
