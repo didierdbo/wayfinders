@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using Wayfinders.Client.Scripts.Screens;
 
 namespace Wayfinders.Client.Tests.Opening;
@@ -98,6 +99,27 @@ public sealed class FogTileGridLogicTests
         var center = FogTileGridLogic.ComputeCellCenter(new GridCoord(3, 5), 100);
         Assert.Equal(350f, center.X);
         Assert.Equal(550f, center.Y);
+    }
+
+
+    [Fact]
+    public void Pixel_offset_center_is_Cell_center()
+    {
+        var dimensions = new GridDimensions(3, 2);
+        var cells = FogTileGridLogic.EnumerateCells(dimensions).ToList();
+        foreach (var cell in cells)
+        {
+            var centerIso = FogTileGridLogic.ComputeCellCenter(cell, 100, GridProjection.IsoDiamondDown);
+            var gridCoordIso = FogTileGridLogic.PixelOffsetToTile(new Vector2(centerIso.X, centerIso.Y), 100, GridProjection.IsoDiamondDown);
+            Assert.Equal(cell.Col, gridCoordIso.Col);
+            Assert.Equal(cell.Row, gridCoordIso.Row);
+
+            var centerRect = FogTileGridLogic.ComputeCellCenter(cell, 100, GridProjection.Rect);
+            var gridCoordRect = FogTileGridLogic.PixelOffsetToTile(new Vector2(centerRect.X, centerRect.Y), 100, GridProjection.Rect);
+            Assert.Equal(cell.Col, gridCoordRect.Col);
+            Assert.Equal(cell.Row, gridCoordRect.Row);
+
+        }
     }
 
     [Fact]

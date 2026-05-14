@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Numerics;
 
 namespace Wayfinders.Client.Scripts.Screens;
 
@@ -200,6 +202,28 @@ public static class FogTileGridLogic
         return new PanVec2(
             coord.Col * cellSizePx + halfCell,
             coord.Row * cellSizePx + halfCell);
+    }
+
+    public static GridCoord PixelOffsetToTile(
+        Vector2 pixelOffsetFromAnchor,
+        int cellSizePx,
+        GridProjection projection)
+    {
+        if (projection == GridProjection.IsoDiamondDown)
+        {
+            var halfW = cellSizePx / 2.0;
+            var halfH = cellSizePx / 4.0;
+
+            var x = pixelOffsetFromAnchor.X;
+            var y = pixelOffsetFromAnchor.Y - halfH; // ← compensation
+            var col = Convert.ToInt32(Math.Round((x / halfW + y / halfH) / 2));
+            var row = Convert.ToInt32(Math.Round((y / halfH - x / halfW) / 2));
+
+            return new GridCoord(col, row);
+        }
+        var c = Convert.ToInt32(Math.Floor(pixelOffsetFromAnchor.X / cellSizePx));
+        var r = Convert.ToInt32(Math.Floor(pixelOffsetFromAnchor.Y / cellSizePx));
+        return new GridCoord(c, r);
     }
 
     /// <summary>

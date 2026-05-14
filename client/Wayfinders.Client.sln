@@ -2,6 +2,8 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2012
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wayfinders.Client", "Wayfinders.Client.csproj", "{8B7A0EAB-3B19-4F2A-9A12-7DEC4C5A91C0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wayfinders.Client.Tests", "tests\Wayfinders.Client.Tests.csproj", "{31B9A919-223C-4897-B181-13B946217A73}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 	Debug|Any CPU = Debug|Any CPU
@@ -15,5 +17,11 @@ Global
 		{8B7A0EAB-3B19-4F2A-9A12-7DEC4C5A91C0}.ExportDebug|Any CPU.Build.0 = ExportDebug|Any CPU
 		{8B7A0EAB-3B19-4F2A-9A12-7DEC4C5A91C0}.ExportRelease|Any CPU.ActiveCfg = ExportRelease|Any CPU
 		{8B7A0EAB-3B19-4F2A-9A12-7DEC4C5A91C0}.ExportRelease|Any CPU.Build.0 = ExportRelease|Any CPU
+		{31B9A919-223C-4897-B181-13B946217A73}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{31B9A919-223C-4897-B181-13B946217A73}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{31B9A919-223C-4897-B181-13B946217A73}.ExportDebug|Any CPU.ActiveCfg = Debug|Any CPU
+		{31B9A919-223C-4897-B181-13B946217A73}.ExportDebug|Any CPU.Build.0 = Debug|Any CPU
+		{31B9A919-223C-4897-B181-13B946217A73}.ExportRelease|Any CPU.ActiveCfg = Debug|Any CPU
+		{31B9A919-223C-4897-B181-13B946217A73}.ExportRelease|Any CPU.Build.0 = Debug|Any CPU
 	EndGlobalSection
 EndGlobal
