@@ -14,6 +14,10 @@ Endpoints:
   (tick index, seed, context_prose) and returns a ``WorldTickResponse``
   (emergent mission or None). Always returns 200; degrades gracefully to
   uniform sampling when the predictor is not ready.
+* ``GET /api/world/poi_tree`` — POI hierarchy manifest. Returns the Varn-locked
+  ``poi_tree.json`` (2026-05-15 spec v2 §2). Read-only, static per server
+  version; the client should cache this at startup. Structure: flat dict keyed
+  by PoiId with display_name, layer, parent, children per node.
 * ``POST /api/world/mission/resolve`` — Mission resolution (DEPRECATED — use
   ``/api/world/mission/conclude``). Takes a ``MissionResolveRequest`` (mission
   fields + client-decided outcome + assigned personas) and returns
@@ -38,11 +42,14 @@ To override the default ONNX artifact paths::
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from wayfinders.api.mission_conclude import (
     MissionConcludeRequest,
@@ -68,6 +75,10 @@ from wayfinders.api.world_tick_models import WorldTickRequest, WorldTickResponse
 
 logger = logging.getLogger(__name__)
 
+# Path to the static POI tree manifest (Varn spec v2 §2, 2026-05-15).
+# Loaded once at startup and held in app.state.poi_tree for all requests.
+_POI_TREE_PATH: Path = Path(__file__).parent / "data" / "poi_tree.json"
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -87,6 +98,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             "Lifespan: predictor not ready — "
             "/api/uc1/predict will return 503 until a checkpoint is configured."
         )
+    # Load the POI tree manifest once at startup (read-only, static per server version).
+    # Stored on app.state so the endpoint never re-reads the file per request.
+    logger.info("Lifespan: loading POI tree from %s", _POI_TREE_PATH)
+    app.state.poi_tree = json.loads(_POI_TREE_PATH.read_text(encoding="utf-8"))
+    logger.info(
+        "Lifespan: POI tree loaded — version=%s nodes=%d",
+        app.state.poi_tree.get("version", "?"),
+        len(app.state.poi_tree) - 1,  # subtract the "version" key
+    )
     yield
     # Cleanup: nothing to release (encoder/head are Python objects, GC handles them).
     logger.info("Lifespan: shutdown.")
@@ -212,6 +232,37 @@ def world_tick(payload: WorldTickRequest, request: Request) -> WorldTickResponse
     predictor: Predictor = request.app.state.predictor
     engine = EmergenceEngine(predictor=predictor)
     return engine.process_tick(payload)
+
+
+@app.get(
+    "/api/world/poi_tree",
+    tags=["world"],
+    summary="POI hierarchy manifest",
+    response_class=JSONResponse,
+)
+def get_poi_tree(request: Request) -> JSONResponse:
+    """Return the Varn-locked POI hierarchy manifest.
+
+    Serves the static ``poi_tree.json`` file loaded at startup.  The client
+    (Rune's ApiClient) should cache this response — it is identical across
+    all requests until the server is restarted with a new manifest version.
+
+    Structure: flat dict keyed by PoiId string.  Each node has:
+      - ``display_name``: human-readable name for tooltip display.
+      - ``layer``:        int 1-3 (e1 region, e2 district, e3 sub-location).
+      - ``parent``:       parent PoiId or null for root nodes.
+      - ``children``:     list of child PoiId strings.
+
+    Tooltip aggregation rule (Varn spec v2 §2): missions targeting a POI ``P``
+    or any of its descendants (prefix match on PoiId string) should be shown
+    in that POI's tooltip.  The client implements this with O(n_missions)
+    prefix matching — no graph traversal needed.
+
+    M1: Halfgate e1 only.  M2+ extends to e2/e3 nodes via Varn ratification.
+
+    Always returns HTTP 200.
+    """
+    return JSONResponse(content=request.app.state.poi_tree)
 
 
 @app.post(
