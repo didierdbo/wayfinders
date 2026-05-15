@@ -448,6 +448,34 @@ public partial class IsoMapE1Probe : Node2D
     private GameSettings.SettingsChangedEventHandler? _settingsChangedHandler;
     private bool _isDragging;
 
+    // --- POI-aware camera bounds (e1 it.5, 2026-05-15) ---
+    // The pan/zoom area is constrained by the BBOX of "known" POIs at
+    // default zoom : at zoom=ZoomInspect (0.31x) the camera cannot
+    // see past half-viewport beyond any extremum POI of the known set.
+    // With one POI (Halfgate at world (0, 4032)), the bbox collapses
+    // to that single point ; the camera is essentially locked there.
+    // As more POIs are discovered (future), the explorable area grows.
+    //
+    // Activation : OFF during boot + cinematic (pan free in the legacy
+    // diamond [-8192..+8192] x [-4098..+4098]). Flipped ON at the end
+    // of ScheduleRevealAsync once _poiHoverEnabled=true. The camera
+    // is pulled back into the new bounds at activation.
+    //
+    // Forward-compatible : the bbox is computed by iterating
+    // _knownPois, so adding a second POI is _knownPois.Add(newPoi)
+    // + RecomputePoiAwareBounds(). For MVP, _knownPois is hardcoded
+    // to { _halfgatePoi } at activation time.
+    private readonly List<Poi> _knownPois = new();
+    private bool _poiAwareBoundsActive;
+    // Cached bbox of known POI positions, in world coords. Updated by
+    // RecomputePoiAwareBounds() ; consumed by ClampCameraPosition when
+    // _poiAwareBoundsActive=true.
+    private float _poiBboxMinX;
+    private float _poiBboxMaxX;
+    private float _poiBboxMinY;
+    private float _poiBboxMaxY;
+
+
     public override void _Ready()
     {
         GD.Print("[PROBE IsoMapE1Probe] scene started — e1 D + framework placeholder Mira (2026-05-13 hover + click POI Halfgate, manual hit-test bugfix)");
@@ -1682,6 +1710,27 @@ public partial class IsoMapE1Probe : Node2D
         // Active le hover/click maintenant que le POI est visible.
         _poiHoverEnabled = true;
 
+        // POI-aware camera bounds activation (e1 it.5, 2026-05-15).
+        // Until this point the pan/zoom freely roams the legacy diamond
+        // bounds [-8192..+8192] x [-4098..+4098] -- that is the "no POI
+        // known yet" world. The Halfgate POI appearing at the end of
+        // the cinematic IS the first POI the player ever discovers, so
+        // we activate the POI-aware constraint here. From now on, at
+        // default zoom (0.31x) the camera cannot see past half-viewport
+        // beyond Halfgate in any direction (= camera locked to Halfgate
+        // with one POI ; bbox grows as future POIs are discovered).
+        if (_halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+        {
+            _knownPois.Clear();
+            _knownPois.Add(_halfgatePoi);
+            RecomputePoiAwareBounds();
+            _poiAwareBoundsActive = true;
+        }
+        else
+        {
+            GD.PushWarning("[PROBE IsoMapE1Probe] POI-aware bounds activation SKIPPED -- _halfgatePoi null or freed at activation point");
+        }
+
         GD.Print($"[PROBE IsoMapE1Probe] POI fade-in completed at t≈{RevealTriggerDelaySec + RevealTotalDurationSec + PoiFadeInDurationSec:F2}s — zoom unlocked, hover/click POI enabled (e1 D, manual hit-test)");
     }
 
@@ -2031,6 +2080,22 @@ public partial class IsoMapE1Probe : Node2D
     /// </summary>
     private Vector2 ClampCameraPosition(Vector2 currentPos, float desiredWorldX, float desiredWorldY, Vector2 viewportSize)
     {
+        // POI-aware bounds branch (e1 it.5, 2026-05-15). When active, the
+        // pan range is constrained by the BBOX of known POIs ; the camera
+        // x/y are clamped to [bbox.min, bbox.max] for each axis. With a
+        // single POI the bbox is a point and the camera locks there.
+        // Hard-clamp semantics : Mathf.Clamp on each axis independently.
+        // Single-POI degenerate case : the bbox is a point so Mathf.Clamp
+        // always yanks back to the point — intended (camera centered on
+        // the POI). For multi-POI futures, the bbox is a non-degenerate
+        // rect and Mathf.Clamp gives the natural "stop at the wall" feel.
+        if (_poiAwareBoundsActive)
+        {
+            float clampedX = Mathf.Clamp(desiredWorldX, _poiBboxMinX, _poiBboxMaxX);
+            float clampedY = Mathf.Clamp(desiredWorldY, _poiBboxMinY, _poiBboxMaxY);
+            return new Vector2(clampedX, clampedY);
+        }
+
         // La grille e1 iso 2:1 64x64 peint un DIAMANT centre sur l'origine,
         // pas un rectangle. Bornes monde calculees au top du fichier :
         //   X in [-8192, +8192]  -> halfDiamondW = 8192
@@ -2055,6 +2120,123 @@ public partial class IsoMapE1Probe : Node2D
             new PanVec2(visibleW, visibleH));
 
         return new Vector2(clamped.X, clamped.Y);
+    }
+
+    /// <summary>
+    /// Recompute the POI-aware camera bounds from <c>_knownPois</c> and
+    /// the current viewport size. Called once at activation (end of the
+    /// cinematic) ; for future multi-POI work, call again every time the
+    /// known POI set changes (e.g. <c>_knownPois.Add(newPoi)</c>).
+    ///
+    /// <para>
+    /// <b>Math.</b> At default zoom (<see cref="ZoomInspect"/> = 0.31),
+    /// the visible world-rect half-extent is
+    /// <c>viewport / (2 * ZoomInspect)</c>. With viewport 1920x1080 this
+    /// gives (3097, 1742) world-px. The camera position is then clamped
+    /// so that at default zoom the player cannot see past half-viewport
+    /// beyond any extremum POI :
+    /// <list type="bullet">
+    ///   <item><c>camera.x in [bbox.min_x, bbox.max_x]</c></item>
+    ///   <item><c>camera.y in [bbox.min_y, bbox.max_y]</c></item>
+    /// </list>
+    /// With one POI the bbox collapses to a point -- camera locked.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Godot Camera2D.Limit*.</b> These clamp the VISIBLE rect, not
+    /// the camera position. To enforce camera.x in [a, b] at default
+    /// zoom we set LimitLeft = a - halfV.x and LimitRight = b + halfV.x.
+    /// At default zoom the visible rect = camera +/- halfV, so the
+    /// Limit* constraint maps back to camera.x in [a, b]. When the user
+    /// zooms IN (zoom > default), the visible rect SHRINKS, so Limit*
+    /// permits the camera to roam a bit further than the bbox -- that
+    /// is the desired behavior (zoomed in, you should be able to look
+    /// around inside the city silhouette without the half-viewport rule
+    /// snapping you back). Zoom-OUT below default is blocked by the
+    /// ZoomMin=0.31 clamp in the wheel handler, so we never violate the
+    /// "cannot see past half-viewport" rule.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Hard clamp via ClampCameraPosition.</b> We ALSO clamp the
+    /// camera via the <c>_poiAwareBoundsActive</c> branch in
+    /// <see cref="ClampCameraPosition"/> using a Mathf.Clamp on the bbox
+    /// directly. The two clamps cooperate : Godot's Limit* gives the
+    /// engine-level safety net (visible-rect math) ; the explicit clamp
+    /// in ClampCameraPosition gives deterministic camera.Position bounds
+    /// the C# code controls -- keeps the diamond-clamp code path
+    /// coherent (always writes a clamped position, never leaks an
+    /// out-of-bound value to Godot's clamp).
+    /// </para>
+    /// </summary>
+    private void RecomputePoiAwareBounds()
+    {
+        if (_knownPois.Count == 0)
+        {
+            GD.PushWarning("[PROBE IsoMapE1Probe] RecomputePoiAwareBounds called with empty _knownPois -- skipping");
+            return;
+        }
+
+        // 1. BBOX of known POI positions (world coords).
+        float minX = float.PositiveInfinity;
+        float maxX = float.NegativeInfinity;
+        float minY = float.PositiveInfinity;
+        float maxY = float.NegativeInfinity;
+        int counted = 0;
+        foreach (var poi in _knownPois)
+        {
+            if (poi is null || !IsInstanceValid(poi)) continue;
+            var p = poi.Position; // parent = _tileGrid at world origin
+            if (p.X < minX) minX = p.X;
+            if (p.X > maxX) maxX = p.X;
+            if (p.Y < minY) minY = p.Y;
+            if (p.Y > maxY) maxY = p.Y;
+            counted++;
+        }
+        if (counted == 0)
+        {
+            GD.PushWarning("[PROBE IsoMapE1Probe] RecomputePoiAwareBounds : all known POIs are null/freed -- skipping");
+            return;
+        }
+        _poiBboxMinX = minX;
+        _poiBboxMaxX = maxX;
+        _poiBboxMinY = minY;
+        _poiBboxMaxY = maxY;
+
+        // 2. Half-viewport at default zoom, in world units.
+        var viewport = GetViewport();
+        var viewportSize = viewport.GetVisibleRect().Size;
+        float halfVx = viewportSize.X / (2f * ZoomInspect);
+        float halfVy = viewportSize.Y / (2f * ZoomInspect);
+
+        // 3. Godot Camera2D.Limit* -- visible-rect clamp safety net.
+        _camera.LimitLeft = (int)Mathf.Floor(minX - halfVx);
+        _camera.LimitRight = (int)Mathf.Ceil(maxX + halfVx);
+        _camera.LimitTop = (int)Mathf.Floor(minY - halfVy);
+        _camera.LimitBottom = (int)Mathf.Ceil(maxY + halfVy);
+
+        // 4. Pull back the current camera position if it landed outside
+        //    the new bbox. Without this, a player who panned far before
+        //    activation would see the camera snap on the next pan tick.
+        //    Pull-back now for deterministic post-activation framing.
+        var camPos = _camera.Position;
+        var pulled = new Vector2(
+            Mathf.Clamp(camPos.X, _poiBboxMinX, _poiBboxMaxX),
+            Mathf.Clamp(camPos.Y, _poiBboxMinY, _poiBboxMaxY));
+        bool pulledBack = !pulled.IsEqualApprox(camPos);
+        if (pulledBack)
+        {
+            _camera.Position = pulled;
+        }
+
+        GD.Print(
+            $"[PROBE IsoMapE1Probe] POI-aware bounds activated: known_pois={counted} " +
+            $"bbox=[({_poiBboxMinX:F1},{_poiBboxMinY:F1})-({_poiBboxMaxX:F1},{_poiBboxMaxY:F1})] " +
+            $"halfViewportAtDefaultZoom=({halfVx:F1},{halfVy:F1}) " +
+            $"camera_limits=[({_camera.LimitLeft},{_camera.LimitTop})-({_camera.LimitRight},{_camera.LimitBottom})] " +
+            $"zoom_min={ZoomMin:F2} " +
+            $"camera_position_pulled={pulledBack} " +
+            $"camera_pos=({_camera.Position.X:F1},{_camera.Position.Y:F1})");
     }
 
     /// <summary>
