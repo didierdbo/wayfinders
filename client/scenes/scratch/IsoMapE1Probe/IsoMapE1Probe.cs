@@ -1245,8 +1245,16 @@ public partial class IsoMapE1Probe : Node2D
             shadow.Centered = true;
             shadow.Offset = new Vector2(0f, ShadowPivotOffsetY);
             shadow.Transform = new Transform2D(
+                // it.4 (2026-05-15) -- amplitude-only shrink to 60 % of
+                // it.3 basis. Old basis.Y=(0.5,-0.4), ratio X/Y=-1.25.
+                // New basis.Y=(0.3,-0.24), ratio preserved -1.25 OK.
+                // basis.X stays (1,0) -- the SW azimut 30 deg lock lives
+                // in basis.Y component ratio, which is untouched. Only the
+                // projection amplitude along the source-Y axis shrinks,
+                // pulling the shadow tip back toward the city foot.
+                // Scoped IsoMapE1Probe ; PoiVisualLogic / Poi.cs unchanged.
                 new Vector2(1.0f, 0.0f),
-                new Vector2(0.5f, -0.4f),
+                new Vector2(0.3f, -0.24f),
                 Vector2.Zero);
             // Edit (b) — IsoMapE1Probe-scoped alpha bump. The locked
             // ShadowAlpha=0.35 in PoiVisualLogic targets the M1Slice
