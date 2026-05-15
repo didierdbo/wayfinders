@@ -2258,43 +2258,32 @@ public partial class IsoMapE1Probe : Node2D
             return;
         }
 
-        // Texture swap face A → face B au midpoint du flip.
-        // - UseFaceBVoileCadastral=true  : legacy, face B = face A (voile cadastral).
-        // - UseFaceBVoileCadastral=false : face B = patch côtier Mira correspondant
-        //   à la cellule (gx,gy) ∈ [30..33]² mappé sur (N,M) ∈ [0..3]².
-        Texture2D swapped;
-        if (UseFaceBVoileCadastral)
-        {
-            swapped = _tileTexture;
-        }
-        else
-        {
-            var key = GetFaceBKey(cell);
-            if (_faceBTextures.TryGetValue(key, out var faceBTex) && faceBTex is not null)
-            {
-                swapped = faceBTex;
-                // Face-B patches Mira : 16 PNG voisins assembles bord-a-bord.
-                // LinearWithMipmaps + bords alpha = liseres parasites aux jonctions
-                // (mipmaps lissent les pixels alpha ; les bords lisses des 2 voisins
-                // ne se rejoignent pas exactement). Linear (sans mipmaps) supprime
-                // le filtrage cross-mipmap aux jointures. Les face-B ne sont vues
-                // qu'au zoom natif (zoom 3.0x cale, pas de scaling out) donc
-                // l'absence de mipmaps n'introduit pas d'aliasing visible.
-                // Le quadrillage voile cadastral (autres cellules) garde
-                // LinearWithMipmaps -- il change de zoom dynamiquement.
-                sprite.TextureFilter = CanvasItem.TextureFilterEnum.Nearest;
-            }
-            else
-            {
-                // Pas de face-B chargée pour cette cellule -- on retombe sur la
-                // voile cadastrale plutôt que de planter le flip. Le preflight
-                // 15/17 aurait déjà signalé l'erreur au boot.
-                GD.PushWarning($"[PROBE IsoMapE1Probe] OnHalfFlipReached: no face-B texture for cell {cell} (key={key}) — falling back to tile_neutral");
-                swapped = _tileTexture;
-            }
-        }
-
-        sprite.Texture = swapped;
+        // Reveal-shader contrast fix (Varn spec follow-up 2026-05-15) :
+        // the base sprite STAYS face-A neutral for the full lifetime
+        // of the scene. The face-B patch is composited on top via the
+        // per-cell overlay Sprite2D (SpawnFaceBOverlay) whose shader
+        // modulates alpha from reveal_level. If we also swap the base
+        // texture to face-B here, then at a boundary cell where
+        // reveal_level=0 (overlay alpha=0, transparent), the eye would
+        // still see face-B underneath -- killing the smoothstep fade
+        // the shader produces. Keeping face-A as the base is precisely
+        // what makes the boundary feather visible : alpha=0 reveals
+        // face-A neutral, alpha=1 hides it behind opaque face-B.
+        //
+        // Trade-off accepted at MVP : because the overlay starts at
+        // reveal_level=0 and jumps to 1.0 at this midpoint, face-B
+        // pops in on interior cells rather than dissolving smoothly
+        // during the Y-rotation. Cinematic-smooth fade-in of the
+        // overlay is a follow-up (separate tween on a per-overlay
+        // modulate.a, or a per-cell shader parameter ramped over
+        // halfDuration). The static boundary feather -- the actual
+        // bug Didier reported -- is fixed by this drop.
+        //
+        // Note : sprite.TextureFilter is left untouched (LinearWithMipmaps,
+        // matching the rest of the cadastral grid). The overlay sprites
+        // were already created with TextureFilter=Nearest in
+        // SpawnFaceBOverlay, so the face-B patches still sample without
+        // mipmap bleed at the seams.
 
         // Reveal-shader integration (Varn spec 2026-05-15). At the
         // flip midpoint for THIS cell, write reveal_level=1.0 into
@@ -2312,7 +2301,7 @@ public partial class IsoMapE1Probe : Node2D
 
         if (cell == new Vector2I(CenterIndex, CenterIndex))
         {
-            GD.Print($"[PROBE IsoMapE1Probe] half-flip reached on center cell {cell} — texture swap A→B applied (face-B mode={(UseFaceBVoileCadastral ? "voile_cadastral_legacy" : "halfgate_patches_mira")})");
+            GD.Print($"[PROBE IsoMapE1Probe] half-flip reached on center cell {cell} — reveal_level=1.0 set on cell (overlay face-B fades in via shader ; base sprite stays face-A) (face-B mode={(UseFaceBVoileCadastral ? "voile_cadastral_legacy" : "halfgate_patches_mira")})");
         }
     }
 
