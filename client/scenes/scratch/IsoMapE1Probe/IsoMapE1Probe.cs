@@ -1456,9 +1456,9 @@ public partial class IsoMapE1Probe : Node2D
             Texture = sealTex,
             MouseFilter = Control.MouseFilterEnum.Ignore,
             OffsetLeft = TooltipParchmentWidthPx - SealWaxWidthPx - 12f,
-            OffsetTop = TooltipParchmentHeightPx - SealWaxHeightPx - 12f,
+            OffsetTop = 12f,
             OffsetRight = TooltipParchmentWidthPx - 12f,
-            OffsetBottom = TooltipParchmentHeightPx - 12f,
+            OffsetBottom = SealWaxHeightPx + 12f,
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
             TextureFilter = CanvasItem.TextureFilterEnum.Linear,
         };
