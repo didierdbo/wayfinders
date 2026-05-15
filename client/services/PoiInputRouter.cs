@@ -66,6 +66,29 @@ namespace Wayfinders.Client.Services;
 /// </para>
 ///
 /// <para>
+/// <b>Centered-aware AABB (locked 2026-05-15, IsoMapE1Probe override).</b>
+/// The PR3 Poi convention is <c>Centered=false, Offset=-AnchorPixel</c> so
+/// the sprite pivots around the foot anchor. <see cref="IsoMapE1Probe"/>
+/// overrides this scene-specifically with <c>Centered=true, Offset=Zero</c>
+/// so the painted POI is centered on the geometric centre of the 4x4
+/// face-B emprise (the original anchor (538,573) sat off-centre and
+/// "écrasé" the city visually onto the cadastral grid). The router reads
+/// <see cref="Sprite2D.Centered"/> at hit-test time and computes the
+/// world top-left accordingly :
+///   <list type="bullet">
+///     <item><c>Centered=false</c> → top-left = <c>GlobalPosition + Offset * Scale</c>
+///           (pivot at the local origin, Offset translates the visible rect).</item>
+///     <item><c>Centered=true</c> → top-left = <c>GlobalPosition - TexSize * Scale * 0.5 + Offset * Scale</c>
+///           (pivot at the texture centre, Offset still translates the
+///           visible rect on top of that centring).</item>
+///   </list>
+/// Both branches produce the same AABB regardless of which pivot convention
+/// the spawner used, so the bitmap pixel-perfect descale below works for
+/// either case. PoiSpawner / M1Slice / PoiSpawnProbe keep the PR3 default ;
+/// only IsoMapE1Probe takes the centered branch today.
+/// </para>
+///
+/// <para>
 /// <b>Disconnection discipline (methodology trap #10).</b> Every
 /// <see cref="Register"/> must be paired with an
 /// <see cref="Unregister"/> in the POI's <c>_ExitTree</c>. Otherwise the
@@ -134,6 +157,29 @@ public partial class PoiInputRouter : Node
     }
 
     /// <summary>
+    /// Compute the visible sprite's top-left corner in world coordinates,
+    /// accounting for the <see cref="Sprite2D.Centered"/> pivot mode. With
+    /// <c>Centered=false</c> the sprite pivots around the local origin so
+    /// the top-left is <c>GlobalPosition + Offset*Scale</c>. With
+    /// <c>Centered=true</c> the sprite pivots around the texture centre so
+    /// the top-left is shifted by half the visible size : the centring
+    /// subtraction <c>-TexSize*Scale*0.5</c> stacks on top of the
+    /// Offset-driven translation. Pure helper — no Godot side-effects ;
+    /// callers do the AABB / hit-test math.
+    /// </summary>
+    private static Vector2 ComputeSpriteTopLeftWorld(
+        Vector2 globalPosition,
+        Vector2 offset,
+        Vector2 scale,
+        Vector2 texSize,
+        bool centered)
+    {
+        var fromOffset = globalPosition + offset * scale;
+        if (!centered) return fromOffset;
+        return fromOffset - texSize * scale * 0.5f;
+    }
+
+    /// <summary>
     /// True if <paramref name="poi"/> is registered AND the live cursor
     /// position sits on an opaque pixel of its alpha mask. Same AABB +
     /// bitmap predicate used by <see cref="_Input"/>, exposed for callers
@@ -163,14 +209,14 @@ public partial class PoiInputRouter : Node
         var screen = viewport.GetMousePosition();
         var cursor = viewport.GetCanvasTransform().AffineInverse() * screen;
 
-        // Scale-aware AABB. The visible sprite is texSize * poi.Scale ; with
-        // Centered=false + Offset=-AnchorPixel, the Sprite2D pivots the scale
-        // around the foot (the node's local origin sits on the anchor). The
-        // top-left corner in world coords is therefore offset by the scaled
-        // Offset, not the raw Offset.
+        // Scale-aware + Centered-aware AABB. PR3 default = Centered=false,
+        // Offset=-AnchorPixel ; IsoMapE1Probe override = Centered=true,
+        // Offset=Zero. Both produce the same visible rect once we factor
+        // the pivot into the top-left calculation (see helper).
         var texSize = poi.Texture.GetSize();
         var scale = poi.Scale;
-        var topLeftWorld = poi.GlobalPosition + poi.Offset * scale;
+        var topLeftWorld = ComputeSpriteTopLeftWorld(
+            poi.GlobalPosition, poi.Offset, scale, texSize, poi.Centered);
         var visibleSize = texSize * scale;
         var aabb = new Rect2(topLeftWorld, visibleSize);
         if (!aabb.HasPoint(cursor)) return false;
@@ -226,17 +272,19 @@ public partial class PoiInputRouter : Node
             if (!IsValidPoi(poi)) continue;
             if (poi.Texture == null) continue;
 
-            // Build the global AABB in world coords. Scale-aware so a Poi
-            // with Sprite2D.Scale != (1,1) still hit-tests correctly (e.g.
-            // IsoMapE1Probe shrinks the Halfgate POI to 0.5x for visual
-            // balance with the 4x4 face-B emprise). Locked Poi convention :
-            // Centered=false, Offset=-AnchorPixel applied in Poi._Ready.
-            // With that pivot, the Sprite2D scales around the foot, so the
-            // top-left corner in world coords is GlobalPosition + Offset*Scale,
-            // and the visible size is Texture.GetSize() * Scale.
+            // Build the global AABB in world coords. Scale-aware AND
+            // Centered-aware so the two spawner conventions stay supported :
+            //   - PR3 default (PoiSpawner / M1Slice / PoiSpawnProbe) :
+            //     Centered=false, Offset=-AnchorPixel — pivot at the foot.
+            //   - IsoMapE1Probe override (2026-05-15) : Centered=true,
+            //     Offset=Zero — pivot at the texture centre, Position is the
+            //     geometric centre of the 4x4 face-B emprise.
+            // ComputeSpriteTopLeftWorld factors the pivot into the corner
+            // calc, so the downstream visible-size + descale math is identical.
             var texSize = poi.Texture.GetSize();
             var scale = poi.Scale;
-            var topLeftWorld = poi.GlobalPosition + poi.Offset * scale;
+            var topLeftWorld = ComputeSpriteTopLeftWorld(
+                poi.GlobalPosition, poi.Offset, scale, texSize, poi.Centered);
             var visibleSize = texSize * scale;
             var aabb = new Rect2(topLeftWorld, visibleSize);
             if (!aabb.HasPoint(cursor)) continue; // AABB pre-filter

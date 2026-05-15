@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Godot;
@@ -369,6 +369,44 @@ public partial class IsoMapE1Probe : Node2D
     /// recompiler. -1.0f (default) = utilise la constante.
     /// </summary>
     [Export] public float PoiSpriteScaleOverride { get; set; } = -1.0f;
+
+    // ====================================================================
+    // Sliders live-tuning Didier (2026-05-15, IsoMapE1Probe POI centering).
+    //
+    // Reference baseline : Scale=1.0, Offset=(0,0), ShadowOffset=(0,0).
+    // The POI is already centered on the geometric centre of the 4x4 face-B
+    // emprise via Centered=true + Offset=Zero + Position=(0,4032). These
+    // sliders are the F5 live-tuning surface : adjust until the POI/cadastre
+    // visual balance feels right, then hardcode the chosen values back into
+    // PoiSpriteScale / a fixed Position offset / a fixed shadow offset and
+    // collapse the sliders.
+    //
+    // Note : the inspector overrides are read at _Ready, so adjusting them
+    // means relaunching F5 between attempts (MVP — no live-rebind through
+    // _Process to keep the per-frame cost at zero).
+    // ====================================================================
+
+    /// <summary>
+    /// Multiplicative scale factor applied to the POI sprite on top of
+    /// <see cref="PoiSpriteScale"/> / <see cref="PoiSpriteScaleOverride"/>.
+    /// Range [0.1, 2.0] step 0.05. Default 1.0 = no extra scaling.
+    /// </summary>
+    [Export(PropertyHint.Range, "0.1,2.0,0.05")]
+    public float PoiScale { get; set; } = 1.0f;
+
+    /// <summary>
+    /// Additional pixel offset stacked on top of the POI's reference
+    /// position (0, 4032 = geometric centre of the 4x4 face-B emprise).
+    /// Default Vector2.Zero = no extra translation.
+    /// </summary>
+    [Export] public Vector2 PoiPositionOffset { get; set; } = Vector2.Zero;
+
+    /// <summary>
+    /// Additional pixel offset stacked on top of the shadow child's
+    /// position (which already carries the SW 30° skew + Y-flatten 0.4
+    /// applied by PoiVisualLogic). Default Vector2.Zero = no extra shift.
+    /// </summary>
+    [Export] public Vector2 ShadowOffset { get; set; } = Vector2.Zero;
 
     // --- État runtime ---
     private Camera2D _camera = null!;
@@ -1108,18 +1146,64 @@ public partial class IsoMapE1Probe : Node2D
         };
 
         // Scale visuel : reduit le sprite POI (1076x575 raw) pour qu'il se pose sur
-        // l'emprise des 16 face-B sans ecraser le cadastre. Avec Centered=false +
-        // Offset=-AnchorPixel applique en Poi._Ready, le pivot du scale est le foot
-        // (anchor pixel) -- donc Position (0, 4032) reste le foot scale-invariant.
-        // Le shadow child herite naturellement (Sprite2D enfant suit le Scale parent).
-        // Hitbox : voir PoiInputRouter scale-aware AABB + local-pixel descale.
-        float effectiveScale = PoiSpriteScaleOverride > 0f ? PoiSpriteScaleOverride : PoiSpriteScale;
+        // l'emprise des 16 face-B sans ecraser le cadastre. Le scale combine la
+        // constante de baseline (PoiSpriteScale=0.5), l'override A/B legacy
+        // (PoiSpriteScaleOverride > 0 wins), et le slider PoiScale (multiplicatif,
+        // baseline 1.0) pour le live-tuning F5.
+        // Hitbox : voir PoiInputRouter scale-aware + Centered-aware AABB.
+        float baseScale = PoiSpriteScaleOverride > 0f ? PoiSpriteScaleOverride : PoiSpriteScale;
+        float effectiveScale = baseScale * PoiScale;
         _halfgatePoi.Scale = new Vector2(effectiveScale, effectiveScale);
         GD.Print($"[PROBE IsoMapE1Probe] POI sprite scale={effectiveScale:F2} "
-            + $"(const={PoiSpriteScale:F2} override={PoiSpriteScaleOverride:F2}) "
+            + $"(base={baseScale:F2} const={PoiSpriteScale:F2} legacyOverride={PoiSpriteScaleOverride:F2} sliderPoiScale={PoiScale:F2}) "
             + $"-- raw 1076x575 -> rendered {1076 * effectiveScale:F0}x{575 * effectiveScale:F0}");
 
+        // Apply the inspector position offset on top of the reference (0, 4032).
+        // The position itself is set at construction above ; we stack the slider
+        // contribution here so the log line above can read the unmodified base.
+        if (PoiPositionOffset != Vector2.Zero)
+        {
+            _halfgatePoi.Position += PoiPositionOffset;
+            GD.Print($"[PROBE IsoMapE1Probe] POI position offset slider applied : +({PoiPositionOffset.X:F1},{PoiPositionOffset.Y:F1}) -> pos=({_halfgatePoi.Position.X:F1},{_halfgatePoi.Position.Y:F1})");
+        }
+
         _tileGrid.AddChild(_halfgatePoi);
+
+        // Scene-specific override (locked 2026-05-15) : center the POI on the
+        // 4x4 face-B emprise instead of anchoring at the sidecar's (538, 573)
+        // foot. The PR3 Poi._Ready ran inside AddChild and set the default
+        // Centered=false + Offset=-AnchorPixel ; we flip both AFTER so the
+        // sprite pivots around its texture centre, and Position=(0, 4032) (the
+        // geometric centre of the imprint) places the painted city dead-centre
+        // on the cadastre. PoiInputRouter is Centered-aware, so bitmap hit-test
+        // stays pixel-perfect with no extra wiring.
+        //
+        // The PoiData object itself is NOT mutated (its AnchorPixel stays at
+        // (538, 573)) — this is a per-Sprite2D override only. PoiSpawner /
+        // M1Slice / PoiSpawnProbe keep the PR3 default for their own POIs.
+        _halfgatePoi.Centered = true;
+        _halfgatePoi.Offset = Vector2.Zero;
+
+        // Apply the shadow offset slider, if any. The shadow child is named
+        // "Shadow" and was added by Poi._Ready already ; we shift it on top
+        // of the SW 30° skew + Y-flatten 0.4 that PoiVisualLogic baked into
+        // its Transform2D. PoiVisualLogic itself stays untouched — this
+        // offset is additive at the node level.
+        if (ShadowOffset != Vector2.Zero)
+        {
+            var shadowNode = _halfgatePoi.GetNodeOrNull<Sprite2D>("Shadow");
+            if (shadowNode is not null)
+            {
+                shadowNode.Position += ShadowOffset;
+                GD.Print($"[PROBE IsoMapE1Probe] Shadow offset slider applied : +({ShadowOffset.X:F1},{ShadowOffset.Y:F1}) -> pos=({shadowNode.Position.X:F1},{shadowNode.Position.Y:F1})");
+            }
+            else
+            {
+                GD.PushWarning("[PROBE IsoMapE1Probe] ShadowOffset slider set but 'Shadow' child not found on POI -- skipped");
+            }
+        }
+
+        GD.Print($"[PROBE IsoMapE1Probe] POI centering override applied : Centered=true Offset=(0,0) Position=({_halfgatePoi.Position.X:F1},{_halfgatePoi.Position.Y:F1}) (geometric centre of 4x4 face-B emprise)");
 
         // PR3-6 integration : the Poi._Ready ran during AddChild and already
         // registered with the PoiInputRouter. We immediately Unregister so
@@ -2168,7 +2252,7 @@ public partial class IsoMapE1Probe : Node2D
         // 9. POI Halfgate placement.
         float imprintCenterGx = (RevealMinGx + RevealMaxGx) * 0.5f;
         float imprintCenterGy = (RevealMinGy + RevealMaxGy) * 0.5f;
-        Vector2 expectedPoiPos = GridToScreen(imprintCenterGx, imprintCenterGy);
+        Vector2 expectedPoiPos = GridToScreen(imprintCenterGx, imprintCenterGy) + PoiPositionOffset;
         bool poiExists = _halfgatePoi is not null && IsInstanceValid(_halfgatePoi);
         bool poiParentOk = poiExists && _halfgatePoi!.GetParent() == _tileGrid;
         bool poiPosOk = poiExists
@@ -2177,11 +2261,12 @@ public partial class IsoMapE1Probe : Node2D
         bool poiZOk = poiExists
             && _halfgatePoi!.ZIndex == PoiZIndex
             && _halfgatePoi.ZAsRelative == false;
-        // PR3-6 integration : the Poi uses Centered=false + Offset=-Anchor.
-        // Replace the legacy Centered=true check with the new contract.
-        bool poiCenteredOk = poiExists && !_halfgatePoi!.Centered
-            && _halfgatePoiData is not null
-            && _halfgatePoi.Offset == -(Vector2)_halfgatePoiData.AnchorPixel;
+        // Scene-specific override (locked 2026-05-15) : IsoMapE1Probe flips
+        // the PR3 default to Centered=true + Offset=Zero so the painted POI
+        // centres on the 4x4 face-B emprise instead of anchoring at the
+        // sidecar's (538, 573) foot pixel. Validate the override is live.
+        bool poiCenteredOk = poiExists && _halfgatePoi!.Centered
+            && _halfgatePoi.Offset == Vector2.Zero;
 
         bool poiCoverageOk = false;
         string coverageDetail = "n/a";
@@ -2189,17 +2274,15 @@ public partial class IsoMapE1Probe : Node2D
         {
             // PR3-6 integration : the imprint must lie INSIDE the painted
             // POI silhouette. We measure inclusion against the live
-            // texture half-extents (Mira PR3-6 is 1076x575 ; legacy was
-            // 1024x512). The painted POI now anchors at its foot, not
-            // its center -- the texture rectangle in WORLD space is
-            // [Position - Anchor, Position - Anchor + TexSize], so the
-            // "center" used for the inclusion test is the texture's
-            // geometric centroid, not the node Position. Compute it.
+            // texture half-extents (Mira PR3-6 is 1076x575). With the
+            // Centered=true + Offset=Zero override, the texture's geometric
+            // centroid is exactly the node Position (no anchor-offset math
+            // needed). The visible rectangle in WORLD space is
+            // [Position - TexSize/2, Position + TexSize/2].
             Vector2 texSize = _halfgatePoi!.Texture is not null
                 ? _halfgatePoi.Texture.GetSize()
                 : new Vector2(PoiTextureWidthPx, PoiTextureHeightPx);
-            Vector2 texTopLeftWorld = _halfgatePoi.Position + _halfgatePoi.Offset;
-            Vector2 c = texTopLeftWorld + texSize * 0.5f;
+            Vector2 c = _halfgatePoi.Position; // Centered=true → centroid == Position
             float halfW = texSize.X * 0.5f;
             float halfH = texSize.Y * 0.5f;
 
