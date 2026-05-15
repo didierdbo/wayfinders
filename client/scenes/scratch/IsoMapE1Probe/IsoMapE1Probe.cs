@@ -180,9 +180,9 @@ public partial class IsoMapE1Probe : Node2D
     // ZoomMin remonte à 0.7 : impossible de dézoomer en-dessous de la vue
     // tactique post-cinematic ; la vue régionale 0.31x est un moment scripté
     // pour la découverte, pas un état réutilisable par l'utilisateur.
-    private const float ZoomInspect = 0.7f;
+    private const float ZoomInspect = 1.0f;
     private const float ZoomCinematicStart = 0.31f;
-    private const float ZoomMin = 0.7f;
+    private const float ZoomMin = 1.0f;
     private const float ZoomMax = 2.0f;
     private const float ZoomWheelStep = 1.1f;
 
