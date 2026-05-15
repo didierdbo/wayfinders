@@ -1474,7 +1474,7 @@ public partial class IsoMapE1Probe : Node2D
             OffsetRight = TooltipParchmentWidthPx - 20f,
             OffsetBottom = 50f,
         };
-        _tooltipTitleLabel.AddThemeFontSizeOverride("font_size", 26);
+        _tooltipTitleLabel.AddThemeFontSizeOverride("font_size", 32);
         _tooltipTitleLabel.AddThemeColorOverride("font_color", new Color(0.18f, 0.10f, 0.05f, 1f));
         _tooltipRoot.AddChild(_tooltipTitleLabel);
 
@@ -1488,7 +1488,7 @@ public partial class IsoMapE1Probe : Node2D
             OffsetRight = TooltipParchmentWidthPx - 20f,
             OffsetBottom = 76f,
         };
-        _tooltipSubtitleLabel.AddThemeFontSizeOverride("font_size", 16);
+        _tooltipSubtitleLabel.AddThemeFontSizeOverride("font_size", 20);
         _tooltipSubtitleLabel.AddThemeColorOverride("font_color", new Color(0.35f, 0.20f, 0.10f, 1f));
         _tooltipRoot.AddChild(_tooltipSubtitleLabel);
 
@@ -1503,7 +1503,7 @@ public partial class IsoMapE1Probe : Node2D
             OffsetBottom = TooltipParchmentHeightPx - 20f,
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
         };
-        _tooltipBodyLabel.AddThemeFontSizeOverride("font_size", 14);
+        _tooltipBodyLabel.AddThemeFontSizeOverride("font_size", 18);
         _tooltipBodyLabel.AddThemeColorOverride("font_color", new Color(0.25f, 0.15f, 0.08f, 1f));
         _tooltipRoot.AddChild(_tooltipBodyLabel);
 
@@ -1576,7 +1576,7 @@ public partial class IsoMapE1Probe : Node2D
             OffsetRight = MissionsSectionWidthPx - MissionsSectionPaddingPx,
             OffsetBottom = MissionsSectionPaddingPx / 2f + MissionsSectionHeaderHeightPx,
         };
-        _missionsSectionHeaderLabel.AddThemeFontSizeOverride("font_size", 16);
+        _missionsSectionHeaderLabel.AddThemeFontSizeOverride("font_size", 20);
         _missionsSectionHeaderLabel.AddThemeColorOverride("font_color", new Color(0.95f, 0.85f, 0.70f, 1f));  // parchment cream on dark
         _missionsSectionPanel.AddChild(_missionsSectionHeaderLabel);
 
@@ -1593,7 +1593,7 @@ public partial class IsoMapE1Probe : Node2D
                 OffsetRight = MissionsSectionWidthPx - MissionsSectionPaddingPx,
                 OffsetBottom = MissionsSectionPaddingPx / 2f + MissionsSectionHeaderHeightPx + (i + 1) * MissionsSectionRowHeightPx,
             };
-            rowLabel.AddThemeFontSizeOverride("font_size", 14);
+            rowLabel.AddThemeFontSizeOverride("font_size", 18);
             rowLabel.AddThemeColorOverride("font_color", new Color(0.92f, 0.82f, 0.66f, 1f));
             _missionsSectionPanel.AddChild(rowLabel);
             _missionsRowLabels[i] = rowLabel;
