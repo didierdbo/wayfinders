@@ -648,6 +648,34 @@ public partial class IsoMapE1Probe : Node2D
             _lastCursorViewportPos = GetViewport().GetMousePosition();
             UpdateTooltipPosition();
         }
+
+        // Shadow alpha override (it.3, 2026-05-15, scoped IsoMapE1Probe).
+        // The locked ShadowAlpha=0.35 in PoiVisualLogic targets the
+        // M1Slice / PoiSpawnProbe terracotta-grass backdrop. On this probe's
+        // cadastral B/W sol the contrast is too low and the shadow reads as
+        // "à peine visible". We bump to 0.55 by overwriting the shadow's
+        // Modulate.A AFTER Poi._Process wrote its 0.35 * poiAlpha tick.
+        // ProcessPriority=-10 on _halfgatePoi (set in SpawnHalfgatePoi)
+        // guarantees Poi's _Process runs FIRST each frame, then this
+        // _Process overwrites — the locked fog-fade rule
+        // shadow.alpha = const * poi.alpha is preserved with const=0.55.
+        // The poi.alpha factor lets the cinematic fade-in (Modulate.A 0→1)
+        // still carry the shadow with it.
+        if (_halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+        {
+            var shadowNode = _halfgatePoi.GetNodeOrNull<Sprite2D>("Shadow");
+            if (shadowNode is not null && IsInstanceValid(shadowNode))
+            {
+                const float ShadowAlphaProbeOverride = 0.55f;
+                float poiAlpha = _halfgatePoi.Modulate.A;
+                float targetA = ShadowAlphaProbeOverride * poiAlpha;
+                var mod = shadowNode.Modulate;
+                if (Mathf.Abs(mod.A - targetA) > 0.001f)
+                {
+                    shadowNode.Modulate = new Color(0f, 0f, 0f, targetA);
+                }
+            }
+        }
     }
 
     // PR3-6 integration : UpdateHoverState / IsPointInPoiDiamond /
@@ -1157,28 +1185,52 @@ public partial class IsoMapE1Probe : Node2D
 
         // Shadow re-pivot override (2026-05-15, scoped to IsoMapE1Probe only).
         //
-        // Iteration 2 (this commit): the first re-pivot pass aimed the shadow
-        // at the bottom-centre of the rectangular 1024x512 texture (world
-        // y=4288 = parent local (0, +256)), assuming that pixel was the foot
-        // of the painted silhouette. After F5, Didier observed the shadow was
-        // rabattu trop bas — projeté depuis le bas de l'image rect, sous la
-        // côte / sea band, et non sous la ville iso peinte.
+        // Iteration 3 (this commit): after iteration 2 (pivot at parent
+        // centre = image centre = world (0, 4032)), Didier observed at F5
+        // that the shadow "apparait à peine" — barely visible. Two causes :
         //
-        // Root cause : in the 2026-05-15 image swap, MJ placed the iso city
-        // in the upper half of the 1024x512 frame ; the lower half holds sea
-        // + coastline (decorative band, no city footprint). The visual foot
-        // of the painted city is therefore ~ at the IMAGE CENTRE, not at the
-        // image bottom. Pivoting at image bottom rabats the silhouette below
-        // the painted city, detached.
+        // (a) Geometry. With Centered=true + Offset=(0,0), local texture y
+        //     ranges [-256, +256] around the image centre. The SW-30° basis
+        //     (1,0)/(0.5,-0.4) projects local_y to new_y = -0.4 * local_y, so
+        //     new_y ranges [-102, +102]. That means HALF the texture (image
+        //     y in [256, 512] = sea/coastline band) projects UPWARD (new_y
+        //     negative) and lands INSIDE the parent's draw rect, hidden by
+        //     ShowBehindParent=true. Only the top half (the painted city)
+        //     casts a visible shadow downward — and that shadow extends only
+        //     ~102 px past the parent foot before fading, so it barely
+        //     peeks past the silhouette.
         //
-        // Fix iteration 2 : pivot at parent-local origin = (0, 0) = parent
-        // Position = world (0, 4032) = centre of the 1024x512 frame = visual
-        // foot of the painted city. Use Centered=true + Offset=Vector2.Zero
-        // so the shadow texture is centred on its own transform origin (no
-        // double-offset). The SW-30° basis + 0.4 vertical compress are
-        // preserved verbatim from PoiVisualLogic's locked memo. Resulting
-        // shadow stretches ~ y in [3929, 4135] around the painted-city foot,
-        // SW-rabattue, sous la ville et non sous la coastline.
+        // (b) Density. ShadowAlpha=0.35 (locked in PoiVisualLogic for the
+        //     M1Slice / PoiSpawnProbe terracotta-grass backgrounds) is too
+        //     subtle against the cadastral B/W sol of IsoMapE1Probe. See
+        //     edit (b) further down in _Process for the per-frame override.
+        //
+        // Fix iteration 3 — pivot at the painted-city foot pixel, not the
+        // image centre. Estimation : the iso city occupies the upper ~80 %
+        // of the 1024x512 frame ; the painted foot (where the city meets
+        // the sea/coast band) sits around image_y = 416 (= 256 + 160 below
+        // image centre, or ~81 % vertical descent).
+        //
+        // Implementation. With Centered=true, the texture centre sits at
+        // local Offset ; setting Offset=(0,-160) shifts the texture UP by
+        // 160 local px, so image pixel (512, 416) — the foot — lands at
+        // local (0, 0). The basis then pivots around that foot. New local_y
+        // range : [-416, +96]. After basis projection (-0.4) : new_y range
+        // [+166, -38] — i.e. the bulk of the city (image y in [0, 416])
+        // projects DOWN past the foot (visible), only the small sea/coast
+        // band (image y in [416, 512]) projects UP (hidden, acceptable —
+        // that band is decorative coastline, not iconic city silhouette).
+        // World pivot stays at parent Position = (0, 4032) = centre of the
+        // 4x4 face-B emprise = where the painted city visually plants its
+        // foot. Shadow rabattue SW, anchored at the visual foot of the
+        // painted city, no longer projected into the sea band.
+        //
+        // NB on the mandate hint. The pre-brief suggested Transform.origin =
+        // (0, +160). Setting origin translates the entire result downward
+        // by 160 world-px, which would visually disconnect the shadow from
+        // the city foot. The correct lever is Offset (which moves the
+        // texture under the pivot) ; origin stays at (0, 0) so the foot
+        // anchors at the parent Position.
         //
         // Anti-checklist : NOT a fix in Poi.cs / PoiVisualLogic (those keep
         // serving M1Slice / PoiSpawnProbe under the PR3 anchor-at-foot
@@ -1186,16 +1238,27 @@ public partial class IsoMapE1Probe : Node2D
         // sidecar, image, face-B, cinematic, and F9/F10 toggles are all
         // unchanged. This override only re-stages the shadow child's
         // transform for this scene's hardcoded Centered=true override.
+        const float ShadowPivotOffsetY = -160f; // image_y=416 foot, sea-banded 1024x512
         var shadow = _halfgatePoi.GetNodeOrNull<Sprite2D>("Shadow");
         if (shadow != null)
         {
             shadow.Centered = true;
-            shadow.Offset = Vector2.Zero;
+            shadow.Offset = new Vector2(0f, ShadowPivotOffsetY);
             shadow.Transform = new Transform2D(
                 new Vector2(1.0f, 0.0f),
                 new Vector2(0.5f, -0.4f),
                 Vector2.Zero);
-            GD.Print($"[PROBE IsoMapE1Probe] Shadow re-pivoted (it.2) : Centered=true Offset=(0,0) origin=(0,0) (pivot at parent centre = painted-city visual foot for 1024x512 sea-banded image)");
+            // Edit (b) — IsoMapE1Probe-scoped alpha bump. The locked
+            // ShadowAlpha=0.35 in PoiVisualLogic targets the M1Slice
+            // terracotta-grass backdrop ; the cadastral B/W of this probe
+            // washes it out. We bump to 0.55 via a per-frame override in
+            // IsoMapE1Probe._Process (Poi._Process writes the 0.35 path each
+            // tick ; we run after with a lower ProcessPriority and rewrite).
+            // Setting ProcessPriority=-10 on the Poi guarantees its tick
+            // runs BEFORE this scene's _Process (Godot processes nodes by
+            // ascending priority).
+            _halfgatePoi.ProcessPriority = -10;
+            GD.Print($"[PROBE IsoMapE1Probe] Shadow re-pivoted (it.3) : Centered=true Offset=(0,{ShadowPivotOffsetY:F0}) origin=(0,0) (pivot at painted-city foot, image_y~416, sea-banded 1024x512) ; alpha bump 0.35→0.55 wired via _Process override (ProcessPriority Poi=-10 < probe=0)");
         }
         else
         {
