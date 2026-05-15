@@ -16,25 +16,25 @@ namespace Wayfinders.Client.Scripts.Screens;
 ///         the 64×64 e1 grid. Continuum (not enum) so the same data
 ///         model carries a future partial-reveal system without
 ///         migration.</item>
-///   <item><b>§2</b> : the boundary blend uses smoothstep with feather
-///         width = 30 % of tile width. The feather constant is exposed
-///         to the shader as a uniform ; the logic layer keeps the
-///         default value as a constant for documentation but does not
-///         enforce it (the shader is the source of truth at render
-///         time).</item>
+///   <item><b>§2</b> : the boundary blend uses a CPU box-blur (~Gaussian
+///         via <see cref="DefaultBlurPasses"/> passes) on the R8
+///         reveal-map BEFORE upload. The shader then becomes a trivial
+///         single texture lookup. This replaces the earlier shader-side
+///         8-neighbour smoothstep composition (2026-05-15 a5dbd42 →
+///         e99a1ce), which produced uneven feathering depending on each
+///         tile's neighbourhood. See Larry mandate 2026-05-15 (CPU blur
+///         rewrite).</item>
 /// </list>
 /// </para>
 ///
 /// <para>
 /// <b>Encoding choice.</b> The reveal map is encoded as a single-channel
 /// R8 image of size <see cref="GridSize"/> × <see cref="GridSize"/> (64×64
-/// for e1 = 4096 bytes total). The shader samples this texture instead
-/// of receiving a per-tile uniform array, because at scale (e.g. a 64×64
-/// or larger grid) per-frame uniform-array writes through marshalling are
-/// expensive while one image upload on rare reveal events is essentially
-/// free. The fragment then reads self + 8 neighbours by texture lookups
-/// at UV offsets of <c>1/GridSize</c>. See Larry mandate 2026-05-15 for
-/// the option-(b) rationale.
+/// for e1 = 4096 bytes total). After every write the runtime computes a
+/// blurred snapshot via <see cref="ComputeBlurredRevealMap"/> and uploads
+/// the 4 KB buffer via <c>ImageTexture.Update</c>. With 16 reveal events
+/// during the cinematic and 3 box-blur passes per upload, total cost is
+/// ~16 × 3 × 4096 = ~200k float operations — invisible.
 /// </para>
 ///
 /// <para>
@@ -42,9 +42,9 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// <see cref="FogTileGridLogic"/>, <see cref="CameraPanLogic"/>,
 /// <see cref="MapPanInputLogic"/> : the runtime translates engine types
 /// at the boundary, the math lives here, and xUnit pins the contract
-/// without ever instantiating an engine. <c>Image.SetPixel</c> would
-/// otherwise drag a Godot dependency into a logic layer that has none.
-/// The logic returns "what byte to write where" ; the runtime applies it.
+/// without ever instantiating an engine. The blur operates on
+/// <c>float[,]</c> buffers ; the runtime translates the resulting matrix
+/// into R8 bytes pixel by pixel.
 /// </para>
 ///
 /// <para>
@@ -68,11 +68,24 @@ public sealed class TileRevealStateLogic
 
     /// <summary>
     /// Default feather width as a fraction of tile width, locked at
-    /// 30 % per Varn §2. The shader carries this as a tunable uniform ;
-    /// this constant is the spec-locked default that the runtime
-    /// writes into the uniform at material setup.
+    /// 30 % per Varn §2. KEPT for backwards-compat constant pinning even
+    /// though the new shader (post-2026-05-15 CPU-blur rewrite) does not
+    /// reference feather_width any more — the feathering is now baked
+    /// into the R8 map by <see cref="ComputeBlurredRevealMap"/>. If a
+    /// future shader rev reintroduces a feather uniform this constant
+    /// stays the single source of truth.
     /// </summary>
     public const float DefaultFeatherWidth = 0.30f;
+
+    /// <summary>
+    /// Default number of 3×3 box-blur passes applied to the R8 reveal
+    /// map before upload. Three passes of a unit-radius box approximate
+    /// a Gaussian of σ ≈ √(passes × 1/3) ≈ 1.0 cell — enough spread to
+    /// produce ~1 cell of feathering across the cluster boundary while
+    /// keeping the centre of the 4×4 cluster at ~1.0. Bump to 5+ for
+    /// softer halos ; drop to 1-2 for crisper edges. F5 A/B knob.
+    /// </summary>
+    public const int DefaultBlurPasses = 3;
 
     /// <summary>
     /// Lower bound of the reveal continuum. Below this, the shader
@@ -219,5 +232,108 @@ public sealed class TileRevealStateLogic
         {
             yield return (gx, gy, encoded);
         }
+    }
+
+    // ------------------------------------------------------------------------
+    // CPU Gaussian-ish blur over the reveal map (Larry mandate 2026-05-15)
+    // ------------------------------------------------------------------------
+
+    /// <summary>
+    /// Apply <paramref name="passes"/> iterations of a 3×3 box blur to
+    /// <paramref name="src"/> and return a fresh buffer holding the
+    /// blurred result. N applications of a unit-radius box ≈ a
+    /// Gaussian of σ ≈ √(N / 3) cells (central-limit). Three passes
+    /// give σ ≈ 1, which produces ~1 cell of feathering at the cluster
+    /// boundary — the visual target.
+    ///
+    /// <para>
+    /// <b>Edge handling.</b> Out-of-bounds samples clamp to the
+    /// boundary cell (CLAMP_TO_EDGE), NOT to zero. Reasoning : if the
+    /// cluster ever touches the world edge (gx=0 or gx=63), clamp-to-
+    /// zero would introduce a spurious dark border ; clamp-to-edge
+    /// keeps the boundary value stable on its own side. For the
+    /// current Wayfinders e1 case the cluster sits well inside [30,33]
+    /// so both behaviours coincide ; the choice is for forward
+    /// compatibility.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Ping-pong buffers.</b> Two <c>float[,]</c> buffers swap each
+    /// pass to avoid in-place corruption. <paramref name="src"/> is
+    /// not mutated. The returned buffer is freshly allocated even when
+    /// <paramref name="passes"/> = 0 (defensive copy so the caller can
+    /// not subsequently mutate the input and see the output change).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Cost.</b> A 64×64 grid × 3 passes × 9 samples per pixel =
+    /// ~110k FLOPs. The cinematic triggers 16 reveal events ; total
+    /// cost ~1.8M FLOPs over ~2 seconds — well below the 16 ms frame
+    /// budget for any single event.
+    /// </para>
+    /// </summary>
+    public static float[,] BlurRevealMap(float[,] src, int passes = DefaultBlurPasses)
+    {
+        if (src is null) throw new ArgumentNullException(nameof(src));
+        int w = src.GetLength(0);
+        int h = src.GetLength(1);
+
+        // Defensive : 0 passes still returns a copy (not the original
+        // reference) — the contract is "this method returns a fresh
+        // buffer". A caller who wants the original can just keep their
+        // own reference.
+        var a = new float[w, h];
+        Array.Copy(src, a, src.Length);
+        if (passes <= 0) return a;
+
+        var b = new float[w, h];
+
+        for (int p = 0; p < passes; p++)
+        {
+            for (int y = 0; y < h; y++)
+            {
+                int ym1 = y > 0 ? y - 1 : 0;          // clamp-to-edge
+                int yp1 = y < h - 1 ? y + 1 : h - 1;
+                for (int x = 0; x < w; x++)
+                {
+                    int xm1 = x > 0 ? x - 1 : 0;
+                    int xp1 = x < w - 1 ? x + 1 : w - 1;
+
+                    float sum = a[xm1, ym1] + a[x, ym1] + a[xp1, ym1]
+                              + a[xm1, y  ] + a[x, y  ] + a[xp1, y  ]
+                              + a[xm1, yp1] + a[x, yp1] + a[xp1, yp1];
+                    b[x, y] = sum * (1.0f / 9.0f);
+                }
+            }
+            // Swap : next pass reads from b, writes back into a.
+            (a, b) = (b, a);
+        }
+        // After the final swap, the most recent result lives in a.
+        return a;
+    }
+
+    /// <summary>
+    /// Return a fresh <c>float[GridSize, GridSize]</c> holding the raw
+    /// reveal-level matrix. Useful for tests and for the runtime to
+    /// feed into <see cref="BlurRevealMap"/>. Defensive copy : caller
+    /// mutations do not affect internal state.
+    /// </summary>
+    public float[,] SnapshotRevealMap()
+    {
+        var snap = new float[GridSize, GridSize];
+        Array.Copy(_revealLevels, snap, _revealLevels.Length);
+        return snap;
+    }
+
+    /// <summary>
+    /// Convenience wrapper : snapshot the current raw reveal map and
+    /// run <see cref="BlurRevealMap"/> on it with the supplied pass
+    /// count (default <see cref="DefaultBlurPasses"/>). The runtime
+    /// calls this after every reveal-event write and uploads the
+    /// resulting buffer into the R8 ImageTexture pixel by pixel.
+    /// </summary>
+    public float[,] ComputeBlurredRevealMap(int passes = DefaultBlurPasses)
+    {
+        return BlurRevealMap(SnapshotRevealMap(), passes);
     }
 }

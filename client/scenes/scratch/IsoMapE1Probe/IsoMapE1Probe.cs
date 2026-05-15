@@ -352,6 +352,13 @@ public partial class IsoMapE1Probe : Node2D
     // feedback_godot_rendering_input_traps + Poi.cs class-doc PR5.X note.
     private static readonly bool UseRevealShader = true;
     private const string TileRevealShaderPath = "res://shaders/tile_reveal.gdshader";
+    // Number of 3x3 box-blur passes applied to the R8 reveal-map
+    // before each ImageTexture.Update(). Larry mandate 2026-05-15 :
+    // 3 passes are roughly a Gaussian sigma=1 cell, yields ~1 cell of
+    // feathering at the cluster boundary. Bump for softer halos, drop
+    // for crisper edges. Single source of truth, kept here next to the
+    // toggle so an F5 A/B knob is one line away.
+    private const int RevealBlurPasses = TileRevealStateLogic.DefaultBlurPasses;
     // The face-B overlay sprite sits ON TOP of the base tile sprite so its
     // shader-modulated alpha composites over face-A neutral (Varn §4 :
     // "face-A toujours visible statique + face-B alpha-modulée par shader").
@@ -2358,7 +2365,7 @@ public partial class IsoMapE1Probe : Node2D
         }
         _tileRevealShader = shader;
 
-        GD.Print($"[PROBE IsoMapE1Probe] reveal shader init: gridSize={TileRevealStateLogic.GridSize}x{TileRevealStateLogic.GridSize} format=R8 feather={TileRevealStateLogic.DefaultFeatherWidth:F2} shader={TileRevealShaderPath}");
+        GD.Print($"[PROBE IsoMapE1Probe] reveal shader init: gridSize={TileRevealStateLogic.GridSize}x{TileRevealStateLogic.GridSize} format=R8 blur_passes={RevealBlurPasses} shader={TileRevealShaderPath}");
     }
 
     /// <summary>
@@ -2414,7 +2421,9 @@ public partial class IsoMapE1Probe : Node2D
         material.SetShaderParameter("reveal_map", _revealMapTexture);
         material.SetShaderParameter("tile_coord", new Vector2(gx, gy));
         material.SetShaderParameter("grid_size", (float)TileRevealStateLogic.GridSize);
-        material.SetShaderParameter("feather_width", TileRevealStateLogic.DefaultFeatherWidth);
+        // feather_width uniform was dropped in the 2026-05-15 CPU-blur
+        // rewrite — feathering now lives in the pre-blurred R8 map, not
+        // in the shader. No SetShaderParameter call needed.
 
         var overlay = new Sprite2D
         {
@@ -2442,11 +2451,15 @@ public partial class IsoMapE1Probe : Node2D
 
     /// <summary>
     /// Update the reveal_level for cell <paramref name="gx"/>,
-    /// <paramref name="gy"/> in BOTH the pure-C# state holder and
-    /// the R8 ImageTexture sampled by the shader. The two writes are
-    /// inseparable : the state holder is the source of truth, the
-    /// image is the shader's read surface, and the encoding contract
-    /// is centralised in <see cref="TileRevealStateLogic.EncodeRevealByte"/>.
+    /// <paramref name="gy"/> in the pure-C# state holder, then recompute
+    /// the CPU-blurred snapshot of the entire 64×64 reveal map and
+    /// upload it into the R8 ImageTexture the shader samples. Larry
+    /// mandate 2026-05-15 (CPU-blur rewrite) — the boundary feathering
+    /// used to live in the shader as an 8-neighbour smoothstep
+    /// composition that produced uneven halos depending on each tile's
+    /// neighbourhood ; it now lives here as a 3-pass box blur on the R8
+    /// buffer, which is configuration-independent and produces the same
+    /// isotropic feather for any cluster shape.
     ///
     /// <para>
     /// <b>Update() vs SetImage().</b> Godot 4 ImageTexture exposes
@@ -2456,15 +2469,15 @@ public partial class IsoMapE1Probe : Node2D
     /// </para>
     ///
     /// <para>
-    /// <b>Per-pixel write vs full re-upload.</b> Godot 4 doesn't
-    /// expose a "patch this rect" API on ImageTexture without
-    /// allocating a new region image ; the simplest path is to
-    /// write the single pixel into the Image then re-Update the
-    /// whole 64×64 R8 buffer (4 KB). This is rare-event traffic
-    /// (16 calls total during the cinematic, then zero in MVP),
-    /// so the cost is invisible. If a future system reveals
-    /// hundreds of cells per frame, batch the writes and call
-    /// Update once at the end of the batch.
+    /// <b>Full-buffer re-upload.</b> Each event re-writes all 4096
+    /// pixels (one byte each) because the blur diffuses every set
+    /// across its 3×3 (×passes) neighbourhood ; we can't just patch the
+    /// one cell. 4 KB upload × 16 events during the e1 cinematic is
+    /// invisible. The blur itself is ~110k FLOPs per event (3 passes ×
+    /// 4096 pixels × 9 samples) — also invisible against a 16 ms
+    /// budget. If a future system reveals hundreds of cells per frame,
+    /// batch the SetTileRevealLevel calls and lift the blur+Update to
+    /// the end of the batch.
     /// </para>
     /// </summary>
     private void SetTileRevealLevel(int gx, int gy, float value)
@@ -2487,13 +2500,36 @@ public partial class IsoMapE1Probe : Node2D
             return;
         }
 
-        byte encoded = _revealStateLogic.SetTileRevealLevel(gx, gy, value);
-        // Image.SetPixel writes (r, g, b, a) in [0, 1] floats ; for R8
-        // we only care about .r, which maps to the byte / 255. We pass
-        // the float form so the encoding stays consistent with the
-        // state logic's round-trip.
-        float floatValue = encoded / 255.0f;
-        _revealMapImage.SetPixel(gx, gy, new Color(floatValue, 0f, 0f, 1f));
+        // 1. Update the raw state. The returned byte is only used here
+        //    for the per-tile log path (un-blurred ground truth) ; the
+        //    actual pixel writes below come from the blurred snapshot.
+        _revealStateLogic.SetTileRevealLevel(gx, gy, value);
+
+        // 2. Compute the blurred 64×64 reveal map. ComputeBlurredRevealMap
+        //    snapshots the raw state, then runs RevealBlurPasses passes
+        //    of a 3×3 box blur (clamp-to-edge). The result is a fresh
+        //    float[,] buffer whose centre values stay ~1.0 inside a
+        //    revealed cluster and fall off radially over ~1 cell at the
+        //    boundary, independent of the cluster's shape.
+        var blurred = _revealStateLogic.ComputeBlurredRevealMap(RevealBlurPasses);
+
+        // 3. Mirror the blurred matrix into the R8 image, pixel by pixel.
+        //    Image.SetPixel(x, y, Color(r, g, b, a)) writes the .r byte
+        //    we care about ; g/b/a are ignored at R8 storage. 4096 calls
+        //    × ~16 reveal events during the cinematic is trivial — Update
+        //    is the heavy op (a single GPU upload) and we already do
+        //    exactly one per event below.
+        int gridSize = TileRevealStateLogic.GridSize;
+        for (int by = 0; by < gridSize; by++)
+        {
+            for (int bx = 0; bx < gridSize; bx++)
+            {
+                float v = blurred[bx, by];
+                byte b = TileRevealStateLogic.EncodeRevealByte(v);
+                float floatValue = b / 255.0f;
+                _revealMapImage.SetPixel(bx, by, new Color(floatValue, 0f, 0f, 1f));
+            }
+        }
         _revealMapTexture.Update(_revealMapImage);
     }
 
