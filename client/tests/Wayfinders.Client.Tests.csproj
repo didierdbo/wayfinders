@@ -250,4 +250,14 @@
     <Compile Include="..\scripts\screens\MissionDurationLogic.cs" Link="src\MissionDurationLogic.cs" />
   </ItemGroup>
 
+  <!-- PR4 POI input router (2026-05-15): pure-C# bitmap hit-test helper.
+       The Godot-bound PoiInputRouter autoload owns the input cascade
+       (mouse position, viewport, Y-sort, SetInputAsHandled, signal emit) ;
+       the pixel-level decision lives in PoiHitTestLogic and is pinned
+       here. Same separation pattern as PoiDispatchLogic + PoiDefinition,
+       NpcCatalog + NpcRegistry, MissionPanelLogic + MissionPanelProbe. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\poi\PoiHitTestLogic.cs" Link="src\PoiHitTestLogic.cs" />
+  </ItemGroup>
+
 </Project>

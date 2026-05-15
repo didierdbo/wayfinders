@@ -1,15 +1,18 @@
 using Godot;
 using Wayfinders.Client.Data;
+using Wayfinders.Client.Services;
 
 namespace Wayfinders.Client.Scripts.Poi;
 
 /// <summary>
 /// PR3 — Sprite2D MVP scene for a POI placed on the iso world tree.
+/// PR4 — registers itself with the <see cref="PoiInputRouter"/> autoload
+/// on <c>_Ready</c> and unregisters on <c>_ExitTree</c>.
 ///
 /// <para>
 /// <b>Scope (locked 2026-05-15).</b> Sprite2D only. NO shadow / lift / rim /
-/// parallax (those four "pion sur plateau" ingredients are PR5). NO input or
-/// hit-test (PR4). The node simply binds a <see cref="PoiData"/> to a
+/// parallax (those four "pion sur plateau" ingredients are PR5). NO visual
+/// hover feedback (PR5). The node binds a <see cref="PoiData"/> to a
 /// Sprite2D so the texture lands with its anchor pixel on the host
 /// <c>Position</c> — i.e. the POI "stands" on its tile by construction.
 /// </para>
@@ -36,6 +39,17 @@ namespace Wayfinders.Client.Scripts.Poi;
 /// just "spawned OK". Caller can read the Output panel and verify
 /// <c>Texture != null</c>, <c>Centered=false</c>, <c>Offset</c> matches
 /// <c>-AnchorPixel</c>, and parent type is NOT a <c>CanvasLayer</c> (trap §1).
+/// </para>
+///
+/// <para>
+/// <b>PR4 — input registration (methodology trap #10, disconnection
+/// discipline).</b> Every <c>Register</c> in <c>_Ready</c> must be paired
+/// with an <c>Unregister</c> in <c>_ExitTree</c> ; otherwise the autoload
+/// router keeps a dangling reference and segfaults on the next mouse event.
+/// We look the router up via <c>GetNodeOrNull</c> so a probe that does not
+/// install the autoload (theoretical — once registered in
+/// <c>project.godot</c> it is always there) degrades to "no input" rather
+/// than crashing.
 /// </para>
 /// </summary>
 public partial class Poi : Sprite2D
@@ -87,5 +101,33 @@ public partial class Poi : Sprite2D
             $"parent={parentType}" +
             (isCanvasLayer ? " [TRAP §1 — parent is CanvasLayer!]" : "") +
             (anchorAlignedOk ? " anchorAlignedOK" : " ANCHOR-MISALIGNED"));
+
+        // PR4 — register with the input router. GetNodeOrNull so a probe
+        // that somehow runs without the autoload degrades gracefully (no
+        // input, but no crash either).
+        var router = GetNodeOrNull<PoiInputRouter>("/root/PoiInputRouter");
+        if (router != null)
+        {
+            router.Register(this);
+            GD.Print($"[POI {PoiData.DisplayName}] registered with router");
+        }
+        else
+        {
+            GD.PrintErr(
+                $"[POI {PoiData.DisplayName}] PoiInputRouter autoload missing at " +
+                "/root/PoiInputRouter — input will NOT fire for this POI");
+        }
+    }
+
+    public override void _ExitTree()
+    {
+        // Methodology trap #10 — must mirror the Register call.
+        var router = GetNodeOrNull<PoiInputRouter>("/root/PoiInputRouter");
+        if (router != null)
+        {
+            router.Unregister(this);
+            var name = PoiData?.DisplayName ?? Name.ToString();
+            GD.Print($"[POI {name}] unregistered");
+        }
     }
 }

@@ -15,3 +15,13 @@ zoom = Vector2(0.5, 0.5)
 
 [node name="PoiSpawner" type="Node" parent="."]
 script = ExtResource("2_spawner")
+
+[node name="Hud" type="CanvasLayer" parent="."]
+
+[node name="Label" type="Label" parent="Hud"]
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 480.0
+offset_bottom = 56.0
+mouse_filter = 2
+text = "POI: -"
