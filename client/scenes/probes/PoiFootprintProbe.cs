@@ -1,3 +1,21 @@
+// =============================================================================
+// PoiFootprintProbe (PR2) - scratch, keep until PR5.X.
+// =============================================================================
+// PR2 footprint builder smoke - alpha-derived tile coverage.
+//
+// PR6 decision (2026-05-15) : these probes stay in the tree even after the
+// M1Slice integration ships. The PoiSpawnProbe in particular remains the
+// canonical visual A/B harness for the PR5.X rim-shader work and any future
+// "did the shadow / lift / parallax regress?" question. Deleting them would
+// strand the F1-F4 tuning matrix and the heartbeat parallax diagnostic on a
+// future re-revisit.
+//
+// Move-to-archive criterion : when PR5.X ships rim + shader-blurred shadow
+// AND the visual A/B is locked in a screenshot reference, this probe (and
+// the other two) may be moved under scenes/scratch/_archive/ alongside the
+// Tile3DBackingProbe family. Until then : keep.
+// =============================================================================
+
 using System.Diagnostics;
 using Godot;
 using Wayfinders.Client.Data;

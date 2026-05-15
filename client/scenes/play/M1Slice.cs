@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Godot;
+using Wayfinders.Client.Data;
+using Wayfinders.Client.Scripts.Poi;
 using Wayfinders.Client.Scripts.Screens;
 using Wayfinders.Client.Services;
 using Wayfinders.Client.Services.Dtos;
@@ -193,6 +195,34 @@ public partial class M1Slice : Node2D
     [Export] public NodePath StatusLabelPath { get; set; } = "OverlayUI/StatusLabel";
     [Export] public NodePath LiveLogLabelPath { get; set; } = "OverlayUI/LiveLogLabel";
 
+    // ---- PR6 — POI integration pattern wiring.
+    /// <summary>
+    /// PR6 — designer-authored list of POI to spawn into this scene
+    /// at <c>_Ready</c>. Each entry pairs a <see cref="PoiData"/> (or a
+    /// sidecar PNG path that <see cref="PoiSidecarLoader"/> resolves) with
+    /// the iso tile coord. See <c>client/data/POI_INTEGRATION.md</c> for
+    /// the "add a POI in 5 steps" walkthrough. The array is hot-editable
+    /// from the Godot inspector — no code change to add Halfgate at a
+    /// new tile or to plug a future POI when its asset lands.
+    /// </summary>
+    [Export] public Godot.Collections.Array<PoiSpawnEntry> PoisToSpawn { get; set; } = new();
+
+    /// <summary>NodePath of the <see cref="PoiSpawner"/> child added
+    /// to this scene's .tscn. Kept exported so a future probe / variant
+    /// can swap to a stub spawner without recompiling.</summary>
+    [Export] public NodePath PoiSpawnerPath { get; set; } = "PoiSpawner";
+
+    /// <summary>
+    /// PR6 — when the POI input router emits <c>PoiClicked</c> for one of
+    /// the spawned POIs, navigate to this screen id via
+    /// <see cref="SceneManager.NavigateTo"/>. Defaults to
+    /// <c>E3_CITY_HALFGATE</c> (the existing E2WorldMap dispatch target).
+    /// Empty string disables navigation — the click is only logged.
+    /// MVP only : a future PR replaces this single-target field with a
+    /// per-POI dispatch table keyed by <c>DisplayName</c>.
+    /// </summary>
+    [Export] public string PoiClickNavigateTo { get; set; } = "E3_CITY_HALFGATE";
+
     private const float PersonaSpacingWorldUnits = 96f;
     private const float Label3DPixelSize = 0.5f;
     private const int LiveLogMaxLines = 8;
@@ -286,6 +316,11 @@ public partial class M1Slice : Node2D
     // Live log buffer.
     private readonly Queue<string> _liveLog = new();
 
+    // ---- PR6 — POI wiring runtime state.
+    private PoiSpawner? _poiSpawner;
+    private PoiInputRouter? _poiRouter;
+    private readonly List<Poi> _spawnedPois = new();
+
     // Mission-panel state (mirrors MissionPanelProbe.cs trimmed).
     private string? _selectedPersonaId; // for the Affect button backup path (5c)
     private int _currentTick;
@@ -310,6 +345,8 @@ public partial class M1Slice : Node2D
         RunPreflight();
         UpdateStatusLabel();
         RenderEmptyMissionPanel();
+
+        WirePoisAndRouter();
 
         Log("M1 slice ready : click HANDLE to open Compagnie ; press-drag a persona, release over the Mission slot.");
     }
@@ -344,6 +381,16 @@ public partial class M1Slice : Node2D
             _snapBackTween.Kill();
 
         ClearPersonaButtons();
+
+        // PR6 — POI cleanup. Router subscription unwinds first (disconnection
+        // discipline ; the router is an autoload that outlives the scene).
+        // The spawned POI nodes are freed by the scene tree teardown, but we
+        // clear the local list to drop our refs and let GC reclaim the data.
+        if (_poiRouter is not null)
+        {
+            _poiRouter.PoiClicked -= OnPoiClicked;
+        }
+        _spawnedPois.Clear();
 
         foreach (var pv in _personaVisuals.Values)
         {
@@ -1911,6 +1958,182 @@ public partial class M1Slice : Node2D
     {
         Log($"[5d] MissionResolved received -> refreshing legacy labels (mission={missionId}, tagsCreated={tagsCreatedCount})");
         RefreshPersonaLegacyLabels();
+    }
+
+    // ====================================================================
+    // PR6 - POI integration pattern wiring.
+    //
+    // Architectural note. M1Slice is the composite Compagnie + Mission UI
+    // scene ; it does NOT render a 2D iso terrain. The four "pion sur
+    // plateau" ingredients (shadow, lift, rim, parallax) are validated
+    // visually on PoiSpawnProbe against a bare grid ; M1Slice is the
+    // wiring-pattern validation point. Limitations consequently
+    // documented in client/data/POI_INTEGRATION.md :
+    //  - No Camera2D in M1Slice (only the Compagnie SubViewport Camera3D
+    //    for the persona sub-iso). Parallax is therefore null-camera =
+    //    disabled - the POI sits in absolute Node2D world coords.
+    //  - No terrain habille underneath. The POI sprite renders against
+    //    the M1Slice OverlayUI panels ; visual A/B for terrain integration
+    //    stays on the probe / future PR5.X+ that wires the iso world scene.
+    //
+    // PR6 still ships the full wiring : data load + spawn + router signal
+    // + SceneManager dispatch + ExitTree disconnect, so adding a POI to a
+    // *future* iso world scene is one Array entry, not one architecture
+    // discussion.
+    // ====================================================================
+
+    /// <summary>
+    /// PR6 - iterate <see cref="PoisToSpawn"/>, resolve each entry's
+    /// <see cref="PoiData"/> (either from the entry's <c>Data</c> field or
+    /// by loading the sidecar PNG at <c>SidecarPngPath</c>), spawn it via
+    /// the <see cref="PoiSpawner"/> child, and register the click handler
+    /// once on the <see cref="PoiInputRouter"/> autoload.
+    ///
+    /// <para>
+    /// Disconnection is owned by <c>_ExitTree</c> ; subscription happens
+    /// here so it is paired with the spawn call site rather than scattered
+    /// across the boot sequence.
+    /// </para>
+    /// </summary>
+    private void WirePoisAndRouter()
+    {
+        _poiSpawner = GetNodeOrNull<PoiSpawner>(PoiSpawnerPath);
+        if (_poiSpawner is null)
+        {
+            GD.PushWarning(
+                $"[M1 SLICE POI] no PoiSpawner at '{PoiSpawnerPath}' - POI wiring " +
+                "skipped (the .tscn must include a 'PoiSpawner' child node before " +
+                "any POI can spawn). PR6 anti-checklist : a missing spawner is " +
+                "warned, never thrown - this scene's other systems must keep booting.");
+            return;
+        }
+
+        _poiRouter = GetTree()?.Root?.GetNodeOrNull<PoiInputRouter>("PoiInputRouter");
+        if (_poiRouter is null)
+        {
+            GD.PushWarning(
+                "[M1 SLICE POI] PoiInputRouter autoload NOT found at /root - " +
+                "POIs will spawn but hover/click events will fall through. Check " +
+                "project.godot autoload registration.");
+        }
+        else
+        {
+            // Disconnection-discipline pairing : the unsubscribe lives in
+            // _ExitTree (methodology trap #10).
+            _poiRouter.PoiClicked += OnPoiClicked;
+        }
+
+        if (PoisToSpawn is null || PoisToSpawn.Count == 0)
+        {
+            GD.Print("[M1 SLICE POI] PoisToSpawn empty - no POI to spawn this run.");
+            return;
+        }
+
+        // M1Slice has no 2D Camera2D (only the Compagnie SubViewport
+        // Camera3D), so we pass null and the spawned POIs run with
+        // parallax disabled regardless of their per-POI ParallaxStrength
+        // export. Dette PR5.X+ : when an iso world scene with a Camera2D
+        // is wired in, pass that camera through here.
+        Camera2D? parallaxCamera = null;
+
+        var spawnedCount = 0;
+        foreach (var entry in PoisToSpawn)
+        {
+            if (entry is null)
+            {
+                GD.PushWarning("[M1 SLICE POI] PoisToSpawn contains a null entry - skipping.");
+                continue;
+            }
+
+            var data = ResolvePoiData(entry);
+            if (data is null)
+            {
+                GD.PushError(
+                    $"[M1 SLICE POI] entry at tile=({entry.Tile.X},{entry.Tile.Y}) " +
+                    "has neither Data nor a resolvable SidecarPngPath - skipping.");
+                continue;
+            }
+
+            // Spawn under the M1Slice Node2D root. CanvasLayer children
+            // would render in screen-space ; we want world-space so the
+            // future Camera2D pan / zoom can move the POI naturally.
+            var poi = _poiSpawner.SpawnAt(data, entry.Tile, this, parallaxCamera);
+            _spawnedPois.Add(poi);
+            spawnedCount++;
+
+            GD.Print(
+                $"[M1 SLICE POI] spawned '{data.DisplayName}' " +
+                $"at tile=({entry.Tile.X},{entry.Tile.Y}) " +
+                $"worldPos=({poi.Position.X:F1},{poi.Position.Y:F1})");
+        }
+
+        GD.Print($"[M1 SLICE POI] WirePoisAndRouter done : {spawnedCount}/{PoisToSpawn.Count} POI(s) spawned.");
+    }
+
+    /// <summary>
+    /// PR6 - resolve a <see cref="PoiSpawnEntry"/> to a runtime
+    /// <see cref="PoiData"/>. Priority : the entry's <c>Data</c> field, then
+    /// the sidecar PNG path via <see cref="PoiSidecarLoader"/>. Applies the
+    /// <c>DisplayNameOverride</c> when non-empty.
+    /// </summary>
+    private static PoiData? ResolvePoiData(PoiSpawnEntry entry)
+    {
+        PoiData? data = entry.Data;
+        if (data is null && !string.IsNullOrEmpty(entry.SidecarPngPath))
+        {
+            try
+            {
+                data = PoiSidecarLoader.Load(entry.SidecarPngPath);
+            }
+            catch (System.Exception e)
+            {
+                GD.PushError(
+                    $"[M1 SLICE POI] PoiSidecarLoader.Load({entry.SidecarPngPath}) " +
+                    $"threw : {e.Message} - entry skipped.");
+                return null;
+            }
+        }
+        if (data is not null && !string.IsNullOrEmpty(entry.DisplayNameOverride))
+        {
+            // The override mutates the loaded copy. It is safe : either
+            // (i) the data was just constructed by the loader and is unique
+            // to this scene-spawn, or (ii) the designer pointed multiple
+            // entries at the same .tres and is responsible for the
+            // semantics (the override is the intended way to disambiguate).
+            data.DisplayName = entry.DisplayNameOverride;
+        }
+        return data;
+    }
+
+    /// <summary>
+    /// PR6 - router signal handler. MVP : log the click, then dispatch
+    /// navigation via <see cref="SceneManager.NavigateTo"/> if
+    /// <see cref="PoiClickNavigateTo"/> is non-empty. No modal, no fancy
+    /// UI - the prebrief anti-checklist forbids both for PR6.
+    /// </summary>
+    private void OnPoiClicked(string displayName)
+    {
+        Log($"[M1Slice] POI clicked : {displayName}");
+
+        if (string.IsNullOrEmpty(PoiClickNavigateTo))
+        {
+            GD.Print($"[M1 SLICE POI] click on '{displayName}' - PoiClickNavigateTo empty, log-only MVP path.");
+            return;
+        }
+
+        var sceneManager = GetTree()?.Root?.GetNodeOrNull<SceneManager>("SceneManager");
+        if (sceneManager is null)
+        {
+            GD.PushWarning("[M1 SLICE POI] SceneManager autoload not found - click logged but no navigation dispatched.");
+            return;
+        }
+
+        GD.Print($"[M1 SLICE POI] dispatching SceneManager.NavigateTo('{PoiClickNavigateTo}')");
+        // Fire-and-forget : navigation is async, but we are an event handler
+        // (not async ourselves). The SceneManager owns cancellation and
+        // re-entrancy via its per-navigation token (see SceneManager XML
+        // doc, Risk #1 mitigation).
+        _ = sceneManager.NavigateTo(PoiClickNavigateTo);
     }
 
     private sealed record PersonaVisual(

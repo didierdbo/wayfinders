@@ -1,6 +1,8 @@
-[gd_scene format=3 uid="uid://b1m1slicem1xb"]
+[gd_scene load_steps=15 format=3 uid="uid://b1m1slicem1xb"]
 
 [ext_resource type="Script" path="res://scenes/play/M1Slice.cs" id="1_m1slice"]
+[ext_resource type="Script" path="res://scripts/poi/PoiSpawner.cs" id="2_poispwn"]
+[ext_resource type="Script" path="res://data/PoiSpawnEntry.cs" id="3_poispne"]
 
 [sub_resource type="Environment" id="Env_compagnie"]
 background_mode = 1
@@ -63,9 +65,36 @@ border_width_top = 3
 border_width_right = 3
 border_width_bottom = 3
 
+; PR6 POI manifest entries. Designer-authored : edit these via the
+; Godot inspector (M1Slice root -> PoisToSpawn array) to add / move POIs.
+; See client/data/POI_INTEGRATION.md for the full pattern.
+[sub_resource type="Resource" id="PoiEntry_halfgate"]
+script = ExtResource("3_poispne")
+Tile = Vector2i(12, 12)
+SidecarPngPath = "res://assets/poi/e1/wf_e1_halfgate_poi.png"
+DisplayNameOverride = ""
+
+; PR6 - second POI proving the pattern is repeatable. MVP : same asset,
+; different tile, distinct DisplayName. When Mira ships a second clean
+; POI asset, swap SidecarPngPath here ; no other edit needed.
+[sub_resource type="Resource" id="PoiEntry_halfgate_annex"]
+script = ExtResource("3_poispne")
+Tile = Vector2i(14, 13)
+SidecarPngPath = "res://assets/poi/e1/wf_e1_halfgate_poi.png"
+DisplayNameOverride = "HalfgateAnnex"
+
+
 [node name="M1Slice" type="Node2D"]
 script = ExtResource("1_m1slice")
+PoisToSpawn = Array[Resource]([SubResource("PoiEntry_halfgate"), SubResource("PoiEntry_halfgate_annex")])
+PoiSpawnerPath = NodePath("PoiSpawner")
+PoiClickNavigateTo = "E3_CITY_HALFGATE"
 metadata/skip_opening_bootstrap = true
+
+; PR6 - POI spawner child. Stateless ; per-scene lifetime (locked memo
+; project_wayfinders_poi_integration_pattern). Not an autoload by design.
+[node name="PoiSpawner" type="Node" parent="."]
+script = ExtResource("2_poispwn")
 
 [node name="Background2D" type="CanvasLayer" parent="."]
 layer = -10
