@@ -338,6 +338,28 @@ public partial class IsoMapE1Probe : Node2D
     private const double RevealTotalDurationSec =
         RevealStaggerStepSec * (RevealTileCount - 1) + RevealPerCardDurationSec;
 
+    // --- Reveal shader e1 (Varn spec varn-tile-reveal-shader-spec-2026-05-15) ---
+    //
+    // Master toggle. true (default) wires the tile_reveal.gdshader on a
+    // per-cell face-B overlay sprite so the cluster boundary fades via
+    // smoothstep + 30 % feather. false falls back to the pre-shader visual
+    // (no overlay, no boundary fade, the flip texture-swap is all you see).
+    // The toggle exists because the PR5 POI shaders failed silently on
+    // Didier's d3d12 Forward+ pipeline and the root cause was never found ;
+    // if F5 shows that face-B overlays are invisible / black / pass-through
+    // again, flip this to false to ship without the boundary fade and
+    // re-open the d3d12 mystery in a follow-up PR. See
+    // feedback_godot_rendering_input_traps + Poi.cs class-doc PR5.X note.
+    private static readonly bool UseRevealShader = true;
+    private const string TileRevealShaderPath = "res://shaders/tile_reveal.gdshader";
+    // The face-B overlay sprite sits ON TOP of the base tile sprite so its
+    // shader-modulated alpha composites over face-A neutral (Varn §4 :
+    // "face-A toujours visible statique + face-B alpha-modulée par shader").
+    // ZAsRelative=true so the overlay rides its parent's draw slot inside
+    // the YSort band ; the +1 offset puts it above the parent in that slot.
+    private const int FaceBOverlayZIndex = 1;
+
+
     // --- POI Halfgate e1 B-2 ---
     private const int PoiTextureWidthPx = 1024;
     private const int PoiTextureHeightPx = 512;
@@ -458,6 +480,30 @@ public partial class IsoMapE1Probe : Node2D
 
     // --- Reveal state ---
     private readonly Dictionary<Vector2I, Sprite2D> _revealSprites = new();
+    // Face-B overlay sprites, one per reveal cell. Each carries a
+    // ShaderMaterial referencing tile_reveal.gdshader with the cell's
+    // tile_coord baked into the uniform. Parented to the base tile
+    // sprite (rides YSort + ZIndex), starts invisible (reveal_level=0
+    // everywhere → shader alpha=0) and fades in as the reveal map
+    // updates at flip midpoint. Null when UseRevealShader=false.
+    private readonly Dictionary<Vector2I, Sprite2D> _faceBOverlaySprites = new();
+    // Pure-C# state holder for the 64×64 reveal map (Godot-free seam).
+    // Owns the float[64,64] reveal_level matrix and the R8 byte
+    // encoding ; the runtime mirrors writes into _revealMapImage +
+    // _revealMapTexture. Null when UseRevealShader=false.
+    private TileRevealStateLogic? _revealStateLogic;
+    // The 64×64 R8 image written by SetTileRevealLevel ; uploaded to
+    // _revealMapTexture via Update() on every reveal event. Allocation
+    // is one-shot at _Ready and stays alive for the scene lifetime.
+    private Image? _revealMapImage;
+    // The ImageTexture sampled by the shader. ShaderMaterials hold a
+    // reference to it ; updating _revealMapImage and calling
+    // _revealMapTexture.Update(image) propagates the new pixel values
+    // to every face-B overlay sprite in one go.
+    private ImageTexture? _revealMapTexture;
+    // The shader resource, loaded once and shared by every
+    // ShaderMaterial on the 16 overlay sprites. Loaded in _Ready.
+    private Shader? _tileRevealShader;
     private bool _isRevealAnimating;
     private bool _revealCompleted;
     private bool _poiFadeInCompleted;
@@ -536,6 +582,18 @@ public partial class IsoMapE1Probe : Node2D
         if (!DisplaySingleTileOnly && !UseFaceBVoileCadastral)
         {
             LoadFaceBTextures();
+        }
+
+        // 1c. Initialise the tile-reveal state + shader (Varn spec
+        //     2026-05-15). Done before SpawnFullGrid so the overlay
+        //     sprites can be attached as children of each base tile
+        //     during spawn. The shader is loaded ONCE here and shared
+        //     by all 16 ShaderMaterials below — Godot dedupes the
+        //     compiled shader pipeline by Shader resource identity, so
+        //     this is one compile, not 16.
+        if (UseRevealShader && !DisplaySingleTileOnly && !UseFaceBVoileCadastral)
+        {
+            InitRevealShaderState();
         }
 
         // 2. WorldRoot reste à l'origine si single, recentré si grille complète.
@@ -1182,6 +1240,21 @@ public partial class IsoMapE1Probe : Node2D
                     && gy >= RevealMinGy && gy <= RevealMaxGy)
                 {
                     _revealSprites[new Vector2I(gx, gy)] = sprite;
+
+                    // Spawn the face-B overlay sprite for this reveal
+                    // cell (Varn §4 + Larry mandate 2026-05-15). Parent
+                    // = base tile sprite so the overlay rides its YSort
+                    // + transform ; offset = same as base ; texture =
+                    // pre-loaded face-B patch for (N,M) ; shader =
+                    // tile_reveal.gdshader with tile_coord uniform set
+                    // to (gx, gy). Initial alpha is 0 because the
+                    // reveal map starts at 0 everywhere ; the shader
+                    // ramps it up at flip midpoint via
+                    // SetTileRevealLevel.
+                    if (UseRevealShader && _revealStateLogic is not null)
+                    {
+                        SpawnFaceBOverlay(sprite, gx, gy);
+                    }
                 }
             }
         }
@@ -2223,10 +2296,216 @@ public partial class IsoMapE1Probe : Node2D
 
         sprite.Texture = swapped;
 
+        // Reveal-shader integration (Varn spec 2026-05-15). At the
+        // flip midpoint for THIS cell, write reveal_level=1.0 into
+        // the R8 reveal map texture. The face-B overlay sprite for
+        // this cell reads the updated value next frame and starts
+        // to fade in via the shader's smoothstep formula. Perimeter
+        // cells of the 4×4 cluster (those with neighbours outside
+        // [30..33]² staying at reveal_level=0) will exhibit the
+        // boundary fade ; interior cells will read alpha=1 uniformly.
+        // Per-tile timing (vs. atomic "set 16 at once") aligns with
+        // the stagger : each card reveals as its own flip half
+        // completes, which is the visually consistent reading of the
+        // spec's "midpoint" instant.
+        SetTileRevealLevel(cell.X, cell.Y, TileRevealStateLogic.RevealMax);
+
         if (cell == new Vector2I(CenterIndex, CenterIndex))
         {
             GD.Print($"[PROBE IsoMapE1Probe] half-flip reached on center cell {cell} — texture swap A→B applied (face-B mode={(UseFaceBVoileCadastral ? "voile_cadastral_legacy" : "halfgate_patches_mira")})");
         }
+    }
+
+    // ------------------------------------------------------------------------
+    // Tile reveal shader — boundary fade smoothstep (Varn spec
+    // varn-tile-reveal-shader-spec-2026-05-15.md, locked 2026-05-15)
+    // ------------------------------------------------------------------------
+
+    /// <summary>
+    /// One-shot init of the reveal-map texture + shader resource +
+    /// state logic. Called from _Ready BEFORE SpawnFullGrid so the
+    /// face-B overlay sprites in SpawnFullGrid can attach a
+    /// ShaderMaterial that references the now-existing texture.
+    ///
+    /// <para>
+    /// <b>Why R8 (single channel).</b> reveal_level is a scalar in
+    /// [0, 1] per tile ; one byte per cell is sufficient. A 64×64 R8
+    /// image is 4 KB total — trivial cost. RGBA8 would be 4× larger
+    /// for no information gain and would still need the .r read.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why filter NEAREST.</b> The shader samples ONE specific
+    /// pixel per neighbour (no interpolation expected). Default
+    /// LINEAR filtering would silently blend two adjacent cells'
+    /// reveal_levels and the boundary fade would be off by half a
+    /// cell at every sample. Set on both the Image (Format) and the
+    /// shader sampler2D uniform (filter_nearest) for defense in
+    /// depth.
+    /// </para>
+    /// </summary>
+    private void InitRevealShaderState()
+    {
+        _revealStateLogic = new TileRevealStateLogic();
+
+        // 64×64 R8 image, every pixel byte=0 (RevealMin). Image.Create
+        // returns a zero-initialised buffer in Godot 4 ; we don't need
+        // to walk all 4096 pixels.
+        _revealMapImage = Image.CreateEmpty(
+            TileRevealStateLogic.GridSize,
+            TileRevealStateLogic.GridSize,
+            useMipmaps: false,
+            format: Image.Format.R8);
+
+        _revealMapTexture = ImageTexture.CreateFromImage(_revealMapImage);
+
+        var shader = ResourceLoader.Load<Shader>(TileRevealShaderPath);
+        if (shader is null)
+        {
+            GD.PushError($"[PROBE IsoMapE1Probe] InitRevealShaderState: failed to load {TileRevealShaderPath} — face-B overlay shader disabled this run");
+            // Don't crash : downstream code guards on _tileRevealShader
+            // being null + UseRevealShader true and degrades gracefully.
+            return;
+        }
+        _tileRevealShader = shader;
+
+        GD.Print($"[PROBE IsoMapE1Probe] reveal shader init: gridSize={TileRevealStateLogic.GridSize}x{TileRevealStateLogic.GridSize} format=R8 feather={TileRevealStateLogic.DefaultFeatherWidth:F2} shader={TileRevealShaderPath}");
+    }
+
+    /// <summary>
+    /// Spawn the face-B overlay Sprite2D for the reveal cell at
+    /// <paramref name="gx"/>, <paramref name="gy"/>. Parent =
+    /// <paramref name="baseTile"/>, transform = identity (shares the
+    /// parent's GlobalPosition + scale + rotation). Texture = the
+    /// pre-loaded face-B patch for (N, M) mapped from (gx, gy) via
+    /// <see cref="GetFaceBKey"/>. ShaderMaterial = a fresh instance
+    /// per sprite (so the tile_coord uniform can differ) referencing
+    /// the SHARED <see cref="_tileRevealShader"/> resource.
+    ///
+    /// <para>
+    /// <b>Why a fresh ShaderMaterial per sprite.</b> Each sprite
+    /// needs its own <c>tile_coord</c> uniform value (the cell's grid
+    /// position). ShaderMaterials are cheap ; the Shader compile
+    /// pipeline is shared because all 16 materials reference the
+    /// same Shader resource. This matches the Godot 4 idiom for
+    /// "same shader, different uniforms per instance".
+    /// </para>
+    ///
+    /// <para>
+    /// <b>YSort intact.</b> The overlay is a child of the base tile
+    /// sprite, not a sibling under TileGrid. It rides the parent's
+    /// YSort slot and inherits its ZIndex. The
+    /// <see cref="FaceBOverlayZIndex"/> = 1 places the overlay one
+    /// step above its parent (face-A neutral) within the same
+    /// YSort band — which is the canonical Godot 4 "child renders
+    /// above parent" idiom.
+    /// </para>
+    /// </summary>
+    private void SpawnFaceBOverlay(Sprite2D baseTile, int gx, int gy)
+    {
+        if (_tileRevealShader is null || _revealMapTexture is null)
+        {
+            // InitRevealShaderState failed earlier (likely a missing
+            // shader file in the export pipeline). Logged once at
+            // init time ; skipping the overlay silently here keeps
+            // the per-tile spawn loop from spamming the console.
+            return;
+        }
+
+        var key = GetFaceBKey(new Vector2I(gx, gy));
+        if (!_faceBTextures.TryGetValue(key, out var faceBTex) || faceBTex is null)
+        {
+            // The base tile flip will fall back to the voile cadastral
+            // for this cell ; the overlay would have nothing useful to
+            // show. Skipping is consistent with that fallback.
+            return;
+        }
+
+        var material = new ShaderMaterial { Shader = _tileRevealShader };
+        material.SetShaderParameter("reveal_map", _revealMapTexture);
+        material.SetShaderParameter("tile_coord", new Vector2(gx, gy));
+        material.SetShaderParameter("grid_size", (float)TileRevealStateLogic.GridSize);
+        material.SetShaderParameter("feather_width", TileRevealStateLogic.DefaultFeatherWidth);
+
+        var overlay = new Sprite2D
+        {
+            Name = $"FaceBOverlay_{gx}_{gy}",
+            Texture = faceBTex,
+            Centered = true,
+            Offset = new Vector2(0f, SpriteOffsetY),
+            // NEAREST mirrors the base sprite's TextureFilter swap done
+            // in OnHalfFlipReached for face-B — keeps the two perfectly
+            // overlapping under mipmap-less sampling.
+            TextureFilter = CanvasItem.TextureFilterEnum.Nearest,
+            Material = material,
+            // Child of baseTile : Position is local-to-parent. Same
+            // origin as the parent's Centered=true sprite means (0, 0)
+            // here lays the overlay directly on top of the parent's
+            // face-A. Offset matches the parent so the +2 slab nudge
+            // stays in sync.
+            Position = Vector2.Zero,
+            ZIndex = FaceBOverlayZIndex,
+            ZAsRelative = true,
+        };
+        baseTile.AddChild(overlay);
+        _faceBOverlaySprites[new Vector2I(gx, gy)] = overlay;
+    }
+
+    /// <summary>
+    /// Update the reveal_level for cell <paramref name="gx"/>,
+    /// <paramref name="gy"/> in BOTH the pure-C# state holder and
+    /// the R8 ImageTexture sampled by the shader. The two writes are
+    /// inseparable : the state holder is the source of truth, the
+    /// image is the shader's read surface, and the encoding contract
+    /// is centralised in <see cref="TileRevealStateLogic.EncodeRevealByte"/>.
+    ///
+    /// <para>
+    /// <b>Update() vs SetImage().</b> Godot 4 ImageTexture exposes
+    /// <c>Update(Image)</c> for "same size, same format, different
+    /// pixels" updates ; this is the cheap path. <c>SetImage</c> is
+    /// for resize / format change. We always Update.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Per-pixel write vs full re-upload.</b> Godot 4 doesn't
+    /// expose a "patch this rect" API on ImageTexture without
+    /// allocating a new region image ; the simplest path is to
+    /// write the single pixel into the Image then re-Update the
+    /// whole 64×64 R8 buffer (4 KB). This is rare-event traffic
+    /// (16 calls total during the cinematic, then zero in MVP),
+    /// so the cost is invisible. If a future system reveals
+    /// hundreds of cells per frame, batch the writes and call
+    /// Update once at the end of the batch.
+    /// </para>
+    /// </summary>
+    private void SetTileRevealLevel(int gx, int gy, float value)
+    {
+        if (_revealStateLogic is null || _revealMapImage is null || _revealMapTexture is null)
+        {
+            // UseRevealShader = false path : no-op. The flip animation
+            // still runs ; just no boundary fade.
+            return;
+        }
+
+        // Defense : the OnHalfFlipReached caller passes the cell.X / cell.Y
+        // from the staggered flip ; both are guaranteed in [30, 33] by
+        // construction, well inside [0, GridSize). Still, the state
+        // logic throws on out-of-bounds, so a future caller from outside
+        // the cluster surfaces immediately.
+        if (gx < 0 || gx >= TileRevealStateLogic.GridSize || gy < 0 || gy >= TileRevealStateLogic.GridSize)
+        {
+            GD.PushWarning($"[PROBE IsoMapE1Probe] SetTileRevealLevel: out-of-grid ({gx},{gy}) — ignoring");
+            return;
+        }
+
+        byte encoded = _revealStateLogic.SetTileRevealLevel(gx, gy, value);
+        // Image.SetPixel writes (r, g, b, a) in [0, 1] floats ; for R8
+        // we only care about .r, which maps to the byte / 255. We pass
+        // the float form so the encoding stays consistent with the
+        // state logic's round-trip.
+        float floatValue = encoded / 255.0f;
+        _revealMapImage.SetPixel(gx, gy, new Color(floatValue, 0f, 0f, 1f));
+        _revealMapTexture.Update(_revealMapImage);
     }
 
     // ------------------------------------------------------------------------

@@ -282,4 +282,18 @@
     <Compile Include="..\scripts\poi\PoiVisualLogic.cs" Link="src\PoiVisualLogic.cs" />
   </ItemGroup>
 
+  <!-- Tile reveal shader pure-C# state holder (Varn spec
+       varn-tile-reveal-shader-spec-2026-05-15.md, locked 2026-05-15).
+       Owns the per-tile reveal_level matrix + R8 byte encoding seam
+       between IsoMapE1Probe (writes) and tile_reveal.gdshader (reads
+       via the ImageTexture sample). xUnit pins the locked constants
+       (GridSize=64, DefaultFeatherWidth=0.30), the clamp policy
+       (saturate NaN / out-of-range), and the round(value × 255)
+       encoding contract. The Godot-bound Image / ImageTexture /
+       ShaderMaterial wiring stays in IsoMapE1Probe.InitRevealShaderState
+       and is validated via F5 visual smoke. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\TileRevealStateLogic.cs" Link="src\TileRevealStateLogic.cs" />
+  </ItemGroup>
+
 </Project>
