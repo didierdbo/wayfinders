@@ -106,6 +106,24 @@ public partial class OpeningBootstrap : Node
     {
         var currentScene = GetTree().CurrentScene;
 
+        // Fire PoiTree boot load early — independent of the
+        // registration / NavigateTo path. The POI tree is a
+        // referential needed by any scene that renders POI tooltips
+        // (production E1 OR a scratch probe like IsoMapE1Probe). The
+        // load is fire-and-forget : it tolerates the backend being
+        // down (logs a warning, keeps the cache empty, the tooltip
+        // aggregator degrades gracefully). See Varn-lock 2026-05-15
+        // v2 §2.
+        var poiTreeService = GetNodeOrNull<PoiTreeService>("/root/PoiTreeService");
+        if (poiTreeService is not null)
+        {
+            _ = poiTreeService.LoadAsync();
+        }
+        else
+        {
+            GD.PushWarning("[OpeningBootstrap] PoiTreeService autoload missing -- POI tooltip aggregation will be empty");
+        }
+
         var hasSkipMeta = currentScene is not null
             && currentScene.HasMeta(SkipBootstrapMetaKey)
             && (bool)currentScene.GetMeta(SkipBootstrapMetaKey);
@@ -117,7 +135,7 @@ public partial class OpeningBootstrap : Node
         {
             GD.Print(
                 $"[OpeningBootstrap] gated by skip_opening_bootstrap on " +
-                $"'{currentScene?.Name}' -- registration AND NavigateTo skipped");
+                $"'{currentScene?.Name}' -- registration AND NavigateTo skipped (PoiTree load still fired)");
             return;
         }
 

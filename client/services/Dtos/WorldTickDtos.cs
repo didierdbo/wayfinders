@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace Wayfinders.Client.Services.Dtos;
 
@@ -154,6 +155,25 @@ public sealed record WorldTickRequestDto(
 ///         still emerges (option (c)).</item>
 /// </list>
 /// </para>
+///
+/// <para>
+/// <b>Mission↔POI hierarchy (Varn-lock 2026-05-15 v2 §1).</b> The
+/// authoritative POI binding is <see cref="TargetPoi"/> — a canonical
+/// hierarchical id of the form <c>e{layer}.{ancestor}.{...}.{local_id}</c>
+/// (regex <c>^e[1-3]\.[a-z0-9\-]+(\.[a-z0-9\-]+){0,2}$</c>). M1 caps
+/// emergence at layer e1, so M1 missions carry e.g.
+/// <c>"e1.halfgate"</c>. M2+ may carry deeper ids
+/// (<c>e2.halfgate.docks</c>, <c>e3.halfgate.docks.taverne-du-cormoran</c>).
+/// <see cref="Region"/> is kept on the wire for backward compat (and
+/// used by the M1 narrative_hook template
+/// <c>f"Une affaire de {type} dans {region}."</c>) but is NOT
+/// authoritative for the tooltip-aggregation rule — the aggregator
+/// filters by prefix match on <see cref="TargetPoi"/> against the
+/// hovered POI's <c>PoiData.PoiId</c>, walking the tree via
+/// <see cref="Wayfinders.Client.Services.PoiTreeService"/>. See
+/// Tess's backend commits 6d2d2e4 (DTO migration) and 6c57df5
+/// (<c>/api/world/poi_tree</c> endpoint).
+/// </para>
 /// </summary>
 /// <param name="Id">Stable UUID4 generated at emergence.</param>
 /// <param name="Type">
@@ -167,7 +187,9 @@ public sealed record WorldTickRequestDto(
 /// Closed lookup, see
 /// <see cref="WorldTickWireFormat.DifficultyBucket"/>.
 /// </param>
-/// <param name="Region">Free-form region id (M1).</param>
+/// <param name="Region">Free-form region id (M1, backward-compat
+/// retained ; the authoritative POI binding is
+/// <see cref="TargetPoi"/>).</param>
 /// <param name="DeadlineTicks">
 /// Ticks until expiry. <c>null</c> in M1.
 /// </param>
@@ -177,6 +199,12 @@ public sealed record WorldTickRequestDto(
 /// emergence.
 /// </param>
 /// <param name="Seed">Spawn seed audit trail.</param>
+/// <param name="TargetPoi">Canonical hierarchical POI id (Varn-lock
+/// 2026-05-15 v2 §1, regex
+/// <c>^e[1-3]\.[a-z0-9\-]+(\.[a-z0-9\-]+){0,2}$</c>). Defaults to
+/// empty string so legacy call sites that haven't been updated still
+/// compile ; the live server (Tess commit 6d2d2e4) always returns a
+/// non-empty value.</param>
 public sealed record EmergentMissionDto(
     string Id,
     string Type,
@@ -186,7 +214,8 @@ public sealed record EmergentMissionDto(
     string Region,
     int? DeadlineTicks,
     string? Outcome,
-    long Seed
+    long Seed,
+    [property: JsonPropertyName("target_poi")] string TargetPoi = ""
 );
 
 /// <summary>

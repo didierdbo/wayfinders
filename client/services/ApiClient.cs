@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Godot;
@@ -703,6 +704,136 @@ public partial class ApiClient : Node
             GD.PushWarning($"[ApiClient] /api/world/mission/conclude JSON parse error: {ex.Message}");
             return Result.Fail<MissionConcludeResponseDto, ApiError>(
                 new ApiError.DeserializationError(ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Hits <c>GET /api/world/poi_tree</c> and parses the response
+    /// using a one-shot <see cref="JsonDocument"/> rather than the
+    /// source-gen pipeline. Used at boot by
+    /// <see cref="PoiTreeService.LoadAsync"/>.
+    ///
+    /// <para>
+    /// <b>Why JsonDocument here.</b> Tess's manifest mixes a scalar
+    /// <c>version</c> with POI-id-keyed entries at the same JSON
+    /// depth :
+    /// <code>
+    /// {
+    ///   "version": 1,
+    ///   "e1.halfgate": { "display_name": "Halfgate", ... }
+    /// }
+    /// </code>
+    /// <see cref="System.Text.Json"/> source-gen records do not
+    /// model this mixed-shape pattern directly (every property must
+    /// be declared statically). The boot path runs once per session
+    /// (~5 KB payload), so the reflection-y JsonDocument cost is
+    /// negligible vs the AOT-safety win that would come from a
+    /// uniform envelope (M-15+ migration : ask Tess to wrap entries
+    /// under <c>"nodes"</c>). Until then, this method is the
+    /// single asymmetric spot at the boundary.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Return shape.</b> A 3-tuple instead of
+    /// <see cref="Result{T, E}"/> because the caller
+    /// (<see cref="PoiTreeService"/>) needs both the version scalar
+    /// AND the node dictionary on success, and only a string error
+    /// on failure. The boundary still owns the typed error
+    /// semantics : every catch arm yields a non-null
+    /// <c>error</c> message and a null dict.
+    /// </para>
+    /// </summary>
+    /// <param name="endpointPath">Path under the configured base
+    /// URL. Passed in so the PoiTreeService owns the path string
+    /// (one source of truth in the service).</param>
+    /// <param name="ct">Caller's cancellation token. Linked with
+    /// the autoload's shutdown token.</param>
+    public async Task<(int Version, Dictionary<string, Wayfinders.Client.Services.Dtos.PoiTreeNodeDto>? Nodes, string? Error)> FetchPoiTreeRawAsync(
+        string endpointPath,
+        CancellationToken ct = default)
+    {
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdownCts.Token);
+
+        try
+        {
+            var response = await _httpClient
+                .GetAsync(endpointPath, linkedCts.Token)
+                .ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                GD.PushWarning($"[ApiClient] {endpointPath} returned {(int)response.StatusCode}");
+                return (0, null, $"server returned {(int)response.StatusCode}");
+            }
+
+            var body = await response.Content
+                .ReadAsStringAsync(linkedCts.Token)
+                .ConfigureAwait(false);
+
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+
+            int version = 0;
+            var nodes = new Dictionary<string, Wayfinders.Client.Services.Dtos.PoiTreeNodeDto>();
+
+            foreach (var prop in root.EnumerateObject())
+            {
+                if (prop.Name == "version")
+                {
+                    version = prop.Value.GetInt32();
+                    continue;
+                }
+
+                var entry = prop.Value;
+                var displayName = entry.TryGetProperty("display_name", out var dn) ? dn.GetString() ?? "" : "";
+                var layer = entry.TryGetProperty("layer", out var ly) ? ly.GetInt32() : 0;
+                string? parent = null;
+                if (entry.TryGetProperty("parent", out var pa) && pa.ValueKind != JsonValueKind.Null)
+                {
+                    parent = pa.GetString();
+                }
+                var children = new List<string>();
+                if (entry.TryGetProperty("children", out var ch) && ch.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var c in ch.EnumerateArray())
+                    {
+                        var str = c.GetString();
+                        if (!string.IsNullOrEmpty(str)) children.Add(str);
+                    }
+                }
+
+                nodes[prop.Name] = new Wayfinders.Client.Services.Dtos.PoiTreeNodeDto(
+                    DisplayName: displayName,
+                    Layer: layer,
+                    Parent: parent,
+                    Children: children);
+            }
+
+            return (version, nodes, null);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested || _shutdownCts.IsCancellationRequested)
+        {
+            return (0, null, "cancelled");
+        }
+        catch (OperationCanceledException ex)
+        {
+            GD.PushWarning($"[ApiClient] {endpointPath} timeout: {ex.Message}");
+            return (0, null, $"timeout: {ex.Message}");
+        }
+        catch (HttpRequestException ex)
+        {
+            GD.PushWarning($"[ApiClient] {endpointPath} network error: {ex.Message}");
+            return (0, null, $"network: {ex.Message}");
+        }
+        catch (System.Net.Http.HttpIOException ex)
+        {
+            GD.PushWarning($"[ApiClient] {endpointPath} transport error: {ex.Message}");
+            return (0, null, $"transport: {ex.Message}");
+        }
+        catch (JsonException ex)
+        {
+            GD.PushWarning($"[ApiClient] {endpointPath} JSON parse error: {ex.Message}");
+            return (0, null, $"json: {ex.Message}");
         }
     }
 }

@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://cpotrees001"]
+
+[ext_resource type="Script" path="res://services/PoiTreeService.cs" id="1_potrs"]
+
+[node name="PoiTreeService" type="Node"]
+script = ExtResource("1_potrs")

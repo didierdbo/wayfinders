@@ -251,6 +251,7 @@ public partial class WorldSimTick : Node
                             mission.Region,
                             mission.Difficulty,
                             mission.Seed,
+                            mission.TargetPoi,
                             new Godot.Collections.Array<string>(mission.EligiblePersonas));
                     }
                     break;
@@ -330,6 +331,7 @@ public partial class WorldSimTick : Node
         string region,
         string difficulty,
         long seed,
+        string targetPoi,
         Godot.Collections.Array<string> eligiblePersonas)
     {
         var mission = new EmergentMissionDto(
@@ -341,12 +343,13 @@ public partial class WorldSimTick : Node
             Region: region,
             DeadlineTicks: null,
             Outcome: null,
-            Seed: seed);
+            Seed: seed,
+            TargetPoi: targetPoi);
 
         if (_gameState is not null)
             _gameState.PendingMissions.Add(mission);
 
-        GD.Print($"[MISSION SPAWN] tick={_cadence.Tick} id={mission.Id} type={mission.Type} region={mission.Region} eligible=[{string.Join(",", mission.EligiblePersonas)}]");
+        GD.Print($"[MISSION SPAWN] tick={_cadence.Tick} id={mission.Id} type={mission.Type} region={mission.Region} target_poi={mission.TargetPoi} eligible=[{string.Join(",", mission.EligiblePersonas)}]");
         EmitSignal(SignalName.MissionEmerged, mission.Id);
     }
 

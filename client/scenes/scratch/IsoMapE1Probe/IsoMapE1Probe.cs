@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Godot;
 using Wayfinders.Client.Data;
@@ -406,6 +407,23 @@ public partial class IsoMapE1Probe : Node2D
     private Label? _tooltipSubtitleLabel;
     private Label? _tooltipBodyLabel;
     private Tween? _tooltipFadeTween;
+
+    // --- Tooltip "Affaires en cours" section (Pattern B, Varn-lock 2026-05-15 v2 §2)
+    // Container holds : 1 section-header Label + up to 3 row Labels
+    // (cap MVP §3). Sits below the parchment, with its own dark-parchment
+    // background panel. Hidden when no mission matches the hovered POI.
+    private const int MissionsSectionWidthPx = 320;
+    private const int MissionsSectionHeaderHeightPx = 22;
+    private const int MissionsSectionRowHeightPx = 18;
+    private const int MissionsSectionPaddingPx = 8;
+    // Total height when 3 rows visible : 8 + 22 + 3*18 + 8 = 92
+    private const int MissionsSectionMaxRows = 3;
+    private const string MissionsSectionHeaderText = "Affaires en cours";
+
+    private Panel? _missionsSectionPanel;
+    private Label? _missionsSectionHeaderLabel;
+    private readonly Label[] _missionsRowLabels = new Label[MissionsSectionMaxRows];
+    private int _missionsSectionVisibleRows;
 
     // --- Hover state (manual hit-test) ---
     // _poiHoverEnabled : false jusqu'à la fin de la cinématique, true ensuite.
@@ -1210,6 +1228,14 @@ public partial class IsoMapE1Probe : Node2D
             return;
         }
 
+        // Varn-lock 2026-05-15 v2 §1 : bind the Halfgate POI to its
+        // canonical hierarchical id. Scoped override (MVP) -- the
+        // .meta.json sidecar will carry poi_id natively once the
+        // PR1/PR3-6 sidecar schema migrates (M-15+). For now this is
+        // the one line that makes mission↔POI prefix-match work in
+        // the tooltip aggregator below.
+        _halfgatePoiData.PoiId = "e1.halfgate";
+
         float imprintCenterGx = (RevealMinGx + RevealMaxGx) * 0.5f; // 31.5
         float imprintCenterGy = (RevealMinGy + RevealMaxGy) * 0.5f; // 31.5
         Vector2 imprintCenterScreen = GridToScreen(imprintCenterGx, imprintCenterGy); // (0, 4032)
@@ -1480,6 +1506,173 @@ public partial class IsoMapE1Probe : Node2D
         _tooltipBodyLabel.AddThemeFontSizeOverride("font_size", 12);
         _tooltipBodyLabel.AddThemeColorOverride("font_color", new Color(0.25f, 0.15f, 0.08f, 1f));
         _tooltipRoot.AddChild(_tooltipBodyLabel);
+
+        SpawnMissionsSectionUi();
+    }
+
+    /// <summary>
+    /// Build the "Affaires en cours" section nodes (Varn-lock
+    /// 2026-05-15 v2 §2). Lives as a sibling Panel BELOW the parchment
+    /// inside <c>_tooltipRoot</c>. Hidden at boot ; populated and
+    /// shown in <see cref="ShowTooltip"/> when at least one
+    /// <see cref="EmergentMissionDto"/> in
+    /// <c>GameState.PendingMissions</c> targets the hovered POI (or
+    /// any descendant per <see cref="PoiTreeService.IsDescendantOf"/>).
+    ///
+    /// <para>
+    /// <b>Visual contract.</b> Dark-parchment background (a flat
+    /// StyleBoxFlat in earthy ochre, alpha 0.85), section header in
+    /// terracotta-rim, rows in the same dark-brown body color. No
+    /// rim highlight, no glow — Pratchett admin register, plain.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Mouse filter.</b> All nodes use
+    /// <see cref="Control.MouseFilterEnum.Ignore"/> like the rest of
+    /// the tooltip — the tooltip never eats inputs (trap #11 in
+    /// godot rendering traps memory).
+    /// </para>
+    /// </summary>
+    private void SpawnMissionsSectionUi()
+    {
+        if (_tooltipRoot is null) return;
+
+        _missionsSectionPanel = new Panel
+        {
+            Name = "MissionsSection",
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            Visible = false,
+            // Positioned just below the parchment (OffsetTop = parchment
+            // height + 2). Width matches parchment ; height grown
+            // dynamically in PopulateMissionsSection per row count.
+            OffsetLeft = 0f,
+            OffsetTop = TooltipParchmentHeightPx + 2f,
+            OffsetRight = MissionsSectionWidthPx,
+            OffsetBottom = TooltipParchmentHeightPx + 2f + MissionsSectionHeaderHeightPx + MissionsSectionPaddingPx * 2f,
+        };
+        var bg = new StyleBoxFlat
+        {
+            BgColor = new Color(0.18f, 0.10f, 0.05f, 0.88f),  // dark-parchment ochre
+            BorderColor = new Color(0.45f, 0.22f, 0.10f, 1.0f),  // terracotta rim
+            BorderWidthTop = 1,
+            BorderWidthBottom = 1,
+            BorderWidthLeft = 1,
+            BorderWidthRight = 1,
+            CornerRadiusTopLeft = 2,
+            CornerRadiusTopRight = 2,
+            CornerRadiusBottomLeft = 2,
+            CornerRadiusBottomRight = 2,
+        };
+        _missionsSectionPanel.AddThemeStyleboxOverride("panel", bg);
+        _tooltipRoot.AddChild(_missionsSectionPanel);
+
+        _missionsSectionHeaderLabel = new Label
+        {
+            Name = "MissionsHeaderLabel",
+            Text = MissionsSectionHeaderText,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            OffsetLeft = MissionsSectionPaddingPx,
+            OffsetTop = MissionsSectionPaddingPx / 2f,
+            OffsetRight = MissionsSectionWidthPx - MissionsSectionPaddingPx,
+            OffsetBottom = MissionsSectionPaddingPx / 2f + MissionsSectionHeaderHeightPx,
+        };
+        _missionsSectionHeaderLabel.AddThemeFontSizeOverride("font_size", 14);
+        _missionsSectionHeaderLabel.AddThemeColorOverride("font_color", new Color(0.95f, 0.85f, 0.70f, 1f));  // parchment cream on dark
+        _missionsSectionPanel.AddChild(_missionsSectionHeaderLabel);
+
+        for (int i = 0; i < MissionsSectionMaxRows; i++)
+        {
+            var rowLabel = new Label
+            {
+                Name = $"MissionRow{i}",
+                Text = "",
+                Visible = false,
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+                OffsetLeft = MissionsSectionPaddingPx,
+                OffsetTop = MissionsSectionPaddingPx / 2f + MissionsSectionHeaderHeightPx + i * MissionsSectionRowHeightPx,
+                OffsetRight = MissionsSectionWidthPx - MissionsSectionPaddingPx,
+                OffsetBottom = MissionsSectionPaddingPx / 2f + MissionsSectionHeaderHeightPx + (i + 1) * MissionsSectionRowHeightPx,
+            };
+            rowLabel.AddThemeFontSizeOverride("font_size", 12);
+            rowLabel.AddThemeColorOverride("font_color", new Color(0.92f, 0.82f, 0.66f, 1f));
+            _missionsSectionPanel.AddChild(rowLabel);
+            _missionsRowLabels[i] = rowLabel;
+        }
+    }
+
+    /// <summary>
+    /// Populate the "Affaires en cours" section from the current
+    /// <c>GameState.PendingMissions</c> filtered against the hovered
+    /// POI's canonical id via
+    /// <see cref="PoiTreeService.IsDescendantOf"/>. Sets visibility
+    /// + per-row text + grows the panel height. Returns the row
+    /// count (0 = section hidden).
+    /// </summary>
+    private int PopulateMissionsSection()
+    {
+        if (_missionsSectionPanel is null) return 0;
+
+        var hoveredPoiId = _halfgatePoiData?.PoiId ?? "";
+        if (string.IsNullOrEmpty(hoveredPoiId))
+        {
+            _missionsSectionPanel.Visible = false;
+            _missionsSectionVisibleRows = 0;
+            return 0;
+        }
+
+        var gameState = GetNodeOrNull<Wayfinders.Client.Services.GameState>("/root/GameState");
+        var poiTree = GetNodeOrNull<Wayfinders.Client.Services.PoiTreeService>("/root/PoiTreeService");
+        if (gameState is null || poiTree is null)
+        {
+            _missionsSectionPanel.Visible = false;
+            _missionsSectionVisibleRows = 0;
+            return 0;
+        }
+
+        var result = Wayfinders.Client.Scripts.Screens.MissionTooltipRowLogic.Build(
+            hoveredPoiId,
+            gameState.PendingMissions,
+            poiTree.IsDescendantOf);
+
+        if (result.TotalMatching == 0)
+        {
+            _missionsSectionPanel.Visible = false;
+            _missionsSectionVisibleRows = 0;
+            return 0;
+        }
+
+        // Render rows + hide unused slots.
+        for (int i = 0; i < MissionsSectionMaxRows; i++)
+        {
+            var lbl = _missionsRowLabels[i];
+            if (lbl is null || !IsInstanceValid(lbl)) continue;
+            if (i < result.Rows.Count)
+            {
+                lbl.Text = result.Rows[i];
+                lbl.Visible = true;
+            }
+            else
+            {
+                lbl.Text = "";
+                lbl.Visible = false;
+            }
+        }
+
+        _missionsSectionVisibleRows = result.Rows.Count;
+
+        // Grow panel height to fit visible rows + padding.
+        float panelHeight = MissionsSectionPaddingPx * 2f + MissionsSectionHeaderHeightPx + _missionsSectionVisibleRows * MissionsSectionRowHeightPx;
+        _missionsSectionPanel.OffsetBottom = TooltipParchmentHeightPx + 2f + panelHeight;
+        _missionsSectionPanel.Visible = true;
+
+        // Grow tooltip root so the 4-quadrants positioner sees the
+        // full bounding box (otherwise the section can overflow off
+        // the viewport bottom without the positioner accounting for it).
+        var totalHeight = TooltipParchmentHeightPx + 2f + panelHeight;
+        _tooltipRoot!.CustomMinimumSize = new Vector2(TooltipParchmentWidthPx, totalHeight);
+        _tooltipRoot!.Size = new Vector2(TooltipParchmentWidthPx, totalHeight);
+
+        return _missionsSectionVisibleRows;
     }
 
     // PR3-6 integration : LoadHalfgatePoiTexture retire. La texture est
@@ -1502,6 +1695,10 @@ public partial class IsoMapE1Probe : Node2D
         }
 
         _isTooltipVisible = true;
+        // Populate "Affaires en cours" BEFORE positioning : the section
+        // grows _tooltipRoot.Size dynamically, and UpdateTooltipPosition
+        // needs the final bounding box to pick the right quadrant.
+        PopulateMissionsSection();
         _tooltipRoot.Visible = true;
         UpdateTooltipPosition();
 
@@ -1548,7 +1745,12 @@ public partial class IsoMapE1Probe : Node2D
         }
 
         Vector2 viewportSize = GetViewport().GetVisibleRect().Size;
-        Vector2 tooltipSize = new Vector2(TooltipParchmentWidthPx, TooltipParchmentHeightPx);
+        // Read live size — grown dynamically in PopulateMissionsSection
+        // when the "Affaires en cours" section is visible (Varn §2).
+        // Fallback to the parchment dims when nothing has grown the root yet.
+        float liveW = _tooltipRoot.Size.X > 0f ? _tooltipRoot.Size.X : TooltipParchmentWidthPx;
+        float liveH = _tooltipRoot.Size.Y > 0f ? _tooltipRoot.Size.Y : TooltipParchmentHeightPx;
+        Vector2 tooltipSize = new Vector2(liveW, liveH);
         Vector2 cursor = _lastCursorViewportPos;
         Vector2 off = TooltipCursorOffset;
 

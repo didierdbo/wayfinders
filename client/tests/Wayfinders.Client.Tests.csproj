@@ -260,6 +260,17 @@
     <Compile Include="..\scripts\poi\PoiHitTestLogic.cs" Link="src\PoiHitTestLogic.cs" />
   </ItemGroup>
 
+  <!-- Mission tooltip Pattern B (Varn-lock 2026-05-15 v2 §2): pure-C#
+       row formatter + filter + sort + cap helper for the
+       "Affaires en cours" tooltip section. Godot-bound rendering
+       lives in IsoMapE1Probe ; xUnit pins the row format (glyph map,
+       3-niveaux difficulty projection, 38-char truncation), the
+       prefix-match filter via the injected predicate, the FIFO sort
+       by Id, and the cap = 3. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\MissionTooltipRowLogic.cs" Link="src\MissionTooltipRowLogic.cs" />
+  </ItemGroup>
+
   <!-- PR5 POI "pion sur plateau" pure-C# helpers (2026-05-15): lift clamp
        window [0,3] + parallax strength clamp window [0, 0.05] + parallax
        offset formula. The Godot-bound shader uniform set, the Sprite2D
