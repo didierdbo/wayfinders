@@ -1266,7 +1266,23 @@ public partial class IsoMapE1Probe : Node2D
             // runs BEFORE this scene's _Process (Godot processes nodes by
             // ascending priority).
             _halfgatePoi.ProcessPriority = -10;
-            GD.Print($"[PROBE IsoMapE1Probe] Shadow re-pivoted (it.3) : Centered=true Offset=(0,{ShadowPivotOffsetY:F0}) origin=(0,0) (pivot at painted-city foot, image_y~416, sea-banded 1024x512) ; alpha bump 0.35→0.55 wired via _Process override (ProcessPriority Poi=-10 < probe=0)");
+
+            // Shadow disable (scoped IsoMapE1Probe, 2026-05-15 it.5).
+            // Didier integrates the shadow directly into the bitmap source
+            // (master image) upstream of Godot. The runtime shadow stays
+            // ATTACHED with the override transform / offset / alpha-bump
+            // wired above so reactivation is a one-line flip — just remove
+            // `shadow.Visible = false` below. We keep Visible=false rather
+            // than QueueFree() so the Sprite2D child stays in the tree and
+            // the live alpha-bump override in _Process keeps running on a
+            // no-op target ; no need to touch Poi._Process null-guards.
+            //
+            // Scope locked : IsoMapE1Probe only. M1Slice and PoiSpawnProbe
+            // keep their shadows visible — the locked PoiVisualLogic
+            // ShadowAlpha=0.35 path applies there unchanged.
+            shadow.Visible = false;
+
+            GD.Print($"[PROBE IsoMapE1Probe] Shadow re-pivoted (it.3) : Centered=true Offset=(0,{ShadowPivotOffsetY:F0}) origin=(0,0) (pivot at painted-city foot, image_y~416, sea-banded 1024x512) ; alpha bump 0.35→0.55 wired via _Process override (ProcessPriority Poi=-10 < probe=0) ; shadow.Visible=false (it.5 — Didier bakes shadow into bitmap source)");
         }
         else
         {
