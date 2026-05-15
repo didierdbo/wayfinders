@@ -475,6 +475,18 @@ public partial class IsoMapE1Probe : Node2D
     private float _poiBboxMinY;
     private float _poiBboxMaxY;
 
+    // --- Cinematic pan to first POI (e1 it.5, 2026-05-15) ---
+    // After the cinematic flip + POI fade-in complete, the camera
+    // smoothly pans (~0.6s, Cubic Ease-Out) toward the first POI's
+    // GlobalPosition, then the POI-aware bounds are activated. While
+    // this Tween is in flight, user pan input (keyboard / edge-scroll /
+    // drag) is suppressed via _cinematicPanInProgress to avoid a fight
+    // between the Tween writing _camera.Position and the user input
+    // writing _camera.Position in the same frame. Mirrors the existing
+    // gating pattern around _isRevealAnimating / _clickInProgress.
+    private bool _cinematicPanInProgress;
+    private const double CinematicPanToPoiDurationSec = 0.6;
+
 
     public override void _Ready()
     {
@@ -646,7 +658,8 @@ public partial class IsoMapE1Probe : Node2D
         //                           normalement mais on laisse le drag avoir l'autorite
         //                           sur la position (le drag ecrit camera.Position dans
         //                           _Input, le frame-tick passe apres et compose).
-        if (!DisplaySingleTileOnly && !_isRevealAnimating && !_clickInProgress)
+        if (!DisplaySingleTileOnly && !_isRevealAnimating && !_clickInProgress
+            && !_cinematicPanInProgress)
         {
             ApplyFrameTickPan((float)delta);
         }
@@ -860,7 +873,8 @@ public partial class IsoMapE1Probe : Node2D
         // pour ne pas interferer avec le hit-test POI Halfgate, et bloque
         // pendant la cinematique reveal + la transition click pour ne pas
         // induire de jitter visuel.
-        if (!DisplaySingleTileOnly && !_isRevealAnimating && !_clickInProgress)
+        if (!DisplaySingleTileOnly && !_isRevealAnimating && !_clickInProgress
+            && !_cinematicPanInProgress)
         {
             if (HandlePanDragInput(@event))
             {
@@ -1710,6 +1724,25 @@ public partial class IsoMapE1Probe : Node2D
         // Active le hover/click maintenant que le POI est visible.
         _poiHoverEnabled = true;
 
+        // Smooth cinematic pan to the first discovered POI (e1 it.5,
+        // 2026-05-15, Rune). The previous build snap-activated the
+        // POI-aware bounds in this same block, which caused the camera
+        // to teleport to the Halfgate GlobalPosition on a single frame.
+        // We now pan progressively (Cubic Ease-Out, ~0.6s) toward the
+        // POI's GlobalPosition BEFORE the bounds flip ON. While the
+        // Tween is in flight, _cinematicPanInProgress=true and all user
+        // pan input paths (ApplyFrameTickPan, HandlePanDragInput) short-
+        // circuit -- same gating pattern as _isRevealAnimating.
+        if (_halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+        {
+            await PanCameraToPoiAsync(_halfgatePoi, CinematicPanToPoiDurationSec);
+
+            if (!IsInstanceValid(this) || !IsInsideTree())
+            {
+                return;
+            }
+        }
+
         // POI-aware camera bounds activation (e1 it.5, 2026-05-15).
         // Until this point the pan/zoom freely roams the legacy diamond
         // bounds [-8192..+8192] x [-4098..+4098] -- that is the "no POI
@@ -1719,6 +1752,8 @@ public partial class IsoMapE1Probe : Node2D
         // default zoom (0.31x) the camera cannot see past half-viewport
         // beyond Halfgate in any direction (= camera locked to Halfgate
         // with one POI ; bbox grows as future POIs are discovered).
+        // The smooth pan above already brought the camera to the POI,
+        // so RecomputePoiAwareBounds' pull-back is a no-op in practice.
         if (_halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
         {
             _knownPois.Clear();
@@ -1732,6 +1767,69 @@ public partial class IsoMapE1Probe : Node2D
         }
 
         GD.Print($"[PROBE IsoMapE1Probe] POI fade-in completed at t≈{RevealTriggerDelaySec + RevealTotalDurationSec + PoiFadeInDurationSec:F2}s — zoom unlocked, hover/click POI enabled (e1 D, manual hit-test)");
+    }
+
+    /// <summary>
+    /// Smoothly pans the WorldCamera2D toward <paramref name="targetPoi"/>'s
+    /// GlobalPosition over <paramref name="durationSec"/> seconds. Uses a
+    /// Cubic Ease-Out transition so the camera decelerates as it reaches
+    /// the POI (no overshoot, no abrupt stop -- the half-viewport bounds
+    /// activate cleanly right after).
+    ///
+    /// <para>
+    /// <b>Gating contract.</b> Sets <c>_cinematicPanInProgress=true</c>
+    /// at start and clears it at end (try/finally). The two user-pan
+    /// entry points (<see cref="ApplyFrameTickPan"/> via _Process and
+    /// <see cref="HandlePanDragInput"/> via _Input) both gate on this
+    /// flag and short-circuit while the Tween writes _camera.Position.
+    /// Without that gate, a key held down or a drag in progress would
+    /// race the Tween in the same frame (last writer wins -- jitter or
+    /// outright cancellation of the smooth pan).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Late-arriving user pan.</b> If the player had panned far from
+    /// the eventual POI position during the cinematic, the smooth tween
+    /// simply takes a longer visual journey -- duration is constant at
+    /// 0.6s, so the speed scales with the distance. This is acceptable
+    /// at iteration 5 (the cinematic blocks meaningful pan anyway since
+    /// _isRevealAnimating gates user input from t=3.0s to t~5.0s, and
+    /// the fade-in t~5.0s to t~5.55s leaves only ~0.55s for the player
+    /// to drift before the tween fires).
+    /// </para>
+    /// </summary>
+    private async Task PanCameraToPoiAsync(Poi targetPoi, double durationSec)
+    {
+        if (targetPoi is null || !IsInstanceValid(targetPoi))
+        {
+            GD.PushWarning("[PROBE IsoMapE1Probe] PanCameraToPoiAsync : targetPoi null/freed -- skipping pan");
+            return;
+        }
+
+        Vector2 from = _camera.Position;
+        Vector2 to = targetPoi.GlobalPosition;
+        GD.Print(
+            $"[PROBE IsoMapE1Probe] cinematic pan to POI start : from=({from.X:F1},{from.Y:F1}) " +
+            $"to=({to.X:F1},{to.Y:F1}) duration={durationSec:F2}s ease=CubicOut");
+
+        _cinematicPanInProgress = true;
+        try
+        {
+            var tween = CreateTween();
+            tween.SetProcessMode(Tween.TweenProcessMode.Idle);
+            tween.TweenProperty(_camera, "position", to, durationSec)
+                .SetTrans(Tween.TransitionType.Cubic)
+                .SetEase(Tween.EaseType.Out);
+
+            await ToSignal(tween, Tween.SignalName.Finished);
+        }
+        finally
+        {
+            _cinematicPanInProgress = false;
+        }
+
+        GD.Print(
+            $"[PROBE IsoMapE1Probe] cinematic pan to POI end : camera_pos=({_camera.Position.X:F1},{_camera.Position.Y:F1})");
     }
 
     private async Task FadeInPoiAsync()
@@ -2186,7 +2284,14 @@ public partial class IsoMapE1Probe : Node2D
         foreach (var poi in _knownPois)
         {
             if (poi is null || !IsInstanceValid(poi)) continue;
-            var p = poi.Position; // parent = _tileGrid at world origin
+            // Bug fix 2026-05-15 (Rune) : use GlobalPosition, NOT Position.
+            // _halfgatePoi.Position is local to _tileGrid (its parent), and
+            // WorldRoot.Position.Y = -4032 translates the whole subtree. The
+            // Camera2D is a sibling of WorldRoot, so its Position lives in
+            // world coords -- the bbox / Limit* / Mathf.Clamp all consume
+            // world coords. Mixing local (Position) and world (camera) was
+            // the root of the "camera jumps below the grid" symptom on F5.
+            var p = poi.GlobalPosition;
             if (p.X < minX) minX = p.X;
             if (p.X > maxX) maxX = p.X;
             if (p.Y < minY) minY = p.Y;
