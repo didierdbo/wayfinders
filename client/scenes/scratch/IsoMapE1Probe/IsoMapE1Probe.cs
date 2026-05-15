@@ -952,13 +952,53 @@ public partial class IsoMapE1Probe : Node2D
             newZoom = Mathf.Clamp(newZoom, ZoomMin, ZoomMax);
             if (!Mathf.IsEqualApprox(newZoom, _currentZoom))
             {
+                // 2026-05-15 (it.5+2) : zoom-toward-POI when hovering. Si le
+                // curseur survole un POI au moment du wheel-tick, le focal point
+                // du zoom = la GlobalPosition de ce POI (sinon = camera courante,
+                // formule degenerescente -> aucun shift, comportement legacy).
+                //
+                // Math : pour qu'un point monde F (focal) reste a la meme
+                // screen-position apres un changement de zoom z0 -> z1, il faut
+                //     C1 = F + (C0 - F) * (z0 / z1)
+                // ou C0/C1 = camera.Position avant/apres. Demonstration : la
+                // screen-position d'un point monde P sous camera centree C et
+                // zoom z est s = (P - C) * z + viewport/2. On veut s_after =
+                // s_before pour P = F :
+                //     (F - C1) * z1 = (F - C0) * z0
+                //     C1 = F - (F - C0) * (z0 / z1)
+                //        = F + (C0 - F) * (z0 / z1)
+                // Quand F == C0 (pas de POI hovered, focal = camera), le terme
+                // (C0 - F) = 0 et C1 = F = C0 : aucun shift, identique au
+                // comportement pre-it.5+2. Donc une seule branche couvre les
+                // deux cas, pas de if-else sur le focal.
+                Vector2 focal;
+                if (_isHoveringPoi && _halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+                {
+                    focal = _halfgatePoi.GlobalPosition;
+                }
+                else
+                {
+                    focal = _camera.Position;
+                }
+
+                float zoomRatio = _currentZoom / newZoom;
+                Vector2 newCameraPos = focal + (_camera.Position - focal) * zoomRatio;
+
                 _currentZoom = newZoom;
                 _camera.Zoom = new Vector2(_currentZoom, _currentZoom);
+                _camera.Position = newCameraPos;
 
                 // 2026-05-13 evening (v2) : bug-fix zoom-out apres pan au bord du diamant.
                 // Quand le viewport effectif (viewport / zoom) grandit suite a un
                 // zoom-out, la position camera peut sortir des bornes diamant
                 // calculees au precedent zoom -> bandes grises sur les cotes.
+                //
+                // 2026-05-15 (it.5+2) : sert AUSSI au clamp du nouveau focal-shift.
+                // Si le POI est pres d'une edge du diamant, la formule
+                // zoom-toward-POI peut pousser la camera contre la borne ; la
+                // projection L1 ci-dessous la ramene au bord autorise. Le user
+                // percoit alors "zoom vers POI sauf si bord du monde rencontre"
+                // -- comportement attendu par la spec.
                 //
                 // IMPORTANT : ce re-clamp NE PEUT PAS utiliser ClampCameraPosition
                 // (variante HardWall) parce que HardWall renvoie currentCenter
