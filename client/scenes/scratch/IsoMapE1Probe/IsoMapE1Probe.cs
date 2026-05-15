@@ -1141,23 +1141,58 @@ public partial class IsoMapE1Probe : Node2D
         // Centered=false + Offset=-AnchorPixel ; we flip to Centered=true +
         // Offset=Zero so the painted city centres on the 4x4 face-B emprise
         // (geometric centre at world (0, 4032)) and is rendered AT NATIVE
-        // 1076x575 (Scale=1.0) — no scaling, no extra position offset, no
-        // shadow offset. PoiInputRouter is Centered-aware so the bitmap
-        // hit-test stays pixel-perfect with no extra wiring.
+        // 1024x512 (Scale=1.0) — no scaling, no extra position offset.
+        // PoiInputRouter is Centered-aware so the bitmap hit-test stays
+        // pixel-perfect with no extra wiring.
         //
         // The PoiData object itself is NOT mutated (its AnchorPixel stays at
-        // (538, 573)) — this is a per-Sprite2D override only. PoiSpawner /
-        // M1Slice / PoiSpawnProbe keep the PR3 default for their own POIs.
-        //
-        // The shadow child (added by Poi._Ready) keeps its PoiVisualLogic-
-        // computed Transform2D ; if it appears visually mis-placed under
-        // Centered=true on the parent, that is the next mandate (likely a
-        // tweak to PoiVisualLogic or Poi.cs to respect parent Centered).
+        // (512, 256) = centre image, per the 2026-05-15 1024x512 asset swap)
+        // — this is a per-Sprite2D override only. PoiSpawner / M1Slice /
+        // PoiSpawnProbe keep the PR3 default for their own POIs.
         _halfgatePoi.Centered = true;
         _halfgatePoi.Offset = Vector2.Zero;
         _halfgatePoi.Scale = Vector2.One;
 
-        GD.Print($"[PROBE IsoMapE1Probe] POI baseline hardcoded : Centered=true Offset=(0,0) Scale=(1.00,1.00) Position=({_halfgatePoi.Position.X:F1},{_halfgatePoi.Position.Y:F1}) (geometric centre of 4x4 face-B emprise, native 1076x575 render)");
+        GD.Print($"[PROBE IsoMapE1Probe] POI baseline hardcoded : Centered=true Offset=(0,0) Scale=(1.00,1.00) Position=({_halfgatePoi.Position.X:F1},{_halfgatePoi.Position.Y:F1}) (geometric centre of 4x4 face-B emprise, native 1024x512 render)");
+
+        // Shadow re-pivot override (2026-05-15, scoped to IsoMapE1Probe only).
+        //
+        // Poi._Ready's AttachShadow computed shadow.Offset = -AnchorPixel and
+        // built a Transform2D with origin=(0,0), assuming AnchorPixel points
+        // to the FOOT of the silhouette (the PR3 convention used by M1Slice
+        // / PoiSpawnProbe). After the 2026-05-15 image swap to 1024x512 with
+        // anchor_pixel=(512,256) = centre image, that assumption no longer
+        // holds : the shadow's pivot lands at the geometric centre of the
+        // sprite, not the foot. The SW-30° projection then rabbat the
+        // silhouette around the centre instead of laying it on the ground at
+        // the foot — the shadow appears mid-height inside the POI silhouette
+        // and is mostly hidden behind the parent.
+        //
+        // Fix : re-aim the shadow so the foot pixel (bottom-centre of the
+        // 1024x512 texture = (512, 512)) sits at the foot of the parent's
+        // visible silhouette (parent local (0, +256), since the parent is
+        // Centered=true on a 1024x512 texture). The SW-30° basis vectors are
+        // preserved verbatim from PoiVisualLogic's locked memo.
+        //
+        // Anti-checklist : NOT a fix in Poi.cs / PoiVisualLogic (those keep
+        // serving M1Slice / PoiSpawnProbe under the PR3 anchor-at-foot
+        // convention). The PoiData object is also unchanged. This override
+        // only re-stages the shadow child's transform for this scene's
+        // hardcoded Centered=true override.
+        var shadow = _halfgatePoi.GetNodeOrNull<Sprite2D>("Shadow");
+        if (shadow != null)
+        {
+            shadow.Offset = new Vector2(-512, -512);
+            shadow.Transform = new Transform2D(
+                new Vector2(1.0f, 0.0f),
+                new Vector2(0.5f, -0.4f),
+                new Vector2(0, 256));
+            GD.Print($"[PROBE IsoMapE1Probe] Shadow re-pivoted : Offset=(-512,-512) origin=(0,256) (foot-aligned for 1024x512 centred parent)");
+        }
+        else
+        {
+            GD.PushWarning("[PROBE IsoMapE1Probe] Shadow child not found on _halfgatePoi — PR5 shadow disabled or AttachShadow failed");
+        }
 
         // PR3-6 integration : the Poi._Ready ran during AddChild and already
         // registered with the PoiInputRouter. We immediately Unregister so
