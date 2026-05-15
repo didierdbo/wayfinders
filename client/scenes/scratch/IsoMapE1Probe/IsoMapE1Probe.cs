@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Godot;
+using Wayfinders.Client.Data;
+using Wayfinders.Client.Scripts.Poi;
 using Wayfinders.Client.Scripts.Screens;
 using Wayfinders.Client.Services;
 using Wayfinders.Client.Utils;
@@ -184,6 +186,15 @@ public partial class IsoMapE1Probe : Node2D
     private const string TooltipParchmentAssetName = "wf_e1_tooltip_parchment.png";
     private const string SealWaxAssetName = "wf_e1_seal_wax.png";
 
+    // PR3-6 integration : Mira-painted Halfgate POI loaded via the
+    // canonical PR1 sidecar loader. Note this is the *PR3-6* asset under
+    // res://assets/poi/e1/, distinct from the legacy 1024x512 placeholder
+    // PNG under res://assets/wayfinders_visual_assets/e1/ (referenced by
+    // <see cref="PoiHalfgateAssetName"/>, kept for the AssetLoader path
+    // and used by other deprecated code paths in this probe).
+    private const string PoiSidecarPngResPath =
+        "res://assets/poi/e1/wf_e1_halfgate_poi.png";
+
     // --- Face-B Halfgate textures (16 lozenge patches 256×128, livraison Mira 2026-05-13) ---
     // Convention sidecar Mira (halfgate_face_b.txt) :
     //   filename = halfgate_face_b_{N}{M}.png
@@ -219,7 +230,12 @@ public partial class IsoMapE1Probe : Node2D
     /// fade-in en surimpression apres le flip -- utile pour A/B debug ou pour
     /// tester un POI separe sur une autre map.
     /// </summary>
-    private static readonly bool ShowPoiSeparateSprite = false;
+    // 2026-05-15 (PR3-6 integration) : passe a true. La cinematique
+    // affiche desormais le POI iso painted (Mira PR3-6) PAR-DESSUS les
+    // 16 patches face-B Mira. Effet : "carte cadastrale qui devient vue
+    // iso" -- le 4x4 face-B reste en arriere-plan, le POI peint detache
+    // au-dessus avec shadow + lift PR5.
+    private static readonly bool ShowPoiSeparateSprite = true;
 
     // --- Hover feedback e1 D (approche unifiee) ---
     // Modulate applique aux 16 sprites face-B quand la souris entre dans la
@@ -311,7 +327,14 @@ public partial class IsoMapE1Probe : Node2D
     // par le hit-test point-in-diamond (bugfix rect->diamond 2026-05-13).
     private const float PoiDiamondHalfWidthPx = PoiTextureWidthPx / 2f;   // 512
     private const float PoiDiamondHalfHeightPx = PoiTextureHeightPx / 2f; // 256
-    private const int PoiZIndex = 100000;
+    // Godot 4.6 trap : RenderingServer.CANVAS_ITEM_Z_MAX = 4096. Tout
+    // ZIndex > 4096 est clampe silencieusement a 4096 au moment de
+    // l'application sur le CanvasItem -- l'assignation .ZIndex = 100000
+    // ne fail pas mais le getter renvoie 4096 (regression preflight #9
+    // diagnostique 2026-05-15). On utilise la valeur max reelle, qui
+    // place le POI bien au-dessus de toutes les tuiles (ZIndex=gx in
+    // [0, 63]) sans casser le clamp.
+    private const int PoiZIndex = 4096;
     private const double PoiFadeInDurationSec = 0.6;
 
     // --- Tooltip e1 D ---
@@ -342,7 +365,20 @@ public partial class IsoMapE1Probe : Node2D
     private float _currentZoom = ZoomInspect;
     private Texture2D _tileTexture = null!;
     private readonly Dictionary<Vector2I, Texture2D> _faceBTextures = new();
-    private Sprite2D? _halfgatePoi;
+    // PR3-6 integration : the POI is now a Wayfinders.Client.Scripts.Poi.Poi
+    // (Sprite2D-derived) carrying PoiData + the bitmap hit-test surface.
+    // The cinematic instantiates it directly (no PoiSpawner node) to
+    // keep the IsoMapE1Probe-specific positioning (geometric center of
+    // the 4x4 face-B imprint) without re-doing tile->world projection
+    // via FogTileGridLogic (which expects the 24x24 production grid
+    // origin shift, not this 64x64 probe grid).
+    private Poi? _halfgatePoi;
+    private PoiData? _halfgatePoiData;
+    // PR4 router reference + handler delegates kept on the field side so
+    // _ExitTree can unsubscribe symmetrically (methodology trap #10).
+    private PoiInputRouter? _poiRouter;
+    private PoiInputRouter.PoiHoveredEventHandler? _routerHoveredHandler;
+    private PoiInputRouter.PoiClickedEventHandler? _routerClickedHandler;
 
     // --- Tooltip nodes ---
     private Control? _tooltipRoot;
@@ -464,6 +500,26 @@ public partial class IsoMapE1Probe : Node2D
         _camera.Zoom = new Vector2(_currentZoom, _currentZoom);
         _camera.MakeCurrent();
 
+        // 4a-bis. PR4 router subscription. The router autoload exists at
+        //        /root/PoiInputRouter (project.godot). We subscribe to
+        //        PoiHovered + PoiClicked here so signal handlers are wired
+        //        BEFORE the POI registers (which happens implicitly at the
+        //        end of the cinematic in ScheduleRevealAsync). Symmetric
+        //        unsubscribe lives in _ExitTree.
+        _poiRouter = GetNodeOrNull<PoiInputRouter>("/root/PoiInputRouter");
+        if (_poiRouter is not null)
+        {
+            _routerHoveredHandler = OnRouterPoiHovered;
+            _routerClickedHandler = OnRouterPoiClicked;
+            _poiRouter.PoiHovered += _routerHoveredHandler;
+            _poiRouter.PoiClicked += _routerClickedHandler;
+            GD.Print("[PROBE IsoMapE1Probe] PoiInputRouter wired (PoiHovered + PoiClicked)");
+        }
+        else
+        {
+            GD.PushError("[PROBE IsoMapE1Probe] PoiInputRouter autoload missing at /root/PoiInputRouter -- POI hover/click will not fire");
+        }
+
         // 4b. Pan camera setup (MMB/RMB drag + ZQSD + edge-scroll).
         //     LimitLeft/Top/Right/Bottom = bornes monde calculees au top
         //     du fichier. Godot clampe le RECT VISIBLE dans ces limites,
@@ -522,6 +578,24 @@ public partial class IsoMapE1Probe : Node2D
         _gameSettings = null;
         _settingsChangedHandler = null;
 
+        // PR4 router unsubscribe (mirror of _Ready subscription, trap #10).
+        if (_poiRouter is not null && IsInstanceValid(_poiRouter))
+        {
+            if (_routerHoveredHandler is not null)
+            {
+                _poiRouter.PoiHovered -= _routerHoveredHandler;
+            }
+            if (_routerClickedHandler is not null)
+            {
+                _poiRouter.PoiClicked -= _routerClickedHandler;
+            }
+            // The Poi node's own _ExitTree will call Unregister ; we do not
+            // double-unregister here. Just clear our references.
+        }
+        _poiRouter = null;
+        _routerHoveredHandler = null;
+        _routerClickedHandler = null;
+
         base._ExitTree();
     }
 
@@ -541,13 +615,21 @@ public partial class IsoMapE1Probe : Node2D
             ApplyFrameTickPan((float)delta);
         }
 
-        // Hit-test manuel hover POI : exécuté chaque frame une fois le POI
-        // activé. C'est l'équivalent d'un mouse_entered/mouse_exited fait à
-        // la main, sans dépendre du physics_object_picking de Godot ni des
-        // Controls qui passent au-dessus avec mouse_filter=Stop.
-        if (_poiHoverEnabled && !_clickInProgress)
+        // PR3-6 integration : hover-exit detection. Enter comes from the
+        // router's PoiHovered signal (motion events). Exit must be polled
+        // because Godot does not emit motion events when the cursor is
+        // stationary off the POI. We ask the router to re-run its AABB +
+        // bitmap predicate against the live cursor each frame ; once the
+        // predicate flips to false we fire the exit transition. Cost :
+        // one Rect2.HasPoint + at most one bit read per frame.
+        if (_poiHoverEnabled && !_clickInProgress && _isHoveringPoi
+            && _halfgatePoi is not null && IsInstanceValid(_halfgatePoi)
+            && _poiRouter is not null)
         {
-            UpdateHoverState();
+            if (!_poiRouter.IsCursorOverPoi(_halfgatePoi))
+            {
+                OnPoiHoverExit();
+            }
         }
 
         // Tooltip suit le curseur — calcul à chaque frame tant qu'il est visible.
@@ -560,81 +642,11 @@ public partial class IsoMapE1Probe : Node2D
         }
     }
 
-    /// <summary>
-    /// Hit-test souris-vs-POI en coordonnées monde. <c>GetGlobalMousePosition()</c>
-    /// gère automatiquement la transformation viewport → world via la caméra
-    /// courante, donc fonctionne identiquement à tous les niveaux de zoom.
-    ///
-    /// <para>
-    /// <b>Diamond, not Rect2 (bugfix 2026-05-13).</b> Le PNG POI est un
-    /// rectangle 1024×512 mais la <i>forme visible</i> est le losange iso
-    /// 4×4 cartes qui occupe exactement l'enveloppe du bitmap, sommets aux
-    /// 4 milieux d'arêtes. Le hit-test précédent utilisait
-    /// <c>Rect2.HasPoint()</c> sur le bounding-box rectangulaire, ce qui
-    /// allumait le tooltip dans les coins transparents. On teste maintenant
-    /// l'appartenance au losange par <c>|dx|/hw + |dy|/hh &lt;= 1</c> avec
-    /// (hw, hh) = (<see cref="PoiDiamondHalfWidthPx"/>,
-    /// <see cref="PoiDiamondHalfHeightPx"/>) = (512, 256) — exactement les
-    /// demi-dimensions du bitmap puisque le losange iso inscrit dans un
-    /// 1024×512 a ses sommets en (centre±512, centre) et (centre, centre±256).
-    /// </para>
-    /// </summary>
-    private void UpdateHoverState()
-    {
-        if (_halfgatePoi is null || !IsInstanceValid(_halfgatePoi))
-        {
-            return;
-        }
-
-        Vector2 worldMouse = GetGlobalMousePosition();
-        bool insideNow = IsPointInPoiDiamond(worldMouse);
-
-        if (insideNow && !_isHoveringPoi)
-        {
-            OnPoiHoverEnter();
-        }
-        else if (!insideNow && _isHoveringPoi)
-        {
-            OnPoiHoverExit();
-        }
-    }
-
-    /// <summary>
-    /// Point-in-diamond test : <c>|dx|/halfwidth + |dy|/halfheight &lt;= 1</c>
-    /// où <c>(dx, dy)</c> est l'offset entre <paramref name="worldPoint"/>
-    /// et le centre monde du losange (= <see cref="Sprite2D.GlobalPosition"/>
-    /// du POI, sprite Centered=true Offset=zero). Convention inclusive sur
-    /// les bords pour matcher la sémantique de <c>Rect2.HasPoint()</c>
-    /// remplacée, et éviter qu'un pixel pile sur un sommet ne soit
-    /// considéré hors-forme.
-    /// </summary>
-    private bool IsPointInPoiDiamond(Vector2 worldPoint)
-    {
-        if (_halfgatePoi is null || !IsInstanceValid(_halfgatePoi))
-        {
-            return false;
-        }
-
-        Vector2 center = _halfgatePoi.GlobalPosition;
-        float dx = Mathf.Abs(worldPoint.X - center.X);
-        float dy = Mathf.Abs(worldPoint.Y - center.Y);
-        return (dx / PoiDiamondHalfWidthPx) + (dy / PoiDiamondHalfHeightPx) <= 1f;
-    }
-
-    /// <summary>
-    /// Renvoie les 4 sommets monde du losange iso POI Halfgate, dans
-    /// l'ordre Top, Right, Bottom, Left. Utilisé par le preflight pour
-    /// pinner la géométrie de hit-test (et plus tard pour le debug-draw).
-    /// </summary>
-    private (Vector2 Top, Vector2 Right, Vector2 Bottom, Vector2 Left) GetPoiDiamondVertices()
-    {
-        Vector2 c = _halfgatePoi!.GlobalPosition;
-        return (
-            Top:    new Vector2(c.X,                              c.Y - PoiDiamondHalfHeightPx),
-            Right:  new Vector2(c.X + PoiDiamondHalfWidthPx,      c.Y),
-            Bottom: new Vector2(c.X,                              c.Y + PoiDiamondHalfHeightPx),
-            Left:   new Vector2(c.X - PoiDiamondHalfWidthPx,      c.Y));
-    }
+    // PR3-6 integration : UpdateHoverState / IsPointInPoiDiamond /
+    // GetPoiDiamondVertices retires. Le hit-test pixel-perfect est desormais
+    // execute par PoiInputRouter (autoload). L'enter est signal-driven
+    // (OnRouterPoiHovered), l'exit est polle dans _Process via
+    // _poiRouter.IsCursorOverPoi(_halfgatePoi).
 
     private void OnPoiHoverEnter()
     {
@@ -757,26 +769,9 @@ public partial class IsoMapE1Probe : Node2D
             }
         }
 
-        // Click POI : hit-test manuel sur l'événement clic gauche.
-        // Cette branche tourne aussi quand un Control au-dessus a
-        // mouse_filter=Stop : _Input est appelé AVANT _gui_input et
-        // _unhandled_input, donc on capte le clic en amont du système Control.
-        if (@event is InputEventMouseButton mb
-            && mb.Pressed
-            && mb.ButtonIndex == MouseButton.Left
-            && _poiHoverEnabled
-            && !_clickInProgress
-            && _halfgatePoi is not null
-            && IsInstanceValid(_halfgatePoi))
-        {
-            Vector2 worldMouse = GetGlobalMousePosition();
-            if (IsPointInPoiDiamond(worldMouse))
-            {
-                GD.Print("[PROBE IsoMapE1Probe] click POI Halfgate — starting zoom-in + crossfade to E2Stub");
-                GetViewport().SetInputAsHandled();
-                _ = HandlePoiClickAsync();
-            }
-        }
+        // PR3-6 integration : click POI manual hit-test retire. Le router
+        // emet PoiClicked via le bitmap hit-test pixel-perfect ; on subscribe
+        // dans _Ready, on dispatch via OnRouterPoiClicked.
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -1023,46 +1018,90 @@ public partial class IsoMapE1Probe : Node2D
     }
 
     /// <summary>
-    /// Cree le Sprite2D POI Halfgate centre sur l'imprint 4x4. Le sprite sert
-    /// a la fois de marqueur visuel (mode legacy <see cref="ShowPoiSeparateSprite"/>=true)
-    /// et de "container de hitbox" (mode unifie par defaut, le sprite reste
-    /// invisible mais sa Position + GetRect alimentent <see cref="IsPointInPoiDiamond"/>).
+    /// PR3-6 integration. Instancie un <see cref="Poi"/> node (PR3 Sprite2D-
+    /// derived) charge via <see cref="PoiSidecarLoader"/> et le pose au
+    /// centre geometrique de l'imprint 4x4 face-B. Le <c>Poi._Ready</c> attache
+    /// automatiquement le shadow PR5 + lift 2 px, enregistre le node avec le
+    /// <see cref="PoiInputRouter"/> autoload (hit-test bitmap pixel-perfect).
     ///
     /// <para>
-    /// <b>Mode unifie (defaut).</b> Modulate.A=0, Visible=true. On garde
-    /// Visible=true parce que <c>UpdateHoverState</c> n'a besoin que de la
-    /// Position monde + GlobalPosition -- pas du rendu. Mettre Visible=false
-    /// fonctionne aussi (le sprite skip son draw) ; on prefere Modulate.A=0
-    /// pour rester coherent avec l'ancien chemin de fade-in (et permettre
-    /// un toggle runtime ulterieur sans toucher la visibilite).
+    /// <b>Pre-cinematic state.</b> <c>Modulate.A=0</c> + <c>Visible=false</c> -- la
+    /// ville peinte et son ombre PR5 restent absentes a l'ecran tant que la
+    /// cinematique flip 64x64 + face-B reveal tourne. Le router est immediatement
+    /// <c>Unregister</c>'d pour eviter qu'un mouvement de souris ne fasse fire
+    /// PoiHovered sur une cible invisible. <see cref="ScheduleRevealAsync"/> bascule
+    /// Visible=true a t~4.95s, tween Modulate.A vers 1 sur 0.6s, et Register a t~5.55s.
     /// </para>
     /// </summary>
     private void SpawnHalfgatePoi()
     {
-        var poiTexture = LoadHalfgatePoiTexture();
+        // PR3-6 integration : load the Mira-painted POI through the canonical
+        // sidecar loader. Returns a PoiData with Texture + AnchorPixel +
+        // pre-built AlphaMask for the bitmap hit-test (PR4) and FootprintTiles
+        // for the iso footprint (kept for future use, ignored here).
+        try
+        {
+            _halfgatePoiData = PoiSidecarLoader.Load(PoiSidecarPngResPath);
+        }
+        catch (System.Exception e)
+        {
+            GD.PushError($"[PROBE IsoMapE1Probe] PoiSidecarLoader.Load({PoiSidecarPngResPath}) threw : {e.Message} -- POI cinematic disabled");
+            return;
+        }
 
         float imprintCenterGx = (RevealMinGx + RevealMaxGx) * 0.5f; // 31.5
         float imprintCenterGy = (RevealMinGy + RevealMaxGy) * 0.5f; // 31.5
         Vector2 imprintCenterScreen = GridToScreen(imprintCenterGx, imprintCenterGy); // (0, 4032)
 
-        _halfgatePoi = new Sprite2D
+        // PR3 Poi convention : Centered=false, Offset=-AnchorPixel applied in
+        // Poi._Ready. The node's Position points to the WORLD location of the
+        // anchor pixel (the "foot" of the iso silhouette). For Halfgate the
+        // anchor sits at the bottom of the texture -- bottom-center of the
+        // 1076x575 painted bitmap -- which we want to coincide with the
+        // geometric center of the 4x4 face-B imprint (0, 4032). The city's
+        // mass then rises UP from there, exactly the iso-plateau stance Didier
+        // asked for ("la ville detache au-dessus, pion-sur-plateau").
+        _halfgatePoi = new Poi
         {
             Name = "HalfgatePoi",
-            Texture = poiTexture,
-            Centered = true,
-            Offset = Vector2.Zero,
-            TextureFilter = CanvasItem.TextureFilterEnum.LinearWithMipmaps,
+            PoiData = _halfgatePoiData,
             Position = imprintCenterScreen,
+            // PR3-6 trap : ZIndex=4096 (CANVAS_ITEM_Z_MAX) places the painted
+            // POI above the tile band (ZIndex=gx in [0,63]). Set BEFORE
+            // AddChild so Poi._Ready sees the correct draw order at preflight.
             ZIndex = PoiZIndex,
             ZAsRelative = false,
-            // Approche unifiee (defaut) : Modulate.A=0 -> jamais visible, mais
-            // Position + GetRect intacts pour le hit-test losange.
-            // Mode legacy (ShowPoiSeparateSprite=true) : on demarre invisible
-            // aussi, puis FadeInPoiAsync ramene a 1.0 apres la cinematique.
+            // PR5 ingredients : shadow on, lift 2px, rim deferred PR5.X,
+            // parallax DISABLED (this probe's Camera2D zooms+pans on a custom
+            // cinematic, not a stable Camera2D for parallax follow ; see brief
+            // anti-checklist). LiftPx=2 and ShadowEnabled=true are the Poi
+            // export defaults but we set them explicitly here so the contract
+            // is readable on grep.
+            LiftPx = 2,
+            ShadowEnabled = true,
+            ParallaxStrength = 0.0f,
+            // Modulate.A=0 at boot : the cinematic fade-in tweens it to 1.0
+            // at t~5.55s. The Poi._Process propagates this alpha onto the
+            // shadow child, so the shadow fades in with the city -- exactly
+            // the "shadow.alpha = poi.alpha" rule from the locked memo.
             Modulate = new Color(1f, 1f, 1f, 0f),
+            // Hidden during the cinematic so the PR5 shadow / lift don't
+            // pop in before the fade-in begins. ScheduleRevealAsync flips
+            // Visible=true at t~4.95s right before the fade-in tween starts.
+            Visible = false,
         };
 
         _tileGrid.AddChild(_halfgatePoi);
+
+        // PR3-6 integration : the Poi._Ready ran during AddChild and already
+        // registered with the PoiInputRouter. We immediately Unregister so
+        // hover / click events cannot fire on the (still-invisible) POI
+        // during the cinematic. ScheduleRevealAsync will Register again right
+        // after the fade-in completes.
+        if (_poiRouter is not null && IsInstanceValid(_poiRouter))
+        {
+            _poiRouter.Unregister(_halfgatePoi);
+        }
     }
 
     /// <summary>
@@ -1157,19 +1196,13 @@ public partial class IsoMapE1Probe : Node2D
         _tooltipRoot.AddChild(_tooltipBodyLabel);
     }
 
-    /// <summary>
-    /// Charge la texture POI Halfgate via le framework placeholder Mira.
-    /// </summary>
-    private Texture2D LoadHalfgatePoiTexture()
-    {
-        var tex = AssetLoader.LoadAssetOrPlaceholder(E1AssetDir, PoiHalfgateAssetName);
-        if (tex is null)
-        {
-            GD.PushError($"[PROBE IsoMapE1Probe] LoadHalfgatePoiTexture: AssetLoader returned null for {PoiHalfgateAssetName} — falling back to empty PlaceholderTexture2D");
-            return new PlaceholderTexture2D();
-        }
-        return tex;
-    }
+    // PR3-6 integration : LoadHalfgatePoiTexture retire. La texture est
+    // chargee par PoiSidecarLoader.Load (qui appelle ResourceLoader.Load,
+    // pas AssetLoader -- les placeholders Mira ne sont pas valides pour le
+    // PR3-6 asset, le sidecar pointe explicitement vers le PNG final).
+    // Si l asset manque, PoiSidecarLoader leve, le catch dans
+    // SpawnHalfgatePoi log un PushError et la cinematique POI est skippee.
+
 
     // ------------------------------------------------------------------------
     // Tooltip show/hide/position — e1 D
@@ -1344,6 +1377,45 @@ public partial class IsoMapE1Probe : Node2D
     }
 
     // ------------------------------------------------------------------------
+    // PR3-6 router signal handlers (OnRouterPoiHovered / OnRouterPoiClicked)
+    // ------------------------------------------------------------------------
+
+    /// <summary>
+    /// PR4 signal handler. The router emits PoiHovered on every mouse-motion
+    /// event whose canvas-world cursor falls on an opaque pixel of a
+    /// registered POI. We filter by DisplayName (defensive : the probe owns
+    /// exactly one POI but a future change could register more), gate on
+    /// the cinematic completion flag, then route through the existing
+    /// OnPoiHoverEnter (250ms anti-flash timer + tooltip + face-B highlight
+    /// + cursor PointingHand all preserved). The enter is signal-driven ;
+    /// the exit lives in _Process (poll IsCursorOverPoi) because Godot does
+    /// not fire motion events when the cursor is stationary off the POI.
+    /// </summary>
+    private void OnRouterPoiHovered(string displayName)
+    {
+        if (!_poiHoverEnabled || _clickInProgress) return;
+        if (_halfgatePoiData is null || displayName != _halfgatePoiData.DisplayName) return;
+        if (_isHoveringPoi) return; // already in, ignore further motion fires
+        OnPoiHoverEnter();
+    }
+
+    /// <summary>
+    /// PR4 signal handler. The router emits PoiClicked exactly once per
+    /// left-click that lands on an opaque pixel. We re-validate the gate
+    /// (cinematic complete, no click already running, POI matches), then
+    /// kick off the existing zoom + crossfade pipeline.
+    /// </summary>
+    private void OnRouterPoiClicked(string displayName)
+    {
+        if (!_poiHoverEnabled || _clickInProgress) return;
+        if (_halfgatePoiData is null || displayName != _halfgatePoiData.DisplayName) return;
+        if (_halfgatePoi is null || !IsInstanceValid(_halfgatePoi)) return;
+
+        GD.Print($"[PROBE IsoMapE1Probe] click POI '{displayName}' (router bitmap hit-test) -- starting zoom-in + crossfade to E2Stub");
+        _ = HandlePoiClickAsync();
+    }
+
+    // ------------------------------------------------------------------------
     // Reveal e1 B-1 — flip 3D simulé en 2D
     // ------------------------------------------------------------------------
 
@@ -1381,6 +1453,15 @@ public partial class IsoMapE1Probe : Node2D
         _revealCompleted = true;
         GD.Print($"[PROBE IsoMapE1Probe] flip completed at t≈{RevealTriggerDelaySec + RevealTotalDurationSec:F2}s — starting POI Halfgate fade-in ({PoiFadeInDurationSec:F2}s)");
 
+        // PR3-6 integration : make the POI node visible just before the
+        // fade-in tween starts. Until now Visible=false ensured the PR5
+        // shadow / lift did not pop in pre-cinematic ; the tween animates
+        // Modulate.A from 0 to 1 with the node now visible.
+        if (_halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+        {
+            _halfgatePoi.Visible = true;
+        }
+
         await FadeInPoiAsync();
 
         if (!IsInstanceValid(this) || !IsInsideTree())
@@ -1391,7 +1472,18 @@ public partial class IsoMapE1Probe : Node2D
         _isRevealAnimating = false;
         _poiFadeInCompleted = true;
 
-        // Active le hover/click manuel maintenant que le POI est visible.
+        // PR3-6 integration : re-register the POI with the input router so
+        // hover + click events fire from now on. The Poi._Ready already did
+        // an initial register at AddChild time ; we Unregister'ed it right
+        // after to suppress the cinematic, this is the symmetric re-arm.
+        if (_poiRouter is not null && IsInstanceValid(_poiRouter)
+            && _halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+        {
+            _poiRouter.Register(_halfgatePoi);
+            GD.Print("[PROBE IsoMapE1Probe] POI registered with PoiInputRouter -- hover/click now live (pixel-perfect bitmap)");
+        }
+
+        // Active le hover/click maintenant que le POI est visible.
         _poiHoverEnabled = true;
 
         GD.Print($"[PROBE IsoMapE1Probe] POI fade-in completed at t≈{RevealTriggerDelaySec + RevealTotalDurationSec + PoiFadeInDurationSec:F2}s — zoom unlocked, hover/click POI enabled (e1 D, manual hit-test)");
@@ -1405,19 +1497,12 @@ public partial class IsoMapE1Probe : Node2D
             return;
         }
 
-        // Approche unifiee (defaut) : la ville est deja dans les 16 patches
-        // face-B. On ne fade-in pas le sprite POI separe -- il reste a
-        // Modulate.A=0 pour servir uniquement de hitbox losange.
-        if (!ShowPoiSeparateSprite)
-        {
-            GD.Print($"[PROBE IsoMapE1Probe] FadeInPoiAsync: SKIPPED (ShowPoiSeparateSprite=false, approche unifiee -- la ville est dessinee dans les 16 patches face-B Mira ; le Sprite2D POI reste invisible mais sa hitbox losange est active)");
-            // On respecte tout de meme le timing : delay equivalent pour que
-            // _poiFadeInCompleted bascule au meme t qu'avant -- evite de
-            // changer la fenetre d'activation hover/click.
-            var skipTimer = GetTree().CreateTimer(PoiFadeInDurationSec);
-            await ToSignal(skipTimer, SceneTreeTimer.SignalName.Timeout);
-            return;
-        }
+        // PR3-6 integration : SKIPPED branch retire (2026-05-15). En mode
+        // unifie + POI peint, la ville Mira-painted s'affiche PAR-DESSUS
+        // les 16 patches face-B (qui restent en arriere-plan). Le tween
+        // Modulate.A : 0 -> 1 anime l'apparition de la ville detachee. Le
+        // shadow child suit (Poi._Process propage l'alpha).
+        GD.Print("[PROBE IsoMapE1Probe] FadeInPoiAsync: fading in Mira-painted POI (shadow + lift PR5 attached)");
 
         var tween = CreateTween();
         tween.SetProcessMode(Tween.TweenProcessMode.Idle);
@@ -2064,15 +2149,31 @@ public partial class IsoMapE1Probe : Node2D
         bool poiZOk = poiExists
             && _halfgatePoi!.ZIndex == PoiZIndex
             && _halfgatePoi.ZAsRelative == false;
-        bool poiCenteredOk = poiExists && _halfgatePoi!.Centered;
+        // PR3-6 integration : the Poi uses Centered=false + Offset=-Anchor.
+        // Replace the legacy Centered=true check with the new contract.
+        bool poiCenteredOk = poiExists && !_halfgatePoi!.Centered
+            && _halfgatePoiData is not null
+            && _halfgatePoi.Offset == -(Vector2)_halfgatePoiData.AnchorPixel;
 
         bool poiCoverageOk = false;
         string coverageDetail = "n/a";
         if (poiExists)
         {
-            Vector2 c = _halfgatePoi!.Position;
-            float halfW = PoiTextureWidthPx * 0.5f;
-            float halfH = PoiTextureHeightPx * 0.5f;
+            // PR3-6 integration : the imprint must lie INSIDE the painted
+            // POI silhouette. We measure inclusion against the live
+            // texture half-extents (Mira PR3-6 is 1076x575 ; legacy was
+            // 1024x512). The painted POI now anchors at its foot, not
+            // its center -- the texture rectangle in WORLD space is
+            // [Position - Anchor, Position - Anchor + TexSize], so the
+            // "center" used for the inclusion test is the texture's
+            // geometric centroid, not the node Position. Compute it.
+            Vector2 texSize = _halfgatePoi!.Texture is not null
+                ? _halfgatePoi.Texture.GetSize()
+                : new Vector2(PoiTextureWidthPx, PoiTextureHeightPx);
+            Vector2 texTopLeftWorld = _halfgatePoi.Position + _halfgatePoi.Offset;
+            Vector2 c = texTopLeftWorld + texSize * 0.5f;
+            float halfW = texSize.X * 0.5f;
+            float halfH = texSize.Y * 0.5f;
 
             Vector2 cornerTopOuter    = GridToScreen(RevealMinGx, RevealMinGy) + new Vector2(0f, -IsoHStride);
             Vector2 cornerRightOuter  = GridToScreen(RevealMaxGx, RevealMinGy) + new Vector2(IsoWStride, 0f);
@@ -2104,45 +2205,36 @@ public partial class IsoMapE1Probe : Node2D
         int poiTexW = poiTex?.GetWidth() ?? 0;
         int poiTexH = poiTex?.GetHeight() ?? 0;
         string poiTexTypeName = poiTex?.GetType().Name ?? "null";
-        bool poiTexDimsOk = poiTexW == PoiTextureWidthPx && poiTexH == PoiTextureHeightPx;
+        // PR3-6 integration : the painted Halfgate POI (PR3-6 Mira asset)
+        // is 1076x575 (anchor pixel (538, 573) per sidecar). The legacy
+        // 1024x512 placeholder is no longer the displayed texture.
+        const int PR36PoiTextureWidthPx = 1076;
+        const int PR36PoiTextureHeightPx = 575;
+        bool poiTexDimsOk = poiTexW == PR36PoiTextureWidthPx && poiTexH == PR36PoiTextureHeightPx;
         bool poiTexSourceOk = poiTexTypeName == "CompressedTexture2D";
         float poiInitialAlpha = poiExists ? _halfgatePoi!.Modulate.A : -1f;
         bool poiAlphaInitOk = poiExists && Mathf.IsEqualApprox(poiInitialAlpha, 0f);
         bool poiFadeDurOk = Mathf.IsEqualApprox((float)PoiFadeInDurationSec, 0.6f);
         bool poiTextureOk = poiTexDimsOk && poiTexSourceOk && poiAlphaInitOk && poiFadeDurOk;
-        GD.Print($"[PROBE IsoMapE1Probe] 10/17 PoiTexture: {poiTexW}x{poiTexH} type={poiTexTypeName} (expected {PoiTextureWidthPx}x{PoiTextureHeightPx} RGBA, CompressedTexture2D via AssetLoader) ; initial Modulate.A={poiInitialAlpha:F2} (expected 0.00 invisible pre-fade) ; fade_in_duration={PoiFadeInDurationSec:F2}s (expected 0.60s) -- {(poiTextureOk ? "OK" : "FAIL")}");
+        GD.Print($"[PROBE IsoMapE1Probe] 10/17 PoiTexture: {poiTexW}x{poiTexH} type={poiTexTypeName} (expected {PR36PoiTextureWidthPx}x{PR36PoiTextureHeightPx} RGBA, CompressedTexture2D via PoiSidecarLoader / PR3-6 Mira asset) ; initial Modulate.A={poiInitialAlpha:F2} (expected 0.00 invisible pre-fade) ; fade_in_duration={PoiFadeInDurationSec:F2}s (expected 0.60s) -- {(poiTextureOk ? "OK" : "FAIL")}");
 
-        // 11. Hit-test manuel POI : flag _poiHoverEnabled=false au boot, sera
-        //     mis à true à la fin de la cinématique (t≈5.55s). Vérifie aussi
-        //     la géométrie du losange iso (4 sommets monde Top/Right/Bottom/Left)
-        //     -- bugfix 2026-05-13 : on teste point-in-diamond, plus le rect
-        //     1024×512 (qui allumait le tooltip dans les coins transparents).
+        // 11. PR3-6 integration : bitmap hit-test wiring. The Poi node
+        //     registered with PoiInputRouter at AddChild ; we Unregister'ed
+        //     it so the cinematic does not leak hover/click. At t~5.55s
+        //     the Schedule routine Register's again. At boot the expected
+        //     state is : router wired, Poi exists, Poi NOT registered (so
+        //     IsCursorOverPoi returns false even if the mouse hovers).
         bool hoverDisabledAtBoot = _poiHoverEnabled == false;
+        bool routerWiredOk = _poiRouter is not null && IsInstanceValid(_poiRouter);
+        bool routerHasMaskOk = poiExists && _halfgatePoiData is not null
+            && _halfgatePoiData.AlphaMask is not null
+            && _halfgatePoiData.AlphaMaskWidth > 0;
+        bool poiUnregisteredAtBootOk = routerWiredOk && poiExists
+            && !_poiRouter!.IsCursorOverPoi(_halfgatePoi!); // unregistered -> always false
         Vector2 poiCenter = poiExists ? _halfgatePoi!.GlobalPosition : Vector2.Zero;
-        var (vTop, vRight, vBottom, vLeft) = poiExists
-            ? GetPoiDiamondVertices()
-            : (Vector2.Zero, Vector2.Zero, Vector2.Zero, Vector2.Zero);
-        bool vTopOk = poiExists
-            && Mathf.IsEqualApprox(vTop.X, poiCenter.X)
-            && Mathf.IsEqualApprox(vTop.Y, poiCenter.Y - PoiDiamondHalfHeightPx);
-        bool vRightOk = poiExists
-            && Mathf.IsEqualApprox(vRight.X, poiCenter.X + PoiDiamondHalfWidthPx)
-            && Mathf.IsEqualApprox(vRight.Y, poiCenter.Y);
-        bool vBottomOk = poiExists
-            && Mathf.IsEqualApprox(vBottom.X, poiCenter.X)
-            && Mathf.IsEqualApprox(vBottom.Y, poiCenter.Y + PoiDiamondHalfHeightPx);
-        bool vLeftOk = poiExists
-            && Mathf.IsEqualApprox(vLeft.X, poiCenter.X - PoiDiamondHalfWidthPx)
-            && Mathf.IsEqualApprox(vLeft.Y, poiCenter.Y);
-        // Sanity self-test du prédicat : le centre est dedans, un coin du
-        // bounding-box rectangulaire (le piège originel) est dehors.
-        bool centerInside = poiExists && IsPointInPoiDiamond(poiCenter);
-        Vector2 bboxCorner = poiCenter + new Vector2(PoiDiamondHalfWidthPx, PoiDiamondHalfHeightPx);
-        bool bboxCornerOutside = poiExists && !IsPointInPoiDiamond(bboxCorner);
-        bool hitTestOk = hoverDisabledAtBoot
-            && vTopOk && vRightOk && vBottomOk && vLeftOk
-            && centerInside && bboxCornerOutside;
-        GD.Print($"[PROBE IsoMapE1Probe] 11/17 Hit-test manuel POI (diamond): _poiHoverEnabled={_poiHoverEnabled} (expected false at boot, true at t≈{RevealTriggerDelaySec + RevealTotalDurationSec + PoiFadeInDurationSec:F2}s) ; vertices Top=({vTop.X:F0},{vTop.Y:F0}) Right=({vRight.X:F0},{vRight.Y:F0}) Bottom=({vBottom.X:F0},{vBottom.Y:F0}) Left=({vLeft.X:F0},{vLeft.Y:F0}) (expected center=({poiCenter.X:F0},{poiCenter.Y:F0}) ± hw={PoiDiamondHalfWidthPx:F0} hh={PoiDiamondHalfHeightPx:F0}) ; predicate self-test center_inside={centerInside} bbox_corner_outside={bboxCornerOutside} (expected true/true) -- {(hitTestOk ? "OK" : "FAIL")}");
+        bool hitTestOk = hoverDisabledAtBoot && routerWiredOk
+            && routerHasMaskOk && poiUnregisteredAtBootOk;
+        GD.Print($"[PROBE IsoMapE1Probe] 11/17 Bitmap hit-test wiring (PR4 router): _poiHoverEnabled={_poiHoverEnabled} (expected false at boot, true at t≈{RevealTriggerDelaySec + RevealTotalDurationSec + PoiFadeInDurationSec:F2}s) ; router wired={routerWiredOk} ; AlphaMask present={routerHasMaskOk} width={(_halfgatePoiData?.AlphaMaskWidth ?? 0)} ; POI Unregister'ed at boot={poiUnregisteredAtBootOk} (will Register at t~5.55s) ; POI center=({poiCenter.X:F0},{poiCenter.Y:F0}) -- {(hitTestOk ? "OK" : "FAIL")}");
 
         // 12. Tooltip root nodes : Control + parchment + seal + 3 Labels.
         bool tooltipRootOk = _tooltipRoot is not null && IsInstanceValid(_tooltipRoot)
@@ -2267,7 +2359,19 @@ public partial class IsoMapE1Probe : Node2D
             poiSpriteHitboxOk = false;
         }
         bool unifiedOk = poiSpriteHiddenOk && poiSpriteVisibleFlagOk && poiSpriteHitboxOk;
-        GD.Print($"[PROBE IsoMapE1Probe] 16/17 Unified Halfgate (ShowPoiSeparateSprite={ShowPoiSeparateSprite}): mode={(unifiedMode ? "UNIFIED (city embedded in 16 face-B patches)" : "LEGACY (separate POI sprite, fade-in)")} ; PoiSprite.Modulate.A={(_halfgatePoi?.Modulate.A ?? -1f):F2} (expected 0.00 at boot, kept 0.00 post-cinematic in unified mode) ; PoiSprite.Visible={(_halfgatePoi?.Visible ?? false)} (expected true -- hitbox preserved) ; hitbox_preserved (texture+pos)={poiSpriteHitboxOk} -- {(unifiedOk ? "OK" : "FAIL")}");
+        // PR3-6 integration : the visible flag flipped from true (unified)
+        // to false (LEGACY pre-fade). The Poi is invisible until t~4.95s
+        // when ScheduleRevealAsync sets Visible=true just before fade-in.
+        // At boot, expected : Modulate.A=0 AND Visible=false.
+        // We also re-read the live state instead of the stale poiSpriteVisibleFlagOk
+        // computed above (which was written for the unified-mode contract).
+        bool legacyVisibleFlagAtBootOk = _halfgatePoi is not null && IsInstanceValid(_halfgatePoi)
+            && _halfgatePoi.Visible == false;
+        bool legacyHitboxPosOk = _halfgatePoi is not null && IsInstanceValid(_halfgatePoi)
+            && _halfgatePoi.Texture is not null
+            && !_halfgatePoi.Position.IsEqualApprox(Vector2.Zero);
+        bool legacyOk = poiSpriteHiddenOk && legacyVisibleFlagAtBootOk && legacyHitboxPosOk;
+        GD.Print($"[PROBE IsoMapE1Probe] 16/17 PR3-6 Halfgate (ShowPoiSeparateSprite={ShowPoiSeparateSprite}): mode=LEGACY-PR36 (Poi node + Mira-painted sprite, fade-in over 16 face-B patches, shadow+lift PR5) ; PoiSprite.Modulate.A={(_halfgatePoi?.Modulate.A ?? -1f):F2} (expected 0.00 at boot, 1.00 post-fade) ; PoiSprite.Visible={(_halfgatePoi?.Visible ?? false)} (expected false at boot, true at t~4.95s) ; hitbox+pos preserved={legacyHitboxPosOk} -- {(legacyOk ? "OK" : "FAIL")}");
 
         // 17. Cursor shape machinery cablee.
         //     Au boot : Arrow, jamais touche PointingHand encore.

@@ -133,6 +133,50 @@ public partial class PoiInputRouter : Node
         _registered.Remove(poi);
     }
 
+    /// <summary>
+    /// True if <paramref name="poi"/> is registered AND the live cursor
+    /// position sits on an opaque pixel of its alpha mask. Same AABB +
+    /// bitmap predicate used by <see cref="_Input"/>, exposed for callers
+    /// that need an enter/exit hover state machine (Godot motion events
+    /// only fire on mouse-move, so stationary-cursor exit detection must
+    /// poll). Returns false on every degenerate input (null, freed,
+    /// unregistered, no texture, no mask, no PoiData).
+    ///
+    /// <para>
+    /// Intended caller : a scene that wants strict hover-enter / hover-exit
+    /// semantics on top of the router's per-motion signal. Subscribe to
+    /// <see cref="PoiHovered"/> to detect enter, poll this each frame
+    /// (cheap : one AABB check + one bit read) to detect exit even when
+    /// the cursor is held still off the POI.
+    /// </para>
+    /// </summary>
+    public bool IsCursorOverPoi(Poi poi)
+    {
+        if (!IsValidPoi(poi)) return false;
+        if (!_registered.Contains(poi)) return false;
+        if (poi.Texture == null) return false;
+        if (poi.PoiData == null) return false;
+
+        var viewport = GetViewport();
+        if (viewport == null) return false;
+
+        var screen = viewport.GetMousePosition();
+        var cursor = viewport.GetCanvasTransform().AffineInverse() * screen;
+
+        var texSize = poi.Texture.GetSize();
+        var aabb = new Rect2(poi.GlobalPosition + poi.Offset, texSize);
+        if (!aabb.HasPoint(cursor)) return false;
+
+        var local = cursor - (poi.GlobalPosition + poi.Offset);
+        var localPixel = (X: (int)local.X, Y: (int)local.Y);
+
+        return PoiHitTestLogic.HitTestPoiPure(
+            poi.PoiData.AlphaMask,
+            poi.PoiData.AlphaMaskWidth,
+            (int)texSize.Y,
+            localPixel);
+    }
+
     public override void _Input(InputEvent @event)
     {
         // Cheap filter — anything that is not a mouse position update or a
