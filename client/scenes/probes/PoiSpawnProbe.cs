@@ -77,6 +77,17 @@ public partial class PoiSpawnProbe : Node2D
     [Export] public NodePath HudLabelPath { get; set; } = new("Hud/Label");
     [Export] public NodePath HudTuningLabelPath { get; set; } = new("Hud/TuningLabel");
 
+    /// <summary>
+    /// PR5 follow-up (2026-05-15) — disabled by default so Didier sees a
+    /// single Halfgate when doing the visual A/B at F6. The clone was a
+    /// PR4 artefact used to validate the Y-sort cascade ; it now reads as
+    /// a rendering bug to a fresh eye because it shares the same texture
+    /// at α 0.5 and offsets one tile south on the iso grid (≈ 64 px left
+    /// + 32 px down at zoom 0.5). Flip back to <c>true</c> in the .tscn
+    /// inspector to re-run the Y-sort cascade test from PR4.
+    /// </summary>
+    [Export] public bool SpawnClone { get; set; } = false;
+
     private Label? _hudLabel;
     private Label? _tuningLabel;
     private PoiInputRouter? _router;
@@ -118,12 +129,19 @@ public partial class PoiSpawnProbe : Node2D
         // displays semi-transparent so Halfgate stays visually dominant.
         // PR5 — the clone also gets the camera ; both POIs parallax in
         // sync so the comparison stays clean.
-        var cloneTile = new Vector2I(centerTile.X, centerTile.Y + 1);
-        var cloneData = PoiSidecarLoader.Load("res://assets/poi/e1/wf_e1_halfgate_poi.png");
-        cloneData.DisplayName = "HalfgateClone";
-        var clone = spawner.SpawnAt(cloneData, cloneTile, worldRoot, camera);
-        clone.Modulate = new Color(1, 1, 1, 0.5f);
-        _spawned.Add(clone);
+        // PR5 follow-up (2026-05-15) — gated behind <see cref="SpawnClone"/>
+        // so the default F6 run shows a single Halfgate for clean A/B
+        // visual validation of the four "pion sur plateau" ingredients.
+        Poi? clone = null;
+        if (SpawnClone)
+        {
+            var cloneTile = new Vector2I(centerTile.X, centerTile.Y + 1);
+            var cloneData = PoiSidecarLoader.Load("res://assets/poi/e1/wf_e1_halfgate_poi.png");
+            cloneData.DisplayName = "HalfgateClone";
+            clone = spawner.SpawnAt(cloneData, cloneTile, worldRoot, camera);
+            clone.Modulate = new Color(1, 1, 1, 0.5f);
+            _spawned.Add(clone);
+        }
 
         // PR4 — wire the router signals to the HUD label and console log.
         _router = GetNodeOrNull<PoiInputRouter>("/root/PoiInputRouter");
@@ -149,11 +167,14 @@ public partial class PoiSpawnProbe : Node2D
             dims, spawner.CellSizePx, GridProjection.IsoDiamondDown);
         camera.Position = new Vector2(cellCenter.X + shift.X, cellCenter.Y + shift.Y);
 
+        var cloneLog = clone != null
+            ? $"clonePos=({clone.Position.X:F1},{clone.Position.Y:F1})"
+            : "clone=disabled (PR5 A/B mode)";
         GD.Print(
             $"[POI SPAWN PROBE] camera centered at " +
             $"({camera.Position.X:F1},{camera.Position.Y:F1}) " +
             $"poiPos=({poi.Position.X:F1},{poi.Position.Y:F1}) " +
-            $"clonePos=({clone.Position.X:F1},{clone.Position.Y:F1})");
+            cloneLog);
 
         if (_hudLabel != null)
         {
