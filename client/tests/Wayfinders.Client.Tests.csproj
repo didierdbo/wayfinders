@@ -260,4 +260,15 @@
     <Compile Include="..\scripts\poi\PoiHitTestLogic.cs" Link="src\PoiHitTestLogic.cs" />
   </ItemGroup>
 
+  <!-- PR5 POI "pion sur plateau" pure-C# helpers (2026-05-15): lift clamp
+       window [0,3] + parallax strength clamp window [0, 0.05] + parallax
+       offset formula. The Godot-bound shader uniform set, the Sprite2D
+       Shadow attach, and the per-frame camera read live in Poi.cs ; the
+       four locked windows (memo project_wayfinders_pion_sur_plateau) are
+       pinned here so a slipped inspector value or a probe typo cannot
+       ship the "jouet" anti-pattern. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\poi\PoiVisualLogic.cs" Link="src\PoiVisualLogic.cs" />
+  </ItemGroup>
+
 </Project>

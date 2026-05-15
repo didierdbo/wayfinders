@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Godot;
 using Wayfinders.Client.Data;
 using Wayfinders.Client.Scripts.Poi;
@@ -12,6 +13,10 @@ namespace Wayfinders.Client.scenes.probes;
 /// center (i.e. the foot of the sprite "stands" on the tile).
 /// PR4 extension — verify that <see cref="PoiInputRouter"/> cascades hover
 /// + click events with pixel-perfect bitmap hit-test and Y-sort descending.
+/// PR5 extension — the four "pion sur plateau" ingredients are tunable via
+/// F1-F4 toggles. This is the A/B harness Didier uses at F6 ; without it
+/// the visual tuning is undebuggable (trap §8 — "the eye decides, but
+/// give the eye a switch").
 ///
 /// <para>
 /// <b>Run.</b> F6 on <c>PoiSpawnProbe.tscn</c>. Expected output panel :
@@ -19,27 +24,38 @@ namespace Wayfinders.Client.scenes.probes;
 /// [POI ROUTER] registered, autoload OK, signals declared ...
 /// [POI SPAWN PROBE] _Ready cellSize=128 gridDims=(24,24) centerTile=(12,12)
 /// [POI SPAWNER] _Ready poiScene=loaded cellSize=128px gridDims=(24,24)
-/// [POI SPAWNER] SpawnAt Halfgate tile=(12,12) worldPos=(...) parent=Node2D/WorldRoot
-/// [POI SPAWN] Halfgate ... anchorAlignedOK
+/// [POI SPAWNER] SpawnAt Halfgate tile=(12,12) ... parallaxCamera=WorldCamera
+/// [POI SPAWN] Halfgate basePos=... liftedPos=... anchorAlignedOK
+/// [POI Halfgate] shadow=ON lift=2 rim=ON parallax=0.040 camera=wired (trap §8 — values delivered to screen)
 /// [POI Halfgate] registered with router
 /// [POI SPAWNER] SpawnAt HalfgateClone tile=(12,13) ...
 /// [POI SPAWN] HalfgateClone ... anchorAlignedOK
 /// [POI HalfgateClone] registered with router
 /// </code>
-/// Visually : Halfgate sprite + a translucent clone one tile south. The
-/// HUD label in the top-left shows "POI: -" by default and flips to
-/// "POI hover: Halfgate" / "POI click: Halfgate" as the cursor moves.
-/// When the cursor sits on the row where Halfgate and HalfgateClone
-/// overlap, the front (larger Y) wins.
 /// </para>
 ///
 /// <para>
-/// <b>Validation matrix (Didier at F6).</b>
+/// <b>PR5 — F-key tuning matrix (Didier at F6).</b>
+/// <list type="bullet">
+///   <item><b>F1</b> — toggle Shadow ON/OFF on every POI. Halfgate should feel
+///         "posed" with shadow, "sticker" without.</item>
+///   <item><b>F2</b> — cycle Lift 0 → 2 → 3 → 0. 0 = sticker (locked anti),
+///         2 = posed (locked target), 3 = jouet edge (locked anti).</item>
+///   <item><b>F3</b> — toggle Rim ON/OFF. Look for the warm terracotta
+///         highlight on the SW edge of the pillar.</item>
+///   <item><b>F4</b> — cycle Parallax 0 → 0.03 → 0.05 → 0. Pan the camera
+///         (MMB drag or arrows) and feel the POI drift relative to the
+///         cadastral grid.</item>
+///   <item><b>F1-F4 cumulés.</b> The HUD bottom-left shows the four current
+///         values live so a screenshot captures the configuration.</item>
+/// </list>
+/// </para>
+///
+/// <para>
+/// <b>PR4 validation matrix (kept).</b>
 /// <list type="bullet">
 ///   <item>Hover the pillar (opaque) → label "POI hover: Halfgate".</item>
-///   <item>Hover the AABB corner (transparent) → label "POI: -" (miss,
-///         fallthrough natural).</item>
-///   <item>Hover outside the AABB → label stays "POI: -".</item>
+///   <item>Hover the AABB corner (transparent) → label "POI: -".</item>
 ///   <item>Left-click on the pillar → console "[PROBE] Click on Halfgate".</item>
 ///   <item>Hold middle button and drag → no hover updates fire while
 ///         dragging (trap §5 ergonomic skip).</item>
@@ -59,9 +75,17 @@ public partial class PoiSpawnProbe : Node2D
     [Export] public NodePath WorldRootPath { get; set; } = new("WorldRoot");
     [Export] public NodePath WorldCameraPath { get; set; } = new("WorldRoot/WorldCamera");
     [Export] public NodePath HudLabelPath { get; set; } = new("Hud/Label");
+    [Export] public NodePath HudTuningLabelPath { get; set; } = new("Hud/TuningLabel");
 
     private Label? _hudLabel;
+    private Label? _tuningLabel;
     private PoiInputRouter? _router;
+
+    // PR5 — track every spawned POI so the F1-F4 toggles fan out to all
+    // of them. The router has a similar list but it is private (locked
+    // PR4) ; we keep a probe-local mirror to avoid widening the router's
+    // public surface for a probe-only debug need.
+    private readonly List<Poi> _spawned = new();
 
     public override void _Ready()
     {
@@ -69,6 +93,7 @@ public partial class PoiSpawnProbe : Node2D
         var worldRoot = GetNode<Node2D>(WorldRootPath);
         var camera = GetNode<Camera2D>(WorldCameraPath);
         _hudLabel = GetNodeOrNull<Label>(HudLabelPath);
+        _tuningLabel = GetNodeOrNull<Label>(HudTuningLabelPath);
 
         // Center the spawn on the grid for visual symmetry.
         var centerTile = new Vector2I(
@@ -84,19 +109,21 @@ public partial class PoiSpawnProbe : Node2D
         // Load Halfgate via the PR1+PR2 sidecar loader.
         var data = PoiSidecarLoader.Load("res://assets/poi/e1/wf_e1_halfgate_poi.png");
 
-        // Spawn at the center tile. The Poi instance's _Ready will log the
-        // delivered values (anchor, offset, parent type, etc.) and the
-        // PR4 hook will register it with the input router.
-        var poi = spawner.SpawnAt(data, centerTile, worldRoot);
+        // PR5 — pass the camera so the POI parallax-follows it.
+        var poi = spawner.SpawnAt(data, centerTile, worldRoot, camera);
+        _spawned.Add(poi);
 
         // PR4 — spawn a second POI one tile south so the Y-sort tiebreaker
         // is observable. Reuses the same texture/sidecar (cheap clone) and
         // displays semi-transparent so Halfgate stays visually dominant.
+        // PR5 — the clone also gets the camera ; both POIs parallax in
+        // sync so the comparison stays clean.
         var cloneTile = new Vector2I(centerTile.X, centerTile.Y + 1);
         var cloneData = PoiSidecarLoader.Load("res://assets/poi/e1/wf_e1_halfgate_poi.png");
         cloneData.DisplayName = "HalfgateClone";
-        var clone = spawner.SpawnAt(cloneData, cloneTile, worldRoot);
+        var clone = spawner.SpawnAt(cloneData, cloneTile, worldRoot, camera);
         clone.Modulate = new Color(1, 1, 1, 0.5f);
+        _spawned.Add(clone);
 
         // PR4 — wire the router signals to the HUD label and console log.
         _router = GetNodeOrNull<PoiInputRouter>("/root/PoiInputRouter");
@@ -132,6 +159,45 @@ public partial class PoiSpawnProbe : Node2D
         {
             _hudLabel.Text = "POI: -";
         }
+
+        UpdateTuningHud();
+        GD.Print(
+            "[POI SPAWN PROBE] PR5 toggles : F1=Shadow F2=Lift(0/2/3) " +
+            "F3=Rim F4=Parallax(0/0.03/0.05). HUD bottom-left shows live values.");
+    }
+
+    public override void _UnhandledKeyInput(InputEvent @event)
+    {
+        // We intercept the four debug toggles. Use `Pressed && !Echo` so a
+        // long press fires once. Memo trap §3 — `_UnhandledKeyInput` runs
+        // AFTER any Control has had its say, which is what we want here
+        // (the probe HUD must not steal keys from us).
+        if (@event is not InputEventKey key) return;
+        if (!key.Pressed || key.Echo) return;
+
+        switch (key.Keycode)
+        {
+            case Key.F1:
+                foreach (var p in _spawned) p.DebugToggleShadow();
+                GD.Print("[PROBE] F1 — Shadow toggled");
+                UpdateTuningHud();
+                break;
+            case Key.F2:
+                foreach (var p in _spawned) p.DebugCycleLift();
+                GD.Print("[PROBE] F2 — Lift cycled");
+                UpdateTuningHud();
+                break;
+            case Key.F3:
+                foreach (var p in _spawned) p.DebugToggleRim();
+                GD.Print("[PROBE] F3 — Rim toggled");
+                UpdateTuningHud();
+                break;
+            case Key.F4:
+                foreach (var p in _spawned) p.DebugCycleParallax();
+                GD.Print("[PROBE] F4 — Parallax cycled");
+                UpdateTuningHud();
+                break;
+        }
     }
 
     public override void _ExitTree()
@@ -161,5 +227,18 @@ public partial class PoiSpawnProbe : Node2D
             _hudLabel.Text = $"POI click: {displayName}";
         }
         GD.Print($"[PROBE] Click on {displayName}");
+    }
+
+    private void UpdateTuningHud()
+    {
+        if (_tuningLabel == null || _spawned.Count == 0) return;
+        // Read the first POI's state — all spawned share the same values
+        // because the toggles fan out together.
+        var p = _spawned[0];
+        _tuningLabel.Text =
+            $"Shadow: {(p.ShadowEnabled ? "ON " : "OFF")}  " +
+            $"Lift: {p.LiftPx}  " +
+            $"Rim: {(p.RimEnabled ? "ON " : "OFF")}  " +
+            $"Parallax: {p.ParallaxStrength:F3}";
     }
 }

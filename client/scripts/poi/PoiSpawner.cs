@@ -30,8 +30,11 @@ namespace Wayfinders.Client.Scripts.Poi;
 /// owns the <see cref="PoiData"/> (loaded via <c>PoiSidecarLoader</c>) and
 /// the iso tile coord ; the spawner does the scene instantiation +
 /// data-injection + tile→world projection + <c>AddChild</c>. The returned
-/// node is a <see cref="Poi"/> Sprite2D ready for further wiring (input
-/// register in PR4, shadow attach in PR5).
+/// node is a <see cref="Poi"/> Sprite2D ready for further wiring. PR5
+/// adds an optional <paramref name="parallaxCamera"/> argument so the
+/// spawned POI knows which camera to read for the parallax pan ; passing
+/// <c>null</c> keeps the POI parallax-disabled regardless of its
+/// <c>ParallaxStrength</c> export.
 /// </para>
 ///
 /// <para>
@@ -86,13 +89,17 @@ public partial class PoiSpawner : Node
     /// Spawn a POI scene at the given iso tile, parented under
     /// <paramref name="parent"/>. The <paramref name="data"/> is injected on
     /// the instance <b>before</b> <c>AddChild</c> so <c>Poi._Ready</c> sees
-    /// a non-null <c>PoiData</c>.
+    /// a non-null <c>PoiData</c>. PR5 — optional <paramref name="parallaxCamera"/>
+    /// is forwarded to <see cref="Poi.SetParallaxCamera"/> after AddChild ;
+    /// when null, the POI runs with parallax disabled (same effect as
+    /// <c>Poi.ParallaxStrength = 0</c>).
     /// </summary>
     /// <param name="data">The POI's runtime data (loaded via sidecar).</param>
     /// <param name="tile">Iso (col, row) tile coordinate.</param>
     /// <param name="parent">World-tree parent node (must NOT be a CanvasLayer).</param>
+    /// <param name="parallaxCamera">Optional camera the POI follows for parallax.</param>
     /// <returns>The spawned <see cref="Poi"/> Sprite2D node.</returns>
-    public Poi SpawnAt(PoiData data, Vector2I tile, Node parent)
+    public Poi SpawnAt(PoiData data, Vector2I tile, Node parent, Camera2D? parallaxCamera = null)
     {
         if (PoiScene == null)
         {
@@ -106,11 +113,21 @@ public partial class PoiSpawner : Node
 
         parent.AddChild(instance);
 
+        // PR5 — wire the parallax camera AFTER AddChild so _Ready has fired
+        // (the parallax target is read in _Process which only ticks after
+        // _Ready, but we set the field early so the first _Process frame
+        // sees a non-null camera and does not snap-jump).
+        if (parallaxCamera != null)
+        {
+            instance.SetParallaxCamera(parallaxCamera);
+        }
+
         GD.Print(
             $"[POI SPAWNER] SpawnAt {data.DisplayName} " +
             $"tile=({tile.X},{tile.Y}) " +
             $"worldPos=({instance.Position.X:F1},{instance.Position.Y:F1}) " +
-            $"parent={parent.GetType().Name}/{parent.Name}");
+            $"parent={parent.GetType().Name}/{parent.Name} " +
+            $"parallaxCamera={(parallaxCamera != null ? parallaxCamera.Name.ToString() : "none")}");
 
         return instance;
     }

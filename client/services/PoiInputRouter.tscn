@@ -1,4 +1,4 @@
-[gd_scene load_steps=2 format=3 uid="uid://cpoiinputrouter01"]
+[gd_scene format=3 uid="uid://cl06hf1j0y5p1"]
 
 [ext_resource type="Script" path="res://services/PoiInputRouter.cs" id="1_poir"]
 
