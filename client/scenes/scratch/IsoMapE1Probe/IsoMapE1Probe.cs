@@ -1157,37 +1157,45 @@ public partial class IsoMapE1Probe : Node2D
 
         // Shadow re-pivot override (2026-05-15, scoped to IsoMapE1Probe only).
         //
-        // Poi._Ready's AttachShadow computed shadow.Offset = -AnchorPixel and
-        // built a Transform2D with origin=(0,0), assuming AnchorPixel points
-        // to the FOOT of the silhouette (the PR3 convention used by M1Slice
-        // / PoiSpawnProbe). After the 2026-05-15 image swap to 1024x512 with
-        // anchor_pixel=(512,256) = centre image, that assumption no longer
-        // holds : the shadow's pivot lands at the geometric centre of the
-        // sprite, not the foot. The SW-30° projection then rabbat the
-        // silhouette around the centre instead of laying it on the ground at
-        // the foot — the shadow appears mid-height inside the POI silhouette
-        // and is mostly hidden behind the parent.
+        // Iteration 2 (this commit): the first re-pivot pass aimed the shadow
+        // at the bottom-centre of the rectangular 1024x512 texture (world
+        // y=4288 = parent local (0, +256)), assuming that pixel was the foot
+        // of the painted silhouette. After F5, Didier observed the shadow was
+        // rabattu trop bas — projeté depuis le bas de l'image rect, sous la
+        // côte / sea band, et non sous la ville iso peinte.
         //
-        // Fix : re-aim the shadow so the foot pixel (bottom-centre of the
-        // 1024x512 texture = (512, 512)) sits at the foot of the parent's
-        // visible silhouette (parent local (0, +256), since the parent is
-        // Centered=true on a 1024x512 texture). The SW-30° basis vectors are
-        // preserved verbatim from PoiVisualLogic's locked memo.
+        // Root cause : in the 2026-05-15 image swap, MJ placed the iso city
+        // in the upper half of the 1024x512 frame ; the lower half holds sea
+        // + coastline (decorative band, no city footprint). The visual foot
+        // of the painted city is therefore ~ at the IMAGE CENTRE, not at the
+        // image bottom. Pivoting at image bottom rabats the silhouette below
+        // the painted city, detached.
+        //
+        // Fix iteration 2 : pivot at parent-local origin = (0, 0) = parent
+        // Position = world (0, 4032) = centre of the 1024x512 frame = visual
+        // foot of the painted city. Use Centered=true + Offset=Vector2.Zero
+        // so the shadow texture is centred on its own transform origin (no
+        // double-offset). The SW-30° basis + 0.4 vertical compress are
+        // preserved verbatim from PoiVisualLogic's locked memo. Resulting
+        // shadow stretches ~ y in [3929, 4135] around the painted-city foot,
+        // SW-rabattue, sous la ville et non sous la coastline.
         //
         // Anti-checklist : NOT a fix in Poi.cs / PoiVisualLogic (those keep
         // serving M1Slice / PoiSpawnProbe under the PR3 anchor-at-foot
-        // convention). The PoiData object is also unchanged. This override
-        // only re-stages the shadow child's transform for this scene's
-        // hardcoded Centered=true override.
+        // convention with the historic image shape). The PoiData object,
+        // sidecar, image, face-B, cinematic, and F9/F10 toggles are all
+        // unchanged. This override only re-stages the shadow child's
+        // transform for this scene's hardcoded Centered=true override.
         var shadow = _halfgatePoi.GetNodeOrNull<Sprite2D>("Shadow");
         if (shadow != null)
         {
-            shadow.Offset = new Vector2(-512, -512);
+            shadow.Centered = true;
+            shadow.Offset = Vector2.Zero;
             shadow.Transform = new Transform2D(
                 new Vector2(1.0f, 0.0f),
                 new Vector2(0.5f, -0.4f),
-                new Vector2(0, 256));
-            GD.Print($"[PROBE IsoMapE1Probe] Shadow re-pivoted : Offset=(-512,-512) origin=(0,256) (foot-aligned for 1024x512 centred parent)");
+                Vector2.Zero);
+            GD.Print($"[PROBE IsoMapE1Probe] Shadow re-pivoted (it.2) : Centered=true Offset=(0,0) origin=(0,0) (pivot at parent centre = painted-city visual foot for 1024x512 sea-banded image)");
         }
         else
         {
