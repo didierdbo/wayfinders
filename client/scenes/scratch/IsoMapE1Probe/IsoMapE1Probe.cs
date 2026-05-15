@@ -358,7 +358,7 @@ public partial class IsoMapE1Probe : Node2D
     // feathering at the cluster boundary. Bump for softer halos, drop
     // for crisper edges. Single source of truth, kept here next to the
     // toggle so an F5 A/B knob is one line away.
-    private const int RevealBlurPasses = TileRevealStateLogic.DefaultBlurPasses;
+    private const int RevealBlurPasses = 1;
     // The face-B overlay sprite sits ON TOP of the base tile sprite so its
     // shader-modulated alpha composites over face-A neutral (Varn §4 :
     // "face-A toujours visible statique + face-B alpha-modulée par shader").
