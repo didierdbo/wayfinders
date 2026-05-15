@@ -163,11 +163,23 @@ public partial class PoiInputRouter : Node
         var screen = viewport.GetMousePosition();
         var cursor = viewport.GetCanvasTransform().AffineInverse() * screen;
 
+        // Scale-aware AABB. The visible sprite is texSize * poi.Scale ; with
+        // Centered=false + Offset=-AnchorPixel, the Sprite2D pivots the scale
+        // around the foot (the node's local origin sits on the anchor). The
+        // top-left corner in world coords is therefore offset by the scaled
+        // Offset, not the raw Offset.
         var texSize = poi.Texture.GetSize();
-        var aabb = new Rect2(poi.GlobalPosition + poi.Offset, texSize);
+        var scale = poi.Scale;
+        var topLeftWorld = poi.GlobalPosition + poi.Offset * scale;
+        var visibleSize = texSize * scale;
+        var aabb = new Rect2(topLeftWorld, visibleSize);
         if (!aabb.HasPoint(cursor)) return false;
 
-        var local = cursor - (poi.GlobalPosition + poi.Offset);
+        // Convert world cursor -> texture-space local pixel : translate to
+        // the sprite top-left then divide by scale to undo the visible-stretch.
+        // Guard against zero/negative scale (degenerate inspector typo).
+        if (scale.X <= 0f || scale.Y <= 0f) return false;
+        var local = (cursor - topLeftWorld) / scale;
         var localPixel = (X: (int)local.X, Y: (int)local.Y);
 
         return PoiHitTestLogic.HitTestPoiPure(
@@ -214,23 +226,32 @@ public partial class PoiInputRouter : Node
             if (!IsValidPoi(poi)) continue;
             if (poi.Texture == null) continue;
 
-            // Build the global AABB in world coords. Locked Poi convention :
-            // Centered=false, Scale=(1,1) (PR3). Top-left = GlobalPosition +
-            // Offset ; size = Texture.GetSize(). If a future Poi variant
-            // applies a Scale, this needs the scale factor applied to size.
+            // Build the global AABB in world coords. Scale-aware so a Poi
+            // with Sprite2D.Scale != (1,1) still hit-tests correctly (e.g.
+            // IsoMapE1Probe shrinks the Halfgate POI to 0.5x for visual
+            // balance with the 4x4 face-B emprise). Locked Poi convention :
+            // Centered=false, Offset=-AnchorPixel applied in Poi._Ready.
+            // With that pivot, the Sprite2D scales around the foot, so the
+            // top-left corner in world coords is GlobalPosition + Offset*Scale,
+            // and the visible size is Texture.GetSize() * Scale.
             var texSize = poi.Texture.GetSize();
-            var aabb = new Rect2(poi.GlobalPosition + poi.Offset, texSize);
+            var scale = poi.Scale;
+            var topLeftWorld = poi.GlobalPosition + poi.Offset * scale;
+            var visibleSize = texSize * scale;
+            var aabb = new Rect2(topLeftWorld, visibleSize);
             if (!aabb.HasPoint(cursor)) continue; // AABB pre-filter
 
-            // Convert cursor (world) → local pixel (texture-space).
-            //   Sprite top-left in world  = GlobalPosition + Offset
-            //   With Centered=false, Offset = -AnchorPixel (set by Poi._Ready)
-            //   ⇒ texture (0,0) is at GlobalPosition - AnchorPixel
-            //   ⇒ localPixel = cursor - GlobalPosition + AnchorPixel
-            //               = cursor - (GlobalPosition + Offset)
-            // We read poi.Offset live so any future Poi variant with a
-            // different pivot rule still gets a correct mapping.
-            var local = cursor - (poi.GlobalPosition + poi.Offset);
+            // Convert cursor (world) → local pixel (texture-space). Two steps :
+            //   1. translate cursor by the sprite's world top-left, giving
+            //      a coord in the visible (scaled) sprite space.
+            //   2. divide by the sprite's Scale to undo the stretch and
+            //      land in raw-texture pixel space, which is the frame the
+            //      AlphaMask was built in (PoiFootprintBuilder reads the
+            //      source PNG at native resolution).
+            // Guard against zero/negative scale (degenerate inspector typo)
+            // to avoid divide-by-zero / NaN propagation into the hit-test.
+            if (scale.X <= 0f || scale.Y <= 0f) continue;
+            var local = (cursor - topLeftWorld) / scale;
             var localPixel = (X: (int)local.X, Y: (int)local.Y);
 
             if (poi.PoiData == null) continue;

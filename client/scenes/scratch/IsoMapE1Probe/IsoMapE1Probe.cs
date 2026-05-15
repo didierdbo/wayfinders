@@ -337,6 +337,14 @@ public partial class IsoMapE1Probe : Node2D
     private const int PoiZIndex = 4096;
     private const double PoiFadeInDurationSec = 0.6;
 
+    // Scale visuel du POI iso painted relatif a son bitmap raw (1076x575 PR3-6).
+    // 0.5 : la silhouette de la ville se pose visuellement sur l'emprise des 16 face-B
+    // (4x4 ≈ 1024x528) sans ecraser le cadastre. La valeur peut etre overridee a chaud
+    // via [Export] PoiSpriteScaleOverride pour A/B inspecteur sans recompiler.
+    // Anchor pixel + Position du Poi inchanges : Centered=false + Offset=-AnchorPixel
+    // pivotent le scale autour du foot, donc le foot reste calle sur (0, 4032).
+    private const float PoiSpriteScale = 0.5f;
+
     // --- Tooltip e1 D ---
     private const int TooltipParchmentWidthPx = 320;
     private const int TooltipParchmentHeightPx = 180;
@@ -353,6 +361,14 @@ public partial class IsoMapE1Probe : Node2D
     private const double ClickZoomTargetZoom = 2.5;
     private const double ClickZoomDurationSec = 1.0;
     private const double ClickCrossfadeDurationSec = 0.4;
+
+    /// <summary>
+    /// Override A/B inspector du scale visuel du POI. Si > 0, remplace
+    /// <see cref="PoiSpriteScale"/> au moment du <c>SpawnHalfgatePoi</c>.
+    /// Permet a Didier de tester 0.4 / 0.5 / 0.6 / 0.75 / 1.0 a chaud sans
+    /// recompiler. -1.0f (default) = utilise la constante.
+    /// </summary>
+    [Export] public float PoiSpriteScaleOverride { get; set; } = -1.0f;
 
     // --- État runtime ---
     private Camera2D _camera = null!;
@@ -1090,6 +1106,18 @@ public partial class IsoMapE1Probe : Node2D
             // Visible=true at t~4.95s right before the fade-in tween starts.
             Visible = false,
         };
+
+        // Scale visuel : reduit le sprite POI (1076x575 raw) pour qu'il se pose sur
+        // l'emprise des 16 face-B sans ecraser le cadastre. Avec Centered=false +
+        // Offset=-AnchorPixel applique en Poi._Ready, le pivot du scale est le foot
+        // (anchor pixel) -- donc Position (0, 4032) reste le foot scale-invariant.
+        // Le shadow child herite naturellement (Sprite2D enfant suit le Scale parent).
+        // Hitbox : voir PoiInputRouter scale-aware AABB + local-pixel descale.
+        float effectiveScale = PoiSpriteScaleOverride > 0f ? PoiSpriteScaleOverride : PoiSpriteScale;
+        _halfgatePoi.Scale = new Vector2(effectiveScale, effectiveScale);
+        GD.Print($"[PROBE IsoMapE1Probe] POI sprite scale={effectiveScale:F2} "
+            + $"(const={PoiSpriteScale:F2} override={PoiSpriteScaleOverride:F2}) "
+            + $"-- raw 1076x575 -> rendered {1076 * effectiveScale:F0}x{575 * effectiveScale:F0}");
 
         _tileGrid.AddChild(_halfgatePoi);
 
