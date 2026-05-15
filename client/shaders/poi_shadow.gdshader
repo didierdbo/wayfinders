@@ -27,6 +27,18 @@
 //     C# au _Ready et passé en uniform pour rester précis quel que soit
 //     l'asset. Si jamais une variante POI livre une texture 2048x… au lieu
 //     du 1076x575 canon, le shader ne tappera pas dans le vide.
+//
+// Bug fix (Rune, 2026-05-15, post-`a5dbd42`). Le contrat fragment
+// canvas_item Godot 4 : `COLOR` à l'entrée fragment vaut
+// `texture(TEXTURE, UV) * MODULATE`, PAS `MODULATE` seul. Le premier cut
+// finissait par `COLOR = vec4(0, 0, 0, a * shadow_alpha) * COLOR`, ce qui
+// (avec le COLOR de Godot) multiplie l'alpha-out par `src.a * mod.a` —
+// passable, mais le commentaire trahissait la confusion ("le multiplicateur
+// COLOR vient du Sprite2D.Modulate"). Convention prebrief stricte
+// (poi-integration-pattern-prebrief.md ligne 345) : le shader FORCE le
+// noir lui-même, indépendant de Modulate, et lit Modulate seulement via
+// `COLOR.a` pour la cohabitation fog edge. Pas de re-multiplication par
+// la texture du sprite.
 
 shader_type canvas_item;
 
@@ -42,7 +54,8 @@ uniform float shadow_alpha : hint_range(0.0, 1.0) = 0.35;
 
 void fragment() {
     // 5-tap box-ish blur sur l'alpha de la texture. On échantillonne le
-    // centre + 4 voisins cardinaux pondérés.
+    // centre + 4 voisins cardinaux pondérés. JAMAIS .rgb ici — l'ombre est
+    // une silhouette, pas une copie teintée du sprite.
     float a = 0.0;
     a += texture(TEXTURE, UV).a * 0.5;
     a += texture(TEXTURE, UV + vec2(texel.x, 0.0)).a * 0.125;
@@ -50,8 +63,10 @@ void fragment() {
     a += texture(TEXTURE, UV + vec2(0.0, texel.y)).a * 0.125;
     a += texture(TEXTURE, UV - vec2(0.0, texel.y)).a * 0.125;
 
-    // Output : noir avec alpha modulée par la diffusion de l'asset.
-    // Le multiplicateur COLOR vient du Sprite2D.Modulate (set par C# pour
-    // cohabiter avec le fog edge : shadow.Modulate.A = poi.Modulate.A).
-    COLOR = vec4(0.0, 0.0, 0.0, a * shadow_alpha) * COLOR;
+    // Output : noir solid, alpha = blur × densité × modulate.a.
+    // - RGB forcé à 0 par le shader (PAS dépendant de Modulate.rgb).
+    // - `COLOR.a` lu pour la cohabitation fog edge : si Poi.cs propage
+    //   shadow.Modulate.A = poi.Modulate.A, le fog atténue l'ombre via
+    //   ce canal sans réintroduire de couleur dans le RGB.
+    COLOR = vec4(0.0, 0.0, 0.0, a * shadow_alpha * COLOR.a);
 }

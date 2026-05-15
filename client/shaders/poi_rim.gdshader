@@ -23,13 +23,30 @@
 //   4. Rim factor = max(0, dot(normal, light_dir)) × edge_mask, où
 //      edge_mask est fort sur les bords (|∇α| grand) et nul à l'intérieur
 //      (alpha plein) ou à l'extérieur (alpha zéro).
-//   5. Color out = lerp(texture, rim_color, rim × strength).
+//   5. Color out = lerp(texture, rim_color, rim × strength). Le sprite
+//      reste NET au centre (le mix tend vers src quand rim=0).
 //
 // Trap subtle :
 //   - On RIM seulement les pixels où alpha original > 0.05 (sinon on
 //     teinte la transparence ambiante et le sprite a un halo). On ne RIM
 //     pas non plus si alpha > 0.9 (l'intérieur de la silhouette doit
 //     rester l'oil-painting de Mira). Bande de tolérance ≈ [0.05, 0.9].
+//
+// Bug fix (Rune, 2026-05-15, post-`a5dbd42`). Le contrat fragment
+// canvas_item Godot 4 : `COLOR` à l'entrée fragment vaut
+// `texture(TEXTURE, UV) * MODULATE`, PAS `MODULATE` seul. Le premier cut
+// finissait par `COLOR = vec4(out_rgb, src.a) * COLOR`. Sur un pixel
+// intérieur opaque, out_rgb ≈ src.rgb (rim≈0), src.a = 1.0, et le
+// `* COLOR` multipliait à nouveau par `texture(TEXTURE, UV) * MODULATE` :
+//   out_rgb_final = src.rgb × src.rgb (couleur au carré, plus sombre et
+//                   gamma cassée)
+//   out_a_final   = src.a × src.a × mod.a (alpha au carré : un bord à
+//                   src.a=0.5 devient 0.25 → bord BEAUCOUP plus
+//                   transparent → halo flou par mix avec le background)
+// Le sprite paraissait alors "flou et délavé" alors que ce n'était PAS
+// un blur du tout — juste un double-mul texture qui carrait l'alpha aux
+// bords antialiasés. Fix : écrire COLOR sans multiplication par COLOR sur
+// le RGB. On lit `COLOR.a` uniquement pour propager Modulate.a (fog edge).
 
 shader_type canvas_item;
 
@@ -61,6 +78,7 @@ void fragment() {
 
     // Sample alpha gradient via 4 cardinaux. ∇α pointe FROM l'intérieur
     // de la silhouette VERS l'extérieur (alpha décroît vers le bord).
+    // .a uniquement — on ne lit pas .rgb, on ne moyenne pas les couleurs.
     float aR = texture(TEXTURE, UV + vec2(texel.x, 0.0)).a;
     float aL = texture(TEXTURE, UV - vec2(texel.x, 0.0)).a;
     float aD = texture(TEXTURE, UV + vec2(0.0, texel.y)).a;
@@ -86,11 +104,18 @@ void fragment() {
     // (halo) ni le centre de la silhouette (intérieur peinture).
     float alpha_gate = smoothstep(0.05, 0.2, src.a) * (1.0 - smoothstep(0.9, 1.0, src.a));
 
+    // Rim est un SCALAIRE [0,1]. Pas de moyennage de samples colorés ici —
+    // les samples ci-dessus ne servent qu'à calculer le gradient d'alpha.
     float rim = lambert * edge_mask * alpha_gate * rim_strength;
 
-    // Mélange additif côté soleil. mix(src.rgb, rim_color.rgb, rim) blends
-    // proprement sans cramer les hautes lumières existantes.
+    // Mélange côté soleil. mix(src.rgb, rim_color.rgb, rim) blends
+    // proprement sans cramer les hautes lumières existantes. Quand rim=0
+    // (la grande majorité des pixels : intérieur + transparence), out_rgb
+    // = src.rgb EXACTEMENT — le sprite reste NET.
     vec3 out_rgb = mix(src.rgb, rim_color.rgb, rim);
 
-    COLOR = vec4(out_rgb, src.a) * COLOR;
+    // Écriture directe SANS `* COLOR` sur le RGB (voir bloc fix en tête).
+    // L'alpha du sprite est préservée intégralement (src.a) ; on propage
+    // Modulate.a via `COLOR.a` pour la cohabitation fog edge.
+    COLOR = vec4(out_rgb, src.a * COLOR.a);
 }
