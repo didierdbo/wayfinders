@@ -952,10 +952,16 @@ public partial class IsoMapE1Probe : Node2D
             newZoom = Mathf.Clamp(newZoom, ZoomMin, ZoomMax);
             if (!Mathf.IsEqualApprox(newZoom, _currentZoom))
             {
-                // 2026-05-15 (it.5+2) : zoom-toward-POI when hovering. Si le
-                // curseur survole un POI au moment du wheel-tick, le focal point
-                // du zoom = la GlobalPosition de ce POI (sinon = camera courante,
-                // formule degenerescente -> aucun shift, comportement legacy).
+                // 2026-05-15 (it.5+3) : zoom-toward-CURSOR (pattern Google Maps
+                // / Photoshop). Le focal point du zoom = world-position courante
+                // du curseur, independamment du hover POI. Remplace la variante
+                // it.5+2 zoom-toward-POI (POI souvent au centre -> effet
+                // indistinct ; le pattern cursor est aussi celui auquel l'oeil
+                // d'un utilisateur PC est habitue).
+                //
+                // GetGlobalMousePosition() retourne la position monde sous le
+                // curseur en tenant compte de la camera 2D active : c'est donc
+                // bien le point monde a stabiliser, pas un coord ecran.
                 //
                 // Math : pour qu'un point monde F (focal) reste a la meme
                 // screen-position apres un changement de zoom z0 -> z1, il faut
@@ -967,19 +973,11 @@ public partial class IsoMapE1Probe : Node2D
                 //     (F - C1) * z1 = (F - C0) * z0
                 //     C1 = F - (F - C0) * (z0 / z1)
                 //        = F + (C0 - F) * (z0 / z1)
-                // Quand F == C0 (pas de POI hovered, focal = camera), le terme
-                // (C0 - F) = 0 et C1 = F = C0 : aucun shift, identique au
-                // comportement pre-it.5+2. Donc une seule branche couvre les
-                // deux cas, pas de if-else sur le focal.
-                Vector2 focal;
-                if (_isHoveringPoi && _halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
-                {
-                    focal = _halfgatePoi.GlobalPosition;
-                }
-                else
-                {
-                    focal = _camera.Position;
-                }
+                // Si le curseur est exactement au centre (F == C0), le terme
+                // (C0 - F) = 0 et C1 = C0 : aucun shift. Sinon la camera derive
+                // vers le curseur en wheel-up, s'en eloigne en wheel-down -- la
+                // world-position sous le curseur ne bouge pas.
+                Vector2 focal = GetGlobalMousePosition();
 
                 float zoomRatio = _currentZoom / newZoom;
                 Vector2 newCameraPos = focal + (_camera.Position - focal) * zoomRatio;
@@ -993,12 +991,12 @@ public partial class IsoMapE1Probe : Node2D
                 // zoom-out, la position camera peut sortir des bornes diamant
                 // calculees au precedent zoom -> bandes grises sur les cotes.
                 //
-                // 2026-05-15 (it.5+2) : sert AUSSI au clamp du nouveau focal-shift.
-                // Si le POI est pres d'une edge du diamant, la formule
-                // zoom-toward-POI peut pousser la camera contre la borne ; la
+                // 2026-05-15 (it.5+3) : sert AUSSI au clamp du focal-shift cursor.
+                // Si le curseur est pres d'une edge du diamant, la formule
+                // zoom-toward-cursor peut pousser la camera contre la borne ; la
                 // projection L1 ci-dessous la ramene au bord autorise. Le user
-                // percoit alors "zoom vers POI sauf si bord du monde rencontre"
-                // -- comportement attendu par la spec.
+                // percoit alors le focal qui "glisse" sous le curseur quand on
+                // touche le bord du monde -- comportement attendu par la spec.
                 //
                 // IMPORTANT : ce re-clamp NE PEUT PAS utiliser ClampCameraPosition
                 // (variante HardWall) parce que HardWall renvoie currentCenter
