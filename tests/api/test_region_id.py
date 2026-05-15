@@ -111,6 +111,7 @@ class TestRegionIdValidation:
             eligible_personas=(),
             difficulty="mid",
             region=region,
+            target_poi=f"e1.{region}",  # Varn spec v2 §1 — M1 cap always e1
             deadline_ticks=None,
             outcome=None,
             seed=0,

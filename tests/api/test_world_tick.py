@@ -238,6 +238,7 @@ class TestWorldTickResponseSchema:
             "eligible_personas",
             "difficulty",
             "region",
+            "target_poi",
             "deadline_ticks",
             "outcome",
             "seed",

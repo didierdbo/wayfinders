@@ -15,6 +15,13 @@ Varn-locked closed lookups (2026-05-10):
 These literals must not be silently edited by any agent; all changes go
 through a Varn ratification step.
 
+Varn-locked (2026-05-15, spec v2):
+  - ``PoiId``: hierarchical dot-separated POI identifier string.
+    Format: ``e{layer}.{slug}[.{slug}...]``
+    Regex: ``^e[1-3]\\.[a-z0-9\\-]+(\\.[a-z0-9\\-]+){0,2}$``
+    Examples: ``e1.halfgate``, ``e2.halfgate.docks``,
+              ``e3.halfgate.docks.taverne-du-cormoran``
+
 Field names use snake_case on the wire; the C# client maps them to
 PascalCase records via ``System.Text.Json`` naming policy.
 
@@ -38,9 +45,9 @@ client provides the raw ``CharacterState`` snapshots; the server computes
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from wayfinders.ml.schemas.character import CharacterState
 
@@ -85,6 +92,16 @@ REGION_IDS: tuple[RegionId, ...] = (
     "veillemont",
     "roches-closes",
 )
+
+# PoiId: hierarchical dot-separated POI identifier (Varn-lock 2026-05-15 spec v2).
+# Format: e{layer}.{ancestor_slugs...}.{local_slug}
+# Regex: ^e[1-3]\.[a-z0-9\-]+(\.[a-z0-9\-]+){0,2}$
+#   - Layer prefix: e1, e2, or e3
+#   - Slugs: lowercase, alphanumeric + hyphens (ASCII, Pratchett tonal register)
+#   - Max depth: 3 segments after the layer prefix (e3 = deepest for M1-M3)
+# DO NOT change this regex without a Varn ratification step.
+_POI_ID_PATTERN = r"^e[1-3]\.[a-z0-9\-]+(\.[a-z0-9\-]+){0,2}$"
+PoiId = Annotated[str, StringConstraints(pattern=_POI_ID_PATTERN)]
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +269,20 @@ class EmergentMission(BaseModel):
         description=(
             "Region where the mission takes place. "
             "Varn-locked closed lookup (ratified 2026-05-10): "
-            "halfgate | brescaille | fendelune | veillemont | roches-closes."
+            "halfgate | brescaille | fendelune | veillemont | roches-closes. "
+            "Kept for backward compat with PersonaLegacyTag / resolve / conclude. "
+            "The authoritative POI identifier is target_poi (Varn spec v2 2026-05-15)."
+        ),
+    )
+    target_poi: PoiId = Field(
+        ...,
+        description=(
+            "Hierarchical POI identifier where the mission takes place. "
+            "Varn-lock 2026-05-15 spec v2 §1. "
+            "Format: e{layer}.{slug}[.{slug}...] — e.g. 'e1.halfgate', "
+            "'e2.halfgate.docks', 'e3.halfgate.docks.taverne-du-cormoran'. "
+            "M1: always e1 layer (capped layer e1 per §2 emergence rule). "
+            "Layer is extractable by splitting on '.' and reading index 0."
         ),
     )
     deadline_ticks: int | None = Field(

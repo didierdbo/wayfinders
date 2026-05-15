@@ -55,6 +55,7 @@ from wayfinders.api.world_tick_models import (
     EmergenceMissionType,
     EmergentMission,
     PersonaId,
+    PoiId,
     RegionId,
     WorldTickRequest,
     WorldTickResponse,
@@ -344,6 +345,29 @@ def filter_eligible_personas(
 
 
 # ---------------------------------------------------------------------------
+# PoiId helpers — converts legacy RegionId to hierarchical PoiId (Varn v2)
+# ---------------------------------------------------------------------------
+
+
+def _region_to_poi_id(region: RegionId) -> PoiId:
+    """Convert a Varn-locked RegionId to its e1 PoiId equivalent.
+
+    M1 emission rule: all emergent missions are capped at layer e1 (Varn spec v2
+    §2 — 'M1 capped layer e1 uniquement').  The PoiId is trivially ``e1.{region}``.
+
+    M2+: when e2/e3 layers open, this function will be replaced by a direct
+    PoiId lookup against the poi_tree.json manifest.
+
+    Args:
+        region: A valid RegionId from the Varn-locked closed lookup.
+
+    Returns:
+        A valid PoiId string, e.g. ``e1.halfgate`` for ``halfgate``.
+    """
+    return f"e1.{region}"
+
+
+# ---------------------------------------------------------------------------
 # Public API: EmergenceEngine
 # ---------------------------------------------------------------------------
 
@@ -420,6 +444,7 @@ class EmergenceEngine:
 
         # --- 5. Assemble mission ---
         region = _extract_region_from_prose(context_prose, seed=seed)
+        target_poi = _region_to_poi_id(region)
         difficulty: DescriptorBucket = "mid"  # forced M1 (sampler disabled per spec §6)
         eligible = filter_eligible_personas(
             mission_type=mission_type,
@@ -433,6 +458,7 @@ class EmergenceEngine:
             eligible_personas=eligible,
             difficulty=difficulty,
             region=region,
+            target_poi=target_poi,
             deadline_ticks=None,  # M1 — no timer
             outcome=None,  # set at resolution, not at emergence
             seed=seed,

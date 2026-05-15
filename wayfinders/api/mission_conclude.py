@@ -75,6 +75,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from wayfinders.api.mission_legacy import on_mission_resolved
 from wayfinders.api.mission_resolve import PersonaLegacyTagWire, _minimal_game_state
+from wayfinders.api.world_tick import _region_to_poi_id
 from wayfinders.api.world_tick_models import (
     DifficultyBucket,
     EmergenceMissionType,
@@ -455,6 +456,9 @@ def conclude_mission(payload: MissionConcludeRequest) -> MissionConcludeResponse
     final_outcome = _aggregate_outcome(per_persona_outcomes)
 
     # Reconstruct EmergentMission for the on_mission_resolved hook.
+    # target_poi is derived from region (M1: always e1 layer) — the conclude
+    # endpoint receives RegionId on the wire (backward compat) and synthesises
+    # the PoiId server-side.
     mission = EmergentMission(
         id=payload.mission_id,
         type=payload.mission_type,
@@ -462,6 +466,7 @@ def conclude_mission(payload: MissionConcludeRequest) -> MissionConcludeResponse
         eligible_personas=tuple(p.persona_id for p in payload.assigned_personas),
         difficulty=payload.difficulty,
         region=payload.region,
+        target_poi=_region_to_poi_id(payload.region),
         deadline_ticks=None,
         outcome=final_outcome,
         seed=payload.seed,

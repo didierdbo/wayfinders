@@ -52,6 +52,7 @@ import logging
 from pydantic import BaseModel, ConfigDict, Field
 
 from wayfinders.api.mission_legacy import on_mission_resolved
+from wayfinders.api.world_tick import _region_to_poi_id
 from wayfinders.api.world_tick_models import (
     EmergenceMissionType,
     EmergentMission,
@@ -318,6 +319,9 @@ def resolve_mission(payload: MissionResolveRequest) -> MissionResolveResponse:
     # Reconstruct the EmergentMission from the request fields.
     # narrative_hook is not needed for resolution logic (not stored in the tag);
     # we supply a minimal valid string.
+    # target_poi is derived from region (M1: always e1 layer) — the resolve/conclude
+    # endpoints receive RegionId on the wire (backward compat) and synthesise
+    # the PoiId server-side.
     mission = EmergentMission(
         id=payload.mission_id,
         type=payload.mission_type,
@@ -325,6 +329,7 @@ def resolve_mission(payload: MissionResolveRequest) -> MissionResolveResponse:
         eligible_personas=(),
         difficulty="mid",  # M1: forced; not stored in the tag
         region=payload.region,
+        target_poi=_region_to_poi_id(payload.region),
         deadline_ticks=None,
         outcome=payload.outcome,
         seed=0,  # seed is not used by on_mission_resolved; placeholder
