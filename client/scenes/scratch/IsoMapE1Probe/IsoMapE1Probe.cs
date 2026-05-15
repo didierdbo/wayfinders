@@ -413,8 +413,8 @@ public partial class IsoMapE1Probe : Node2D
     // (cap MVP §3). Sits below the parchment, with its own dark-parchment
     // background panel. Hidden when no mission matches the hovered POI.
     private const int MissionsSectionWidthPx = 320;
-    private const int MissionsSectionHeaderHeightPx = 22;
-    private const int MissionsSectionRowHeightPx = 18;
+    private const int MissionsSectionHeaderHeightPx = 26;
+    private const int MissionsSectionRowHeightPx = 22;
     private const int MissionsSectionPaddingPx = 8;
     // Total height when 3 rows visible : 8 + 22 + 3*18 + 8 = 92
     private const int MissionsSectionMaxRows = 3;
@@ -1470,11 +1470,11 @@ public partial class IsoMapE1Probe : Node2D
             Text = TooltipTitleText,
             MouseFilter = Control.MouseFilterEnum.Ignore,
             OffsetLeft = 20f,
-            OffsetTop = 14f,
+            OffsetTop = 12f,
             OffsetRight = TooltipParchmentWidthPx - 20f,
-            OffsetBottom = 46f,
+            OffsetBottom = 50f,
         };
-        _tooltipTitleLabel.AddThemeFontSizeOverride("font_size", 24);
+        _tooltipTitleLabel.AddThemeFontSizeOverride("font_size", 26);
         _tooltipTitleLabel.AddThemeColorOverride("font_color", new Color(0.18f, 0.10f, 0.05f, 1f));
         _tooltipRoot.AddChild(_tooltipTitleLabel);
 
@@ -1484,11 +1484,11 @@ public partial class IsoMapE1Probe : Node2D
             Text = TooltipSubtitleText,
             MouseFilter = Control.MouseFilterEnum.Ignore,
             OffsetLeft = 20f,
-            OffsetTop = 48f,
+            OffsetTop = 50f,
             OffsetRight = TooltipParchmentWidthPx - 20f,
-            OffsetBottom = 74f,
+            OffsetBottom = 76f,
         };
-        _tooltipSubtitleLabel.AddThemeFontSizeOverride("font_size", 14);
+        _tooltipSubtitleLabel.AddThemeFontSizeOverride("font_size", 16);
         _tooltipSubtitleLabel.AddThemeColorOverride("font_color", new Color(0.35f, 0.20f, 0.10f, 1f));
         _tooltipRoot.AddChild(_tooltipSubtitleLabel);
 
@@ -1498,12 +1498,12 @@ public partial class IsoMapE1Probe : Node2D
             Text = TooltipBodyText,
             MouseFilter = Control.MouseFilterEnum.Ignore,
             OffsetLeft = 20f,
-            OffsetTop = 82f,
+            OffsetTop = 80f,
             OffsetRight = TooltipParchmentWidthPx - 20f,
             OffsetBottom = TooltipParchmentHeightPx - 20f,
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
         };
-        _tooltipBodyLabel.AddThemeFontSizeOverride("font_size", 12);
+        _tooltipBodyLabel.AddThemeFontSizeOverride("font_size", 14);
         _tooltipBodyLabel.AddThemeColorOverride("font_color", new Color(0.25f, 0.15f, 0.08f, 1f));
         _tooltipRoot.AddChild(_tooltipBodyLabel);
 
@@ -1576,7 +1576,7 @@ public partial class IsoMapE1Probe : Node2D
             OffsetRight = MissionsSectionWidthPx - MissionsSectionPaddingPx,
             OffsetBottom = MissionsSectionPaddingPx / 2f + MissionsSectionHeaderHeightPx,
         };
-        _missionsSectionHeaderLabel.AddThemeFontSizeOverride("font_size", 14);
+        _missionsSectionHeaderLabel.AddThemeFontSizeOverride("font_size", 16);
         _missionsSectionHeaderLabel.AddThemeColorOverride("font_color", new Color(0.95f, 0.85f, 0.70f, 1f));  // parchment cream on dark
         _missionsSectionPanel.AddChild(_missionsSectionHeaderLabel);
 
@@ -1593,7 +1593,7 @@ public partial class IsoMapE1Probe : Node2D
                 OffsetRight = MissionsSectionWidthPx - MissionsSectionPaddingPx,
                 OffsetBottom = MissionsSectionPaddingPx / 2f + MissionsSectionHeaderHeightPx + (i + 1) * MissionsSectionRowHeightPx,
             };
-            rowLabel.AddThemeFontSizeOverride("font_size", 12);
+            rowLabel.AddThemeFontSizeOverride("font_size", 14);
             rowLabel.AddThemeColorOverride("font_color", new Color(0.92f, 0.82f, 0.66f, 1f));
             _missionsSectionPanel.AddChild(rowLabel);
             _missionsRowLabels[i] = rowLabel;
