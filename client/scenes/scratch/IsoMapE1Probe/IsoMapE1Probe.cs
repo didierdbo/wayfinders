@@ -170,8 +170,18 @@ public partial class IsoMapE1Probe : Node2D
     private const float SpriteOffsetY = TileSliceHeightPx / 2f; // +2 (correctif bug collateral 2026-05-13 pm : slab 4px en bas -> +slab/2 pour centrer face-top sur Position)
 
     // --- Caméra : zoom inspection ---
-    private const float ZoomInspect = 0.31f;
-    private const float ZoomMin = 0.31f;   // 2026-05-13 pm : remontee 0.155 -> 0.31 pour empecher la vue full 48x48 ; pan camera explorera (Camera.Size max passe de ~69.68 a ~34.84)
+    // 2026-05-15 (e1 it.5+1) : default zoom remonté 0.31 -> 0.7 pour vue tactique
+    // plus proche (~180x90 px / tuile vs ~80x40 à 0.31x). Le boot reste à
+    // ZoomCinematicStart=0.31 (vue régionale = établi narratif), puis la
+    // cinematic pan tween anime simultanément zoom 0.31->0.7 et position vers
+    // Halfgate (CubicOut, 0.6s). Voir PanCameraToPoiAsync + _Ready.
+    //
+    // ZoomMin remonte à 0.7 : impossible de dézoomer en-dessous de la vue
+    // tactique post-cinematic ; la vue régionale 0.31x est un moment scripté
+    // pour la découverte, pas un état réutilisable par l'utilisateur.
+    private const float ZoomInspect = 0.7f;
+    private const float ZoomCinematicStart = 0.31f;
+    private const float ZoomMin = 0.7f;
     private const float ZoomMax = 2.0f;
     private const float ZoomWheelStep = 1.1f;
 
@@ -370,7 +380,7 @@ public partial class IsoMapE1Probe : Node2D
     private CanvasLayer _tooltipLayer = null!;
     private CanvasLayer _crossfadeLayer = null!;
     private ColorRect _crossfadeRect = null!;
-    private float _currentZoom = ZoomInspect;
+    private float _currentZoom = ZoomCinematicStart;  // 2026-05-15 : boot à 0.31x (vue régionale) ; cinematic anime vers ZoomInspect=0.7x en parallèle du pan vers Halfgate.
     private Texture2D _tileTexture = null!;
     private readonly Dictionary<Vector2I, Texture2D> _faceBTextures = new();
     // PR3-6 integration : the POI is now a Wayfinders.Client.Scripts.Poi.Poi
@@ -1812,12 +1822,24 @@ public partial class IsoMapE1Probe : Node2D
             $"[PROBE IsoMapE1Probe] cinematic pan to POI start : from=({from.X:F1},{from.Y:F1}) " +
             $"to=({to.X:F1},{to.Y:F1}) duration={durationSec:F2}s ease=CubicOut");
 
+        // 2026-05-15 (e1 it.5+1) : tween parallèle position + zoom. Le boot
+        // arme la caméra à ZoomCinematicStart=0.31 (vue régionale qui révèle
+        // le 4x4 face-B) ; pendant les 0.6s du pan vers Halfgate, on anime
+        // simultanément Camera2D.Zoom vers (ZoomInspect, ZoomInspect)=(0.7,
+        // 0.7) avec le même easing CubicOut. Sync visuel : la caméra se
+        // recentre ET se rapproche en un seul geste cinématique. Le
+        // _currentZoom mirror est mis à jour au callback Finished pour que
+        // la prochaine wheel-zoom branche calcule correctement le delta.
         _cinematicPanInProgress = true;
         try
         {
             var tween = CreateTween();
             tween.SetProcessMode(Tween.TweenProcessMode.Idle);
+            tween.SetParallel(true);
             tween.TweenProperty(_camera, "position", to, durationSec)
+                .SetTrans(Tween.TransitionType.Cubic)
+                .SetEase(Tween.EaseType.Out);
+            tween.TweenProperty(_camera, "zoom", new Vector2(ZoomInspect, ZoomInspect), durationSec)
                 .SetTrans(Tween.TransitionType.Cubic)
                 .SetEase(Tween.EaseType.Out);
 
@@ -1827,9 +1849,10 @@ public partial class IsoMapE1Probe : Node2D
         {
             _cinematicPanInProgress = false;
         }
+        _currentZoom = ZoomInspect;
 
         GD.Print(
-            $"[PROBE IsoMapE1Probe] cinematic pan to POI end : camera_pos=({_camera.Position.X:F1},{_camera.Position.Y:F1})");
+            $"[PROBE IsoMapE1Probe] cinematic pan to POI end : camera_pos=({_camera.Position.X:F1},{_camera.Position.Y:F1}) camera_zoom=({_camera.Zoom.X:F2},{_camera.Zoom.Y:F2})");
     }
 
     private async Task FadeInPoiAsync()
@@ -2178,21 +2201,18 @@ public partial class IsoMapE1Probe : Node2D
     /// </summary>
     private Vector2 ClampCameraPosition(Vector2 currentPos, float desiredWorldX, float desiredWorldY, Vector2 viewportSize)
     {
-        // POI-aware bounds branch (e1 it.5, 2026-05-15). When active, the
-        // pan range is constrained by the BBOX of known POIs ; the camera
-        // x/y are clamped to [bbox.min, bbox.max] for each axis. With a
-        // single POI the bbox is a point and the camera locks there.
-        // Hard-clamp semantics : Mathf.Clamp on each axis independently.
-        // Single-POI degenerate case : the bbox is a point so Mathf.Clamp
-        // always yanks back to the point — intended (camera centered on
-        // the POI). For multi-POI futures, the bbox is a non-degenerate
-        // rect and Mathf.Clamp gives the natural "stop at the wall" feel.
-        if (_poiAwareBoundsActive)
-        {
-            float clampedX = Mathf.Clamp(desiredWorldX, _poiBboxMinX, _poiBboxMaxX);
-            float clampedY = Mathf.Clamp(desiredWorldY, _poiBboxMinY, _poiBboxMaxY);
-            return new Vector2(clampedX, clampedY);
-        }
+        // 2026-05-15 (e1 it.5+1) : la branche hard-clamp _poiAwareBoundsActive
+        // a été retirée. Elle forçait camera.Position = bbox-point (Mathf.Clamp
+        // bilatéral) y compris quand le user zoomait au-delà du default 0.7x ;
+        // viewport plus petit = pan devrait être possible, mais hard-clamp
+        // verrouillait à la bbox. Nouvelle stratégie : on s'appuie uniquement
+        // sur Camera2D.LimitLeft/Right/Top/Bottom (calculés dans
+        // RecomputePoiAwareBounds depuis viewport / 2 / ZoomInspect) qui
+        // contraignent le RECT VISIBLE -- l'engine permet automatiquement plus
+        // de pan quand le viewport rétrécit (zoom-in), zéro pan quand viewport
+        // = bbox-rect-au-default-zoom. ZoomMin=0.7 empêche violation par le
+        // bas (zoom-out < default interdit). Le clamp diamant ci-dessous reste
+        // actif pour le cas boot/pré-cinematic.
 
         // La grille e1 iso 2:1 64x64 peint un DIAMANT centre sur l'origine,
         // pas un rectangle. Bornes monde calculees au top du fichier :
@@ -2227,12 +2247,12 @@ public partial class IsoMapE1Probe : Node2D
     /// known POI set changes (e.g. <c>_knownPois.Add(newPoi)</c>).
     ///
     /// <para>
-    /// <b>Math.</b> At default zoom (<see cref="ZoomInspect"/> = 0.31),
+    /// <b>Math.</b> At default zoom (<see cref="ZoomInspect"/> = 0.7),
     /// the visible world-rect half-extent is
     /// <c>viewport / (2 * ZoomInspect)</c>. With viewport 1920x1080 this
-    /// gives (3097, 1742) world-px. The camera position is then clamped
-    /// so that at default zoom the player cannot see past half-viewport
-    /// beyond any extremum POI :
+    /// gives (1371, 771) world-px (2026-05-15 update : était 3097/1742 à
+    /// 0.31x). The camera position is then clamped so that at default zoom
+    /// the player cannot see past half-viewport beyond any extremum POI :
     /// <list type="bullet">
     ///   <item><c>camera.x in [bbox.min_x, bbox.max_x]</c></item>
     ///   <item><c>camera.y in [bbox.min_y, bbox.max_y]</c></item>
@@ -2251,20 +2271,20 @@ public partial class IsoMapE1Probe : Node2D
     /// is the desired behavior (zoomed in, you should be able to look
     /// around inside the city silhouette without the half-viewport rule
     /// snapping you back). Zoom-OUT below default is blocked by the
-    /// ZoomMin=0.31 clamp in the wheel handler, so we never violate the
+    /// ZoomMin=0.7 clamp in the wheel handler, so we never violate the
     /// "cannot see past half-viewport" rule.
     /// </para>
     ///
     /// <para>
-    /// <b>Hard clamp via ClampCameraPosition.</b> We ALSO clamp the
-    /// camera via the <c>_poiAwareBoundsActive</c> branch in
-    /// <see cref="ClampCameraPosition"/> using a Mathf.Clamp on the bbox
-    /// directly. The two clamps cooperate : Godot's Limit* gives the
-    /// engine-level safety net (visible-rect math) ; the explicit clamp
-    /// in ClampCameraPosition gives deterministic camera.Position bounds
-    /// the C# code controls -- keeps the diamond-clamp code path
-    /// coherent (always writes a clamped position, never leaks an
-    /// out-of-bound value to Godot's clamp).
+    /// <b>Single source of truth (2026-05-15).</b> La branche hard-clamp
+    /// <c>_poiAwareBoundsActive</c> dans <see cref="ClampCameraPosition"/>
+    /// a été retirée : elle forçait camera.Position = bbox.center y compris
+    /// après zoom-in (où le viewport rétrécit et le pan devrait être permis
+    /// dans la marge). On s'appuie désormais uniquement sur Camera2D.Limit*,
+    /// qui contraint le RECT VISIBLE : à zoom = default le rect visible
+    /// occupe exactement les limits (pas de pan) ; à zoom > default le rect
+    /// rétrécit et la caméra peut se déplacer dans la marge. Comportement
+    /// engine-natif, pas de double-clamp à maintenir cohérent.
     /// </para>
     /// </summary>
     private void RecomputePoiAwareBounds()
@@ -2535,11 +2555,17 @@ public partial class IsoMapE1Probe : Node2D
         GD.Print($"[PROBE IsoMapE1Probe] 2/17 Tile[0].Position = {firstPos.ToString("F2")} (expected (0, 0)) -- {(posOk ? "OK" : "FAIL")}");
 
         // 3. Camera2D current + zoom inspection.
+        //    2026-05-15 (e1 it.5+1) : au preflight (fin _Ready), la caméra
+        //    est armée à ZoomCinematicStart=0.31x (vue régionale de boot,
+        //    pour la cinematic flip). Elle sera animée vers ZoomInspect=0.7x
+        //    pendant le pan vers Halfgate (PanCameraToPoiAsync, parallel
+        //    tween position + zoom, CubicOut 0.6s). Preflight matche donc
+        //    ZoomCinematicStart, pas ZoomInspect.
         bool camOk = _camera.IsCurrent()
-            && Mathf.IsEqualApprox(_camera.Zoom.X, ZoomInspect)
-            && Mathf.IsEqualApprox(_camera.Zoom.Y, ZoomInspect)
+            && Mathf.IsEqualApprox(_camera.Zoom.X, ZoomCinematicStart)
+            && Mathf.IsEqualApprox(_camera.Zoom.Y, ZoomCinematicStart)
             && _camera.Position.IsEqualApprox(Vector2.Zero);
-        GD.Print($"[PROBE IsoMapE1Probe] 3/17 Camera2D current={_camera.IsCurrent()} zoom={_camera.Zoom.ToString("F2")} pos={_camera.Position.ToString("F2")} (expected current=true zoom=({ZoomInspect:F2},{ZoomInspect:F2}) pos=(0,0)) -- {(camOk ? "OK" : "FAIL")}");
+        GD.Print($"[PROBE IsoMapE1Probe] 3/17 Camera2D current={_camera.IsCurrent()} zoom={_camera.Zoom.ToString("F2")} pos={_camera.Position.ToString("F2")} (expected current=true zoom=({ZoomCinematicStart:F2},{ZoomCinematicStart:F2}) pos=(0,0) at boot ; cinematic animates to ZoomInspect={ZoomInspect:F2} during pan) -- {(camOk ? "OK" : "FAIL")}");
 
         // 4. Texture dimensions v8 (256×132) + source type.
         var tex = firstTile?.Texture;
