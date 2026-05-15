@@ -376,27 +376,51 @@ public partial class Poi : Sprite2D
             ShowBehindParent = true,      // draw BEFORE parent in same canvas
         };
 
-        // Iso shadow projection : flatten vertically (scale-Y 0.4) and skew
-        // along X to drop the shadow to the south-west of the asset. The skew
-        // matrix is built directly so we do not depend on Sprite2D.Skew
-        // (which Godot 4 does provide, but a Transform2D is explicit about
-        // what the math is).
+        // Iso shadow projection — "lay the silhouette down on the ground"
+        // toward the SW (locked memo project_wayfinders_pion_sur_plateau,
+        // ombre diégétique SO 30°).
         //
-        // Decision micro (Rune, 2026-05-15) : skew angle = -0.5 rad (~-28°)
-        // on the X axis. Combined with the texture's natural origin at the
-        // anchor pixel, this casts the shadow toward the SW quadrant.
-        // Skew + scale together effectively "lay the silhouette down" on
-        // the SW diagonal — exactly the SW 30° sun direction locked in the
-        // pion-sur-plateau memo.
+        // Pivot. With Centered=false + Offset=-AnchorPixel, the anchor pixel
+        // (the foot of the silhouette) sits at the node's local origin (0,0).
+        // ANY Transform2D applied to the node pivots around that origin —
+        // which is exactly what we want : the shadow's "contact point" with
+        // the ground must coincide with the parent POI's foot, then the
+        // silhouette must rotate-and-flatten OUTWARD from that point.
         //
-        // Transform2D form :
-        //   [ scaleX        skewX*scaleY   originX ]
-        //   [ 0             scaleY         originY ]
-        // We feed scale=(1, 0.4) and skewX=-0.5.
+        // Bug fix (Rune, 2026-05-15 PR5 post-mortem). The first cut used
+        //   X basis = (1.0, 0.0)
+        //   Y basis = (-0.5, +0.4)
+        // which maps local (lx, ly) → screen (lx - 0.5*ly, 0.4*ly). For a
+        // 1076×575 Halfgate with foot at local y=0 and top at local y=-575,
+        // the top of the silhouette landed at screen (+287.5, -230) — i.e.
+        // STILL ABOVE the foot, just sheared sideways. Result : a darkened
+        // near-duplicate of the gate overlapped the original, reading as a
+        // "ghost dédoublé décalé vers la droite" at F6 — not a ground
+        // shadow at all. The Y-component of the Y basis must be NEGATIVE
+        // to flip the silhouette's top BELOW the foot on screen (laying it
+        // flat on the ground plane), and the X skew sign must be POSITIVE
+        // for the SW direction in Godot screen coords (Y+ = south, X- = west).
+        //
+        // Correct math (SW 30° iso shadow) :
+        //   X basis = (1.0, 0.0)      — full silhouette width preserved
+        //   Y basis = (+0.5, -0.4)    — top lays toward SW, flattened to 40 %
+        // Local (lx, -h) → screen (lx + h*0.5, h*0.4). For Halfgate top
+        // (h=575) : (+287.5, +230) — south-east on the ground.
+        //
+        // Wait. SW = negative X, positive Y in screen coords. With Y basis
+        // (+0.5, -0.4) the top of texture (local y < 0) maps to NEGATIVE
+        // skew*ly product → local (0, -575) → (+0.5*-575, -0.4*-575)
+        // = (-287.5, +230). That IS SW : -X (west) and +Y (south). Match
+        // for the locked SO 30° direction.
+        //
+        // Transform2D in Godot stores column-major basis vectors :
+        //   [ basis_x.x   basis_y.x   origin.x ]
+        //   [ basis_x.y   basis_y.y   origin.y ]
+        // so passing (basis_x, basis_y, origin) feeds the two columns.
         var shadowXform = new Transform2D(
-            new GdVec(1.0f, 0.0f),      // X basis : full width
-            new GdVec(-0.5f, 0.4f),     // Y basis : skew left + flattened
-            new GdVec(0, 0));            // local origin (parent-relative)
+            new GdVec(1.0f, 0.0f),       // X basis : full width preserved
+            new GdVec(0.5f, -0.4f),      // Y basis : lay silhouette down toward SW
+            new GdVec(0, 0));             // local origin (parent-relative)
         shadow.Transform = shadowXform;
 
         // Material with the shadow shader. Set the texel uniform from the
