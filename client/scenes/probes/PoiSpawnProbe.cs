@@ -17,6 +17,14 @@ namespace Wayfinders.Client.scenes.probes;
 /// F1-F4 toggles. This is the A/B harness Didier uses at F6 ; without it
 /// the visual tuning is undebuggable (trap §8 — "the eye decides, but
 /// give the eye a switch").
+/// PR5 follow-up (2026-05-15) — adds arrow-key camera pan in
+/// <see cref="_Process"/> so Didier can actually pan the WorldCamera at
+/// F6 and feel the parallax drift. Without a moving camera the parallax
+/// math in <see cref="Poi._Process"/> resolves to zero offset (cam.GlobalPosition
+/// stays constant), and the bug reads as "parallax broken" when in fact
+/// the camera was never moving. M1Slice (PR6) currently has no Camera2D
+/// pan wiring either (only a Camera3D for the Compagnie sub-iso panel),
+/// so the validation has to happen here.
 ///
 /// <para>
 /// <b>Run.</b> F6 on <c>PoiSpawnProbe.tscn</c>. Expected output panel :
@@ -44,8 +52,13 @@ namespace Wayfinders.Client.scenes.probes;
 ///   <item><b>F3</b> — toggle Rim ON/OFF. Look for the warm terracotta
 ///         highlight on the SW edge of the pillar.</item>
 ///   <item><b>F4</b> — cycle Parallax 0 → 0.03 → 0.05 → 0. Pan the camera
-///         (MMB drag or arrows) and feel the POI drift relative to the
-///         cadastral grid.</item>
+///         with the arrow keys (see below) and feel the POI drift relative
+///         to the cadastral grid.</item>
+///   <item><b>Arrow keys</b> — pan the WorldCamera at ~400 px/s
+///         (in world coords, before zoom). The probe reads keys directly
+///         via <see cref="Input.IsPhysicalKeyPressed"/> so no InputMap
+///         action is required (AZERTY-safe by virtue of physical key
+///         codes, memo trap §8).</item>
 ///   <item><b>F1-F4 cumulés.</b> The HUD bottom-left shows the four current
 ///         values live so a screenshot captures the configuration.</item>
 /// </list>
@@ -88,9 +101,22 @@ public partial class PoiSpawnProbe : Node2D
     /// </summary>
     [Export] public bool SpawnClone { get; set; } = false;
 
+    /// <summary>
+    /// PR5 follow-up (2026-05-15) — arrow-key pan speed in world pixels
+    /// per second (before zoom). 400 px/s at zoom 0.5 = 200 screen px/s,
+    /// brisk enough to feel the parallax drift inside ~2 seconds of pan.
+    /// </summary>
+    [Export] public float PanSpeedWorldPxPerSec { get; set; } = 400.0f;
+
     private Label? _hudLabel;
     private Label? _tuningLabel;
     private PoiInputRouter? _router;
+    private Camera2D? _camera; // PR5 follow-up — captured for arrow-key pan in _Process
+
+    // PR5 follow-up — heartbeat log accumulator so the parallax debug
+    // line fires once per second instead of 60 times. Cheaper than a Timer
+    // node for a probe-only diagnostic.
+    private double _parallaxLogTimer;
 
     // PR5 — track every spawned POI so the F1-F4 toggles fan out to all
     // of them. The router has a similar list but it is private (locked
@@ -103,6 +129,7 @@ public partial class PoiSpawnProbe : Node2D
         var spawner = GetNode<PoiSpawner>(SpawnerPath);
         var worldRoot = GetNode<Node2D>(WorldRootPath);
         var camera = GetNode<Camera2D>(WorldCameraPath);
+        _camera = camera; // PR5 follow-up — keep a ref for arrow-key pan in _Process
         _hudLabel = GetNodeOrNull<Label>(HudLabelPath);
         _tuningLabel = GetNodeOrNull<Label>(HudTuningLabelPath);
 
@@ -184,7 +211,46 @@ public partial class PoiSpawnProbe : Node2D
         UpdateTuningHud();
         GD.Print(
             "[POI SPAWN PROBE] PR5 toggles : F1=Shadow F2=Lift(0/2/3) " +
-            "F3=Rim F4=Parallax(0/0.03/0.05). HUD bottom-left shows live values.");
+            "F3=Rim F4=Parallax(0/0.03/0.05). HUD bottom-left shows live values. " +
+            "Arrow keys pan the WorldCamera (PR5 follow-up 2026-05-15).");
+    }
+
+    public override void _Process(double delta)
+    {
+        // PR5 follow-up (2026-05-15) — arrow-key camera pan. Without this
+        // the WorldCamera never moves at F6, the parallax math in Poi._Process
+        // resolves to zero offset, and the parallax visually reads as broken.
+        //
+        // Direct Input.IsPhysicalKeyPressed read (no InputMap dependency) —
+        // physical key codes are AZERTY-safe (memo trap §8). Probe-only,
+        // so keeping it self-contained beats teaching the probe about the
+        // production InputMap actions which do not exist yet.
+        if (_camera != null)
+        {
+            var pan = Godot.Vector2.Zero;
+            if (Input.IsPhysicalKeyPressed(Key.Right)) pan.X += 1;
+            if (Input.IsPhysicalKeyPressed(Key.Left))  pan.X -= 1;
+            if (Input.IsPhysicalKeyPressed(Key.Down))  pan.Y += 1;
+            if (Input.IsPhysicalKeyPressed(Key.Up))    pan.Y -= 1;
+            if (pan != Godot.Vector2.Zero)
+            {
+                _camera.Position += pan * PanSpeedWorldPxPerSec * (float)delta;
+            }
+
+            // Heartbeat log — once per second, dump cam pos + the first
+            // POI's parallax math so Didier sees the values flowing.
+            _parallaxLogTimer += delta;
+            if (_parallaxLogTimer >= 1.0 && _spawned.Count > 0)
+            {
+                _parallaxLogTimer = 0.0;
+                var p = _spawned[0];
+                GD.Print(
+                    $"[POI {p.Name} PARALLAX] " +
+                    $"cam=({_camera.GlobalPosition.X:F1},{_camera.GlobalPosition.Y:F1}) " +
+                    $"poiPos=({p.Position.X:F1},{p.Position.Y:F1}) " +
+                    $"strength={p.ParallaxStrength:F3}");
+            }
+        }
     }
 
     public override void _UnhandledKeyInput(InputEvent @event)
