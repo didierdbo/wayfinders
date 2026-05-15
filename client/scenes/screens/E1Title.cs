@@ -189,12 +189,33 @@ public partial class E1Title : Control, IScreen
         _continueButton.Text = result.Label;
     }
 
-    private void OnNewGamePressed()
+    private async void OnNewGamePressed()
     {
+        // J1 fix (2026-05-15, Rune -- re-introduced after rollback) -- two-step hop
+        // to IsoMapE1Probe.
+        //
+        // E1Title is instantiated under the SceneManager autoload
+        // (NavigateTo does AddChild(screenNode)) ; the GetTree()
+        // CurrentScene at this point is the empty BootScene placeholder
+        // under /root/BootScene. A naive ChangeSceneToFile would swap
+        // only the placeholder, leaving E1Title's CanvasLayer subtree
+        // alive and rendering over the new cinematic scene. Symptom :
+        // "je clique [01] Ouvrir un nouveau registre et l'écran ne
+        // change pas" -- the e1 cinematic actually runs (preflights,
+        // flip, POI fade-in all loggués OK) but E1Title's CanvasLayer
+        // occludes it. Fix : await SceneManager.TearDownAllScreens()
+        // first so the autoload's screen tree is freed, then
+        // ChangeSceneToFile. The SceneManager registrations
+        // (PackedScenes) are preserved for a future return to the
+        // Opening flow in Jalon 2+.
+        //
         // 2026-05-13 (Rune) -- route Nouvelle Partie through the e1 cinematic
         // (IsoMapE1Probe) instead of jumping straight to E2_WORLD. The
         // cinematic ends with its own ChangeSceneToFile to E2Stub on POI
         // click. See class docstring "New Game path" for the rationale.
+        var sceneManager = GetNode<SceneManager>("/root/SceneManager");
+        await sceneManager.TearDownAllScreens();
+
         GD.Print($"[E1Title] Nouvelle Partie -- ChangeSceneToFile({IsoMapE1ProbeScenePath})");
         var err = GetTree().ChangeSceneToFile(IsoMapE1ProbeScenePath);
         if (err != Error.Ok)

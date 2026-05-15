@@ -685,6 +685,94 @@ public partial class SceneManager : Node
     }
 
     /// <summary>
+    /// Tear down every live screen (and any open modal) so a scripted
+    /// hop via <see cref="SceneTree.ChangeSceneToFile(string)"/> from a
+    /// non-IScreen target leaves no SceneManager-owned UI behind.
+    ///
+    /// <para>
+    /// <b>J1 scene-flow bug (2026-05-15, Rune).</b> The Opening screens
+    /// (E1Title, E2WorldMap, ...) are instantiated under this autoload
+    /// (<see cref="NavigateTo"/> calls <c>AddChild(screenNode)</c>). The
+    /// scripted hop "Nouvelle Partie" -&gt; <c>IsoMapE1Probe.tscn</c> goes
+    /// through <c>GetTree().ChangeSceneToFile</c>, which only swaps
+    /// <c>GetTree().CurrentScene</c> (the empty <c>BootScene</c> root).
+    /// SceneManager survives, its children survive, and E1Title's
+    /// CanvasLayer subtree keeps rendering over the new scene.
+    /// Symptom: clicking "[01] Ouvrir un nouveau registre" appears to
+    /// do nothing (the e1 cinematic actually runs underneath -- the
+    /// preflights, the flip, and the POI fade-in all fire correctly --
+    /// but the E1Title CanvasLayer occludes it).
+    /// </para>
+    /// <para>
+    /// Fix : the calling screen (E1Title.OnNewGamePressed) awaits this
+    /// helper before <c>ChangeSceneToFile</c>. The helper closes any
+    /// active modal, walks every live screen calling <see cref="IScreen.OnExit"/>,
+    /// frees the node, and clears the stack + visited set. After this
+    /// returns, the autoload is back to its post-_Ready state (empty
+    /// modal layer, empty registries-of-live-nodes), and
+    /// <c>ChangeSceneToFile</c> can hand off cleanly. Registrations
+    /// (<see cref="_screenRegistry"/> / <see cref="_modalRegistry"/>) are
+    /// preserved -- a future return to the Opening flow (Jalon 2+) does
+    /// not need to re-bootstrap.
+    /// </para>
+    /// <para>
+    /// <b>Why a SceneManager method and not just QueueFree in E1Title.</b>
+    /// E1Title does not own its own lifetime here -- SceneManager
+    /// instantiated it, holds the reference in <see cref="_liveScreens"/>,
+    /// and pushes it on the stack. Encapsulating teardown on the autoload
+    /// keeps the stack / live-map invariants in one place. If Jalon 2
+    /// hops to another scripted scene from deeper in the stack
+    /// (E2 -&gt; tactical scene), the same helper applies without
+    /// E2 needing to know about cleanup discipline.
+    /// </para>
+    /// </summary>
+    public async Task TearDownAllScreens()
+    {
+        // Cancel any in-flight navigation -- we are about to leave the
+        // SceneManager-managed world entirely.
+        _navCts?.Cancel();
+        _navCts?.Dispose();
+        _navCts = new CancellationTokenSource();
+        var ct = _navCts.Token;
+
+        // Close the active modal first if any (J2 invariant: at most one).
+        if (_activeModal is not null && _activeModalNode is not null)
+        {
+            var modalId = _activeModal.ModalId;
+            await _activeModal.OnClose(ct).ConfigureAwait(false);
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            _activeModalNode.QueueFree();
+            _activeModalNode = null;
+            _activeModal = null;
+            _modalCallerScreenId = null;
+            EmitSignal(SignalName.ModalClosed, modalId);
+        }
+
+        // Walk the stack top-to-bottom so OnExit fires on the visible
+        // screen first (matches NavigateBack ordering).
+        var snapshot = _stack.Snapshot();
+        for (var i = snapshot.Count - 1; i >= 0; i--)
+        {
+            var entry = snapshot[i];
+            if (_liveScreens.TryGetValue(entry.ScreenId, out var node))
+            {
+                if (node is IScreen screenImpl)
+                {
+                    await screenImpl.OnExit(ct).ConfigureAwait(false);
+                    await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                }
+                node.QueueFree();
+            }
+        }
+
+        _liveScreens.Clear();
+        _stack.Clear();
+        _drillDownVisited.Clear();
+
+        GD.Print("[SceneManager] TearDownAllScreens -- stack + live screens cleared (scripted hop handoff)");
+    }
+
+    /// <summary>
     /// Esc key handler + P8.1 mouse wheel ladder navigation. Routes Esc
     /// to CloseModal if a modal is open, else NavigateBack if the stack
     /// has more than 1 entry. Esc on root is a silent no-op (Title screen
