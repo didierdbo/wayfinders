@@ -16,15 +16,51 @@ namespace Wayfinders.Client.Scripts.Poi;
 /// rim light terracotta, parallax pan 3-5 %.
 ///
 /// <para>
-/// <b>Scope locked PR5.</b> The four ingredients are EXACTLY :
+/// <b>Scope locked PR5 + 2026-05-15 fallback decision.</b> The four
+/// ingredients in the locked memo are :
 /// <list type="number">
-///   <item>diegetic shadow SW 30° (Sprite2D child with <c>poi_shadow.gdshader</c>),</item>
-///   <item>lift 2 px above the tile (subtle "posed" feel),</item>
-///   <item>rim light terracotta on the sun-facing side (Sprite2D <c>Material</c>
-///         = <c>poi_rim.gdshader</c>),</item>
+///   <item>diegetic shadow SW 30° — <b>PR5 ships as Modulate-only black
+///         α 0.35</b> on a child Sprite2D with Y-skew transform (no shader).
+///         The locked essential effect (silhouette + α 0.35) is preserved ;
+///         the 3-tap blur softness is deferred (see PR5.X note below).</item>
+///   <item>lift 2 px above the tile (subtle "posed" feel) — ships in PR5.</item>
+///   <item>rim light terracotta on the sun-facing side — <b>deferred to
+///         PR5.X</b> (see below). The <c>poi_rim.gdshader</c> stays in the
+///         tree for the future PR but is not wired by this commit.</item>
 ///   <item>parallax pan 4 % (visual offset proportional to camera distance
-///         from the spawn-time reference).</item>
+///         from the spawn-time reference) — ships in PR5.</item>
 ///  </list>
+/// </para>
+///
+/// <para>
+/// <b>PR5.X — shader-based polish, deferred future PR.</b> The first PR5
+/// cut wired two custom <c>canvas_item</c> shaders (<c>poi_shadow.gdshader</c>
+/// for a 3-tap blur'd shadow ; <c>poi_rim.gdshader</c> for a sun-side
+/// terracotta highlight). Two visible-at-runtime bugs surfaced :
+///  <list type="bullet">
+///    <item>the rim shader made the Halfgate sprite read as flou/délavé
+///          even after the d549277 fix that stripped a spurious
+///          <c>* COLOR</c> multiplication ;</item>
+///    <item>the shadow rendered with the sprite's texture colors visible
+///          (terracotta, blue water) instead of solid black α 0.35, even
+///          though headless diagnostic logs confirm the shader compiles,
+///          the ShaderMaterial is assigned, the texture is set, and the
+///          ShowBehindParent flag is true.</item>
+///  </list>
+/// The disconnect between "all the C# wiring is correct" and "the rendered
+/// pixels do not match the shader's COLOR write" remains unexplained
+/// without an interactive frame capture (RenderDoc or the Godot Forward+
+/// shader debugger). Rather than ship a regression, PR5 falls back to the
+/// engine-builtin <see cref="CanvasItem.Modulate"/> path for the shadow —
+/// black with α 0.35 — which renders correctly without any custom shader.
+/// The rim is stripped from this commit ; <c>poi_rim.gdshader</c> stays on
+/// disk for the deferred PR. When that PR opens, the diagnostic shaders
+/// in commit history (forced red / forced green output) are the starting
+/// point — they confirm whether the fragment stage runs at all under the
+/// project's d3d12 Forward+ pipeline.
+/// </para>
+///
+/// <para>
 /// Anti-checklist locked (memo) : NO bobbing, NO outline, NO lift &gt; 3 px,
 /// NO glow / particles / idle animation, NO pop color, NO blob footprint.
 /// The clamps in <see cref="PoiVisualLogic"/> defend the [0, 3] / [0, 5 %]
@@ -56,9 +92,9 @@ namespace Wayfinders.Client.Scripts.Poi;
 /// a fog edge takes its shadow with it. Since there is no <c>FogService</c>
 /// autoload yet (only the per-tile <c>FogTileLayer</c>, no central opacity
 /// query), we propagate the alpha in <c>_Process</c> from the POI's own
-/// modulate. When a FogService surfaces (post-PR5 likely), we read the
-/// resolved alpha at the POI's tile and assign it to <c>Modulate</c> ; the
-/// shadow stays synced by the same <c>_Process</c> line.
+/// modulate. The 2026-05-15 Modulate-only path multiplies the locked
+/// shadow_alpha (0.35) by the POI's current alpha each frame so the fog
+/// fade reads correctly.
 /// </para>
 ///
 /// <para>
@@ -86,9 +122,9 @@ public partial class Poi : Sprite2D
 
     /// <summary>
     /// PR5 — toggle the runtime shadow. <c>true</c> = attach the shadow
-    /// child with the <c>poi_shadow.gdshader</c> material. <c>false</c> =
-    /// no shadow (sticker feel — A/B at probe via F1). Locked default
-    /// <c>true</c> for production.
+    /// child with Modulate-only black α 0.35. <c>false</c> = no shadow
+    /// (sticker feel — A/B at probe via F1). Locked default <c>true</c>
+    /// for production.
     /// </summary>
     [Export] public bool ShadowEnabled { get; set; } = true;
 
@@ -102,10 +138,11 @@ public partial class Poi : Sprite2D
     [Export] public int LiftPx { get; set; } = 2;
 
     /// <summary>
-    /// PR5 — toggle the rim light shader on the POI's own Material. F3 at
-    /// probe. <c>true</c> by default for production. When toggling off, we
-    /// detach <see cref="Sprite2D.Material"/> so the comparison is
-    /// "no material at all" vs "rim material applied".
+    /// PR5 — toggle the rim light. <b>Deferred to PR5.X</b> — when set to
+    /// <c>true</c> in this commit, the rim is a no-op (no Material attached).
+    /// The probe HUD label still flips to "ON" so Didier can see the
+    /// toggle path is wired ; visually nothing changes until the shader
+    /// pipeline is debugged separately.
     /// </summary>
     [Export] public bool RimEnabled { get; set; } = true;
 
@@ -117,6 +154,13 @@ public partial class Poi : Sprite2D
     /// via F4.
     /// </summary>
     [Export] public float ParallaxStrength { get; set; } = 0.04f;
+
+    /// <summary>
+    /// PR5 — locked shadow density. 0.35 = pion-sur-plateau locked value
+    /// (subconscient, pas "tâche noire"). Constant for PR5 ; promoted to
+    /// uniform / Export when PR5.X reintroduces the blur shader.
+    /// </summary>
+    private const float ShadowAlpha = 0.35f;
 
     /// <summary>
     /// PR5 — optional Camera2D node path for the parallax follow. When set,
@@ -134,10 +178,6 @@ public partial class Poi : Sprite2D
     private Sprite2D? _shadow;
     private GdVec _basePosition; // POI position BEFORE lift + parallax
     private GdVec _referencePosition; // tile spawn position, parallax reference
-    private ShaderMaterial? _rimMaterial;
-
-    private static readonly string ShadowShaderPath = "res://shaders/poi_shadow.gdshader";
-    private static readonly string RimShaderPath = "res://shaders/poi_rim.gdshader";
 
     public override void _Ready()
     {
@@ -173,13 +213,13 @@ public partial class Poi : Sprite2D
         // PR5 — apply lift. Y- in Godot 2D = upward on screen.
         Position += new GdVec(0, -LiftPx);
 
-        // PR5 — attach the rim material to the POI's own Material slot.
-        if (RimEnabled)
-        {
-            AttachRimMaterial();
-        }
+        // PR5.X DEFERRED — rim shader stays uninstalled in this commit. See
+        // class docs (PR5.X note). The toggle path stays so Didier can flip
+        // the bool at probe ; visually nothing changes until the shader
+        // pipeline is debugged.
+        // if (RimEnabled) { AttachRimMaterial(); }   // PR5.X
 
-        // PR5 — attach the shadow child (Sprite2D with shadow shader,
+        // PR5 — attach the shadow child (Sprite2D with Modulate-only black,
         // ShowBehindParent=true so it draws first inside the parent slot).
         if (ShadowEnabled)
         {
@@ -207,9 +247,9 @@ public partial class Poi : Sprite2D
 
         GD.Print(
             $"[POI {PoiData.DisplayName}] " +
-            $"shadow={(ShadowEnabled ? "ON" : "OFF")} " +
+            $"shadow={(ShadowEnabled ? "ON(Modulate)" : "OFF")} " +
             $"lift={LiftPx} " +
-            $"rim={(RimEnabled ? "ON" : "OFF")} " +
+            $"rim={(RimEnabled ? "ON(deferred PR5.X)" : "OFF")} " +
             $"parallax={ParallaxStrength:F3} " +
             $"camera={(_camera != null ? "wired" : "none")} " +
             "(trap §8 — values delivered to screen)");
@@ -248,15 +288,16 @@ public partial class Poi : Sprite2D
         }
 
         // PR5 — fog edge cohabitation (locked rule shadow.alpha = poi.alpha).
-        // Cheap to do every frame ; if a FogService later overrides the
-        // POI's Modulate.A, this line keeps the shadow synced for free.
+        // Modulate-only path : the effective alpha is ShadowAlpha (0.35)
+        // multiplied by the POI's current alpha each frame.
         if (_shadow != null)
         {
             var poiAlpha = Modulate.A;
+            var targetA = ShadowAlpha * poiAlpha;
             var shadowMod = _shadow.Modulate;
-            if (System.Math.Abs(shadowMod.A - poiAlpha) > 0.001f)
+            if (System.Math.Abs(shadowMod.A - targetA) > 0.001f)
             {
-                _shadow.Modulate = new Color(shadowMod.R, shadowMod.G, shadowMod.B, poiAlpha);
+                _shadow.Modulate = new Color(0, 0, 0, targetA);
             }
         }
     }
@@ -326,19 +367,13 @@ public partial class Poi : Sprite2D
         Position = _basePosition + new GdVec(0, -LiftPx);
     }
 
-    /// <summary>F3 — flip rim ON/OFF. Sets / clears <see cref="Material"/>.</summary>
+    /// <summary>F3 — flip rim ON/OFF. <b>PR5.X deferred</b> : the toggle
+    /// flips the export bool so the HUD label stays consistent, but no
+    /// Material is attached / detached in this commit.</summary>
     public void DebugToggleRim()
     {
         RimEnabled = !RimEnabled;
-        if (RimEnabled && Material == null)
-        {
-            AttachRimMaterial();
-        }
-        else if (!RimEnabled)
-        {
-            Material = null;
-            _rimMaterial = null;
-        }
+        // PR5.X deferred — no Material attach/detach in this commit.
     }
 
     /// <summary>F4 — cycle parallax 0 → 0.03 → 0.05 → 0.</summary>
@@ -366,14 +401,20 @@ public partial class Poi : Sprite2D
     {
         if (Texture == null) return;
 
+        // PR5 fallback (2026-05-15) — Modulate-only black α 0.35. The
+        // Sprite2D draws the texture multiplied by Modulate ; with
+        // Modulate=(0,0,0,0.35), the output is black at 35 % opacity wherever
+        // the texture has non-zero alpha — i.e. a solid silhouette of the
+        // sprite's alpha shape. This is exactly the locked "ombre diégétique
+        // noir α 0.35" effect, minus the 3-tap blur softness (deferred PR5.X).
         var shadow = new Sprite2D
         {
             Name = "Shadow",
-            Texture = Texture,            // share the asset texture (alpha source)
+            Texture = Texture,                                  // share alpha shape
             Centered = false,
-            Offset = Offset,              // same anchor pivot as parent
-            Modulate = new Color(1, 1, 1, 1), // shader does the darkening
-            ShowBehindParent = true,      // draw BEFORE parent in same canvas
+            Offset = Offset,                                    // same anchor pivot
+            Modulate = new Color(0, 0, 0, ShadowAlpha),         // PR5 — solid black α 0.35
+            ShowBehindParent = true,                            // draw BEFORE parent
         };
 
         // Iso shadow projection — "lay the silhouette down on the ground"
@@ -387,88 +428,26 @@ public partial class Poi : Sprite2D
         // the ground must coincide with the parent POI's foot, then the
         // silhouette must rotate-and-flatten OUTWARD from that point.
         //
-        // Bug fix (Rune, 2026-05-15 PR5 post-mortem). The first cut used
-        //   X basis = (1.0, 0.0)
-        //   Y basis = (-0.5, +0.4)
-        // which maps local (lx, ly) → screen (lx - 0.5*ly, 0.4*ly). For a
-        // 1076×575 Halfgate with foot at local y=0 and top at local y=-575,
-        // the top of the silhouette landed at screen (+287.5, -230) — i.e.
-        // STILL ABOVE the foot, just sheared sideways. Result : a darkened
-        // near-duplicate of the gate overlapped the original, reading as a
-        // "ghost dédoublé décalé vers la droite" at F6 — not a ground
-        // shadow at all. The Y-component of the Y basis must be NEGATIVE
-        // to flip the silhouette's top BELOW the foot on screen (laying it
-        // flat on the ground plane), and the X skew sign must be POSITIVE
-        // for the SW direction in Godot screen coords (Y+ = south, X- = west).
-        //
-        // Correct math (SW 30° iso shadow) :
+        // SW 30° iso shadow basis (locked in commit a5dbd42, kept verbatim) :
         //   X basis = (1.0, 0.0)      — full silhouette width preserved
         //   Y basis = (+0.5, -0.4)    — top lays toward SW, flattened to 40 %
-        // Local (lx, -h) → screen (lx + h*0.5, h*0.4). For Halfgate top
-        // (h=575) : (+287.5, +230) — south-east on the ground.
-        //
-        // Wait. SW = negative X, positive Y in screen coords. With Y basis
-        // (+0.5, -0.4) the top of texture (local y < 0) maps to NEGATIVE
-        // skew*ly product → local (0, -575) → (+0.5*-575, -0.4*-575)
-        // = (-287.5, +230). That IS SW : -X (west) and +Y (south). Match
-        // for the locked SO 30° direction.
+        // For Halfgate top (local y=-575) the top maps to screen (-287.5,
+        // +230) — west (-X) and south (+Y), matching the locked SO 30°.
         //
         // Transform2D in Godot stores column-major basis vectors :
         //   [ basis_x.x   basis_y.x   origin.x ]
         //   [ basis_x.y   basis_y.y   origin.y ]
-        // so passing (basis_x, basis_y, origin) feeds the two columns.
         var shadowXform = new Transform2D(
             new GdVec(1.0f, 0.0f),       // X basis : full width preserved
             new GdVec(0.5f, -0.4f),      // Y basis : lay silhouette down toward SW
             new GdVec(0, 0));             // local origin (parent-relative)
         shadow.Transform = shadowXform;
 
-        // Material with the shadow shader. Set the texel uniform from the
-        // actual texture size — trap §8 (computed values), the shadow
-        // softness scales correctly for any asset shape.
-        var shader = GD.Load<Shader>(ShadowShaderPath);
-        if (shader == null)
-        {
-            GD.PrintErr($"[POI {PoiData?.DisplayName}] failed to load shadow shader at {ShadowShaderPath}");
-        }
-        else
-        {
-            var mat = new ShaderMaterial { Shader = shader };
-            var texSize = Texture.GetSize();
-            mat.SetShaderParameter("texel",
-                new GdVec(1.0f / texSize.X, 1.0f / texSize.Y));
-            mat.SetShaderParameter("shadow_alpha", 0.35f);
-            shadow.Material = mat;
-        }
+        // PR5.X DEFERRED — the shader-based 3-tap blur path is parked.
+        // See class docs (PR5.X note). The .gdshader files stay on disk
+        // for that future PR.
 
         AddChild(shadow);
         _shadow = shadow;
-    }
-
-    private void AttachRimMaterial()
-    {
-        if (Texture == null) return;
-
-        var shader = GD.Load<Shader>(RimShaderPath);
-        if (shader == null)
-        {
-            GD.PrintErr($"[POI {PoiData?.DisplayName}] failed to load rim shader at {RimShaderPath}");
-            return;
-        }
-
-        var mat = new ShaderMaterial { Shader = shader };
-        var texSize = Texture.GetSize();
-        mat.SetShaderParameter("texel",
-            new GdVec(1.0f / texSize.X, 1.0f / texSize.Y));
-        // Locked SW 30° sun direction. Memo project_wayfinders_pion_sur_plateau.
-        mat.SetShaderParameter("light_dir", new GdVec(-0.866f, 0.5f));
-        // Locked rim color #c87844 (terracotta saturated sun-side). Decision
-        // micro Rune, between locked #7d4e2c (terracotta dark edge frame) and
-        // ochre clair. To be validated by Didier at F6 — bump down saturation
-        // if too warm.
-        mat.SetShaderParameter("rim_color", new Color(0.78f, 0.47f, 0.27f, 1.0f));
-        mat.SetShaderParameter("rim_strength", 0.6f);
-        Material = mat;
-        _rimMaterial = mat;
     }
 }
