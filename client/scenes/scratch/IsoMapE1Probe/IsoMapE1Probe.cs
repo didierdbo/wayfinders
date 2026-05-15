@@ -138,6 +138,14 @@ namespace Wayfinders.Client.Scenes.Scratch.IsoMapE1Probe;
 ///   <item>Preflight 14/17 OK.</item>
 /// </list>
 /// </para>
+///
+/// <para>
+/// <b>Debug keys (2026-05-15) :</b>
+/// <list type="bullet">
+///   <item>F9 : toggle POI Halfgate visibility (for GIMP overlay workflow — screenshot ground only)</item>
+///   <item>F10 : force Camera2D zoom to 1:1 (100%) for WYSIWYG screenshot — bypasses cinematic zoom block</item>
+/// </list>
+/// </para>
 /// </summary>
 public partial class IsoMapE1Probe : Node2D
 {
@@ -337,14 +345,6 @@ public partial class IsoMapE1Probe : Node2D
     private const int PoiZIndex = 4096;
     private const double PoiFadeInDurationSec = 0.6;
 
-    // Scale visuel du POI iso painted relatif a son bitmap raw (1076x575 PR3-6).
-    // 0.5 : la silhouette de la ville se pose visuellement sur l'emprise des 16 face-B
-    // (4x4 ≈ 1024x528) sans ecraser le cadastre. La valeur peut etre overridee a chaud
-    // via [Export] PoiSpriteScaleOverride pour A/B inspecteur sans recompiler.
-    // Anchor pixel + Position du Poi inchanges : Centered=false + Offset=-AnchorPixel
-    // pivotent le scale autour du foot, donc le foot reste calle sur (0, 4032).
-    private const float PoiSpriteScale = 0.5f;
-
     // --- Tooltip e1 D ---
     private const int TooltipParchmentWidthPx = 320;
     private const int TooltipParchmentHeightPx = 180;
@@ -361,52 +361,6 @@ public partial class IsoMapE1Probe : Node2D
     private const double ClickZoomTargetZoom = 2.5;
     private const double ClickZoomDurationSec = 1.0;
     private const double ClickCrossfadeDurationSec = 0.4;
-
-    /// <summary>
-    /// Override A/B inspector du scale visuel du POI. Si > 0, remplace
-    /// <see cref="PoiSpriteScale"/> au moment du <c>SpawnHalfgatePoi</c>.
-    /// Permet a Didier de tester 0.4 / 0.5 / 0.6 / 0.75 / 1.0 a chaud sans
-    /// recompiler. -1.0f (default) = utilise la constante.
-    /// </summary>
-    [Export] public float PoiSpriteScaleOverride { get; set; } = -1.0f;
-
-    // ====================================================================
-    // Sliders live-tuning Didier (2026-05-15, IsoMapE1Probe POI centering).
-    //
-    // Reference baseline : Scale=1.0, Offset=(0,0), ShadowOffset=(0,0).
-    // The POI is already centered on the geometric centre of the 4x4 face-B
-    // emprise via Centered=true + Offset=Zero + Position=(0,4032). These
-    // sliders are the F5 live-tuning surface : adjust until the POI/cadastre
-    // visual balance feels right, then hardcode the chosen values back into
-    // PoiSpriteScale / a fixed Position offset / a fixed shadow offset and
-    // collapse the sliders.
-    //
-    // Note : the inspector overrides are read at _Ready, so adjusting them
-    // means relaunching F5 between attempts (MVP — no live-rebind through
-    // _Process to keep the per-frame cost at zero).
-    // ====================================================================
-
-    /// <summary>
-    /// Multiplicative scale factor applied to the POI sprite on top of
-    /// <see cref="PoiSpriteScale"/> / <see cref="PoiSpriteScaleOverride"/>.
-    /// Range [0.1, 2.0] step 0.05. Default 1.0 = no extra scaling.
-    /// </summary>
-    [Export(PropertyHint.Range, "0.1,2.0,0.05")]
-    public float PoiScale { get; set; } = 1.0f;
-
-    /// <summary>
-    /// Additional pixel offset stacked on top of the POI's reference
-    /// position (0, 4032 = geometric centre of the 4x4 face-B emprise).
-    /// Default Vector2.Zero = no extra translation.
-    /// </summary>
-    [Export] public Vector2 PoiPositionOffset { get; set; } = Vector2.Zero;
-
-    /// <summary>
-    /// Additional pixel offset stacked on top of the shadow child's
-    /// position (which already carries the SW 30° skew + Y-flatten 0.4
-    /// applied by PoiVisualLogic). Default Vector2.Zero = no extra shift.
-    /// </summary>
-    [Export] public Vector2 ShadowOffset { get; set; } = Vector2.Zero;
 
     // --- État runtime ---
     private Camera2D _camera = null!;
@@ -843,6 +797,40 @@ public partial class IsoMapE1Probe : Node2D
             return;
         }
 
+        // Debug F9 (2026-05-15) — toggle POI Halfgate visibility. Lets Didier
+        // screenshot the cadastre WITHOUT the painted city on top, then
+        // composite in GIMP. AZERTY-safe via PhysicalKeycode. Independent of
+        // _poiHoverEnabled / cinematic state — pure visual flip on the node.
+        if (@event is InputEventKey f9Key && f9Key.Pressed && !f9Key.Echo
+            && f9Key.PhysicalKeycode == Key.F9)
+        {
+            if (_halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+            {
+                _halfgatePoi.Visible = !_halfgatePoi.Visible;
+                GD.Print($"[PROBE IsoMapE1Probe] DEBUG POI visibility toggled = {_halfgatePoi.Visible}");
+            }
+            else
+            {
+                GD.PushWarning("[PROBE IsoMapE1Probe] DEBUG F9 pressed but _halfgatePoi is null/freed — toggle skipped");
+            }
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+
+        // Debug F10 (2026-05-15) — force camera Zoom to 1:1 (100%) for a
+        // WYSIWYG screenshot. Bypasses the cinematic zoom block on purpose
+        // (Didier may want to screenshot mid-cinematic). Updates _currentZoom
+        // so the next wheel-tick computes from the new baseline.
+        if (@event is InputEventKey f10Key && f10Key.Pressed && !f10Key.Echo
+            && f10Key.PhysicalKeycode == Key.F10)
+        {
+            _camera.Zoom = Vector2.One;
+            _currentZoom = 1.0f;
+            GD.Print("[PROBE IsoMapE1Probe] DEBUG Zoom forced to 1:1 (100%)");
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+
         if (@event is InputEventMouseButton mb && mb.Pressed)
         {
             if (_isRevealAnimating || _clickInProgress)
@@ -1145,65 +1133,30 @@ public partial class IsoMapE1Probe : Node2D
             Visible = false,
         };
 
-        // Scale visuel : reduit le sprite POI (1076x575 raw) pour qu'il se pose sur
-        // l'emprise des 16 face-B sans ecraser le cadastre. Le scale combine la
-        // constante de baseline (PoiSpriteScale=0.5), l'override A/B legacy
-        // (PoiSpriteScaleOverride > 0 wins), et le slider PoiScale (multiplicatif,
-        // baseline 1.0) pour le live-tuning F5.
-        // Hitbox : voir PoiInputRouter scale-aware + Centered-aware AABB.
-        float baseScale = PoiSpriteScaleOverride > 0f ? PoiSpriteScaleOverride : PoiSpriteScale;
-        float effectiveScale = baseScale * PoiScale;
-        _halfgatePoi.Scale = new Vector2(effectiveScale, effectiveScale);
-        GD.Print($"[PROBE IsoMapE1Probe] POI sprite scale={effectiveScale:F2} "
-            + $"(base={baseScale:F2} const={PoiSpriteScale:F2} legacyOverride={PoiSpriteScaleOverride:F2} sliderPoiScale={PoiScale:F2}) "
-            + $"-- raw 1076x575 -> rendered {1076 * effectiveScale:F0}x{575 * effectiveScale:F0}");
-
-        // Apply the inspector position offset on top of the reference (0, 4032).
-        // The position itself is set at construction above ; we stack the slider
-        // contribution here so the log line above can read the unmodified base.
-        if (PoiPositionOffset != Vector2.Zero)
-        {
-            _halfgatePoi.Position += PoiPositionOffset;
-            GD.Print($"[PROBE IsoMapE1Probe] POI position offset slider applied : +({PoiPositionOffset.X:F1},{PoiPositionOffset.Y:F1}) -> pos=({_halfgatePoi.Position.X:F1},{_halfgatePoi.Position.Y:F1})");
-        }
-
         _tileGrid.AddChild(_halfgatePoi);
 
-        // Scene-specific override (locked 2026-05-15) : center the POI on the
-        // 4x4 face-B emprise instead of anchoring at the sidecar's (538, 573)
-        // foot. The PR3 Poi._Ready ran inside AddChild and set the default
-        // Centered=false + Offset=-AnchorPixel ; we flip both AFTER so the
-        // sprite pivots around its texture centre, and Position=(0, 4032) (the
-        // geometric centre of the imprint) places the painted city dead-centre
-        // on the cadastre. PoiInputRouter is Centered-aware, so bitmap hit-test
-        // stays pixel-perfect with no extra wiring.
+        // Hardcoded baseline (locked 2026-05-15, GIMP overlay workflow).
+        // The PR3 Poi._Ready ran inside AddChild and set the default
+        // Centered=false + Offset=-AnchorPixel ; we flip to Centered=true +
+        // Offset=Zero so the painted city centres on the 4x4 face-B emprise
+        // (geometric centre at world (0, 4032)) and is rendered AT NATIVE
+        // 1076x575 (Scale=1.0) — no scaling, no extra position offset, no
+        // shadow offset. PoiInputRouter is Centered-aware so the bitmap
+        // hit-test stays pixel-perfect with no extra wiring.
         //
         // The PoiData object itself is NOT mutated (its AnchorPixel stays at
         // (538, 573)) — this is a per-Sprite2D override only. PoiSpawner /
         // M1Slice / PoiSpawnProbe keep the PR3 default for their own POIs.
+        //
+        // The shadow child (added by Poi._Ready) keeps its PoiVisualLogic-
+        // computed Transform2D ; if it appears visually mis-placed under
+        // Centered=true on the parent, that is the next mandate (likely a
+        // tweak to PoiVisualLogic or Poi.cs to respect parent Centered).
         _halfgatePoi.Centered = true;
         _halfgatePoi.Offset = Vector2.Zero;
+        _halfgatePoi.Scale = Vector2.One;
 
-        // Apply the shadow offset slider, if any. The shadow child is named
-        // "Shadow" and was added by Poi._Ready already ; we shift it on top
-        // of the SW 30° skew + Y-flatten 0.4 that PoiVisualLogic baked into
-        // its Transform2D. PoiVisualLogic itself stays untouched — this
-        // offset is additive at the node level.
-        if (ShadowOffset != Vector2.Zero)
-        {
-            var shadowNode = _halfgatePoi.GetNodeOrNull<Sprite2D>("Shadow");
-            if (shadowNode is not null)
-            {
-                shadowNode.Position += ShadowOffset;
-                GD.Print($"[PROBE IsoMapE1Probe] Shadow offset slider applied : +({ShadowOffset.X:F1},{ShadowOffset.Y:F1}) -> pos=({shadowNode.Position.X:F1},{shadowNode.Position.Y:F1})");
-            }
-            else
-            {
-                GD.PushWarning("[PROBE IsoMapE1Probe] ShadowOffset slider set but 'Shadow' child not found on POI -- skipped");
-            }
-        }
-
-        GD.Print($"[PROBE IsoMapE1Probe] POI centering override applied : Centered=true Offset=(0,0) Position=({_halfgatePoi.Position.X:F1},{_halfgatePoi.Position.Y:F1}) (geometric centre of 4x4 face-B emprise)");
+        GD.Print($"[PROBE IsoMapE1Probe] POI baseline hardcoded : Centered=true Offset=(0,0) Scale=(1.00,1.00) Position=({_halfgatePoi.Position.X:F1},{_halfgatePoi.Position.Y:F1}) (geometric centre of 4x4 face-B emprise, native 1076x575 render)");
 
         // PR3-6 integration : the Poi._Ready ran during AddChild and already
         // registered with the PoiInputRouter. We immediately Unregister so
@@ -2252,7 +2205,7 @@ public partial class IsoMapE1Probe : Node2D
         // 9. POI Halfgate placement.
         float imprintCenterGx = (RevealMinGx + RevealMaxGx) * 0.5f;
         float imprintCenterGy = (RevealMinGy + RevealMaxGy) * 0.5f;
-        Vector2 expectedPoiPos = GridToScreen(imprintCenterGx, imprintCenterGy) + PoiPositionOffset;
+        Vector2 expectedPoiPos = GridToScreen(imprintCenterGx, imprintCenterGy);
         bool poiExists = _halfgatePoi is not null && IsInstanceValid(_halfgatePoi);
         bool poiParentOk = poiExists && _halfgatePoi!.GetParent() == _tileGrid;
         bool poiPosOk = poiExists
