@@ -764,6 +764,41 @@ public partial class IsoMapE1Probe : Node2D
 
     public override void _Input(InputEvent @event)
     {
+        // Debug F9 / F10 (2026-05-15, bug-fix 2026-05-15 pm) — placed in
+        // _Input (not _UnhandledInput) so the debug bypass fires BEFORE the
+        // wheel-zoom branch in _UnhandledInput can consume related events
+        // and BEFORE any GUI swallow. AZERTY-safe via PhysicalKeycode.
+        // No SetInputAsHandled() / no early return : the debug keys do not
+        // compete with anything else on F9 / F10, and swallowing the event
+        // here was the root cause of the input-freeze symptom reported
+        // post-F9 (the swallowed flag cascading into the hover-router /
+        // PointingHand cursor lifecycle).
+        if (@event is InputEventKey debugKey && debugKey.Pressed && !debugKey.Echo)
+        {
+            if (debugKey.PhysicalKeycode == Key.F9)
+            {
+                if (_halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+                {
+                    _halfgatePoi.Visible = !_halfgatePoi.Visible;
+                    GD.Print($"[PROBE IsoMapE1Probe] DEBUG POI visibility toggled = {_halfgatePoi.Visible}");
+                }
+                else
+                {
+                    GD.PushWarning("[PROBE IsoMapE1Probe] DEBUG F9 pressed but _halfgatePoi is null/freed — toggle skipped");
+                }
+                // Fallthrough on purpose : F9 is a pure visual flip, nothing
+                // else listens to F9, no SetInputAsHandled needed.
+            }
+            else if (debugKey.PhysicalKeycode == Key.F10)
+            {
+                _camera.Zoom = Vector2.One;
+                _currentZoom = 1.0f;
+                GD.Print("[PROBE IsoMapE1Probe] DEBUG Zoom forced to 1:1 (100%)");
+                // Fallthrough on purpose : F10 is a pure camera-state poke,
+                // nothing else listens to F10, no SetInputAsHandled needed.
+            }
+        }
+
         // Pan drag (MMB par defaut, RMB si l'utilisateur a flippe l'option
         // GameSettings.MapPanButton). Doit etre AVANT la branche click gauche
         // pour ne pas interferer avec le hit-test POI Halfgate, et bloque
@@ -793,40 +828,6 @@ public partial class IsoMapE1Probe : Node2D
             && keyEvent.PhysicalKeycode == Key.F1)
         {
             DumpZOrderDiag();
-            GetViewport().SetInputAsHandled();
-            return;
-        }
-
-        // Debug F9 (2026-05-15) — toggle POI Halfgate visibility. Lets Didier
-        // screenshot the cadastre WITHOUT the painted city on top, then
-        // composite in GIMP. AZERTY-safe via PhysicalKeycode. Independent of
-        // _poiHoverEnabled / cinematic state — pure visual flip on the node.
-        if (@event is InputEventKey f9Key && f9Key.Pressed && !f9Key.Echo
-            && f9Key.PhysicalKeycode == Key.F9)
-        {
-            if (_halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
-            {
-                _halfgatePoi.Visible = !_halfgatePoi.Visible;
-                GD.Print($"[PROBE IsoMapE1Probe] DEBUG POI visibility toggled = {_halfgatePoi.Visible}");
-            }
-            else
-            {
-                GD.PushWarning("[PROBE IsoMapE1Probe] DEBUG F9 pressed but _halfgatePoi is null/freed — toggle skipped");
-            }
-            GetViewport().SetInputAsHandled();
-            return;
-        }
-
-        // Debug F10 (2026-05-15) — force camera Zoom to 1:1 (100%) for a
-        // WYSIWYG screenshot. Bypasses the cinematic zoom block on purpose
-        // (Didier may want to screenshot mid-cinematic). Updates _currentZoom
-        // so the next wheel-tick computes from the new baseline.
-        if (@event is InputEventKey f10Key && f10Key.Pressed && !f10Key.Echo
-            && f10Key.PhysicalKeycode == Key.F10)
-        {
-            _camera.Zoom = Vector2.One;
-            _currentZoom = 1.0f;
-            GD.Print("[PROBE IsoMapE1Probe] DEBUG Zoom forced to 1:1 (100%)");
             GetViewport().SetInputAsHandled();
             return;
         }
