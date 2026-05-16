@@ -7,7 +7,7 @@ namespace Wayfinders.Client.Tests.Opening;
 
 /// <summary>
 /// Contract tests for the slice 5 L2→L3 drill wiring on E3 City Halfgate
-/// (Phase 9 / 2026-05-08). The Godot-side <c>E3CityHalfgate</c> cannot
+/// (Phase 9 / 2026-05-08). The Godot-side <c>E2AreaMap</c> cannot
 /// be loaded from xUnit (no engine), so these tests assert on a fake
 /// harness that mimics the slice 5 drill pipeline (
 /// <c>MapPan2DComponent.DrillRequested</c> signal -&gt; screen handler
@@ -97,7 +97,7 @@ public sealed class E3DrillToL3ContractTests
     }
 
     /// <summary>
-    /// Reproduces the body of <c>E3CityHalfgate.OnDrillRequested</c>
+    /// Reproduces the body of <c>E2AreaMap.OnDrillRequested</c>
     /// without the Godot context : capture the cursor world-space
     /// position (passed in from outside in this fake), pack it into
     /// the payload, await NavigateTo, release the transition lock in

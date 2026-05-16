@@ -6,7 +6,7 @@ namespace Wayfinders.Client.Data;
 /// Top-level Resource holding the list of <see cref="PoiDefinition"/>
 /// entries for the E3 City Halfgate scene. Authored as
 /// <c>res://data/city_halfgate_pois.tres</c>, loaded once at
-/// <see cref="Wayfinders.Client.Scenes.Screens.E3CityHalfgate"/>'s
+/// <see cref="Wayfinders.Client.Scenes.Screens.E2AreaMap"/>'s
 /// <c>_Ready</c>.
 ///
 /// <para>

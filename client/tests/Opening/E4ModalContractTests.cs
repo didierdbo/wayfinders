@@ -36,7 +36,7 @@ public sealed class E4ModalContractTests
 
     /// <summary>
     /// Fake E3 host that records its own lifecycle calls. The real
-    /// E3CityHalfgate disables ProcessMode + dims Modulate on suspend,
+    /// E2AreaMap disables ProcessMode + dims Modulate on suspend,
     /// but neither touches Visible -- the modal invariant J3-fix
     /// locked. Here we mirror the contract: HostVisible flips off only
     /// if a (forbidden) hide is explicitly called, which it never is.

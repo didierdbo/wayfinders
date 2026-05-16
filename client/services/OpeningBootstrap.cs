@@ -81,7 +81,7 @@ public partial class OpeningBootstrap : Node
 {
     private const string E1ScenePath = "res://scenes/screens/E1Title.tscn";
     private const string E2ScenePath = "res://scenes/screens/E1WorldMap.tscn";
-    private const string E3ScenePath = "res://scenes/screens/E3CityHalfgate.tscn";
+    private const string E3ScenePath = "res://scenes/screens/E2AreaMap.tscn";
     private const string E4ScenePath = "res://scenes/screens/E4CharacterSheet.tscn";
     private const string E5ScenePath = "res://scenes/screens/E5DistrictMap.tscn";
 

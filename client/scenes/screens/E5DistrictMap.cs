@@ -154,8 +154,8 @@ public partial class E5DistrictMap : Control, IScreen
     /// doc OriginCoord section). Mirrored on the E3 side as the same
     /// string literal so the contract is one writer (E3) and one reader
     /// (E5) keyed by an inline string -- the same shape as
-    /// <see cref="E3CityHalfgate.NpcIdPayloadKey"/> and
-    /// <see cref="E3CityHalfgate.OriginCoordPayloadKey"/>.
+    /// <see cref="E2AreaMap.NpcIdPayloadKey"/> and
+    /// <see cref="E2AreaMap.OriginCoordPayloadKey"/>.
     /// </summary>
     public const string OriginCoordPayloadKey = "E3.OriginCoord";
 
@@ -521,7 +521,7 @@ public partial class E5DistrictMap : Control, IScreen
                     {
                         // SAME payload key as E3 -- cross-scene contract
                         // verified by E5NavigationContractTests.
-                        [E3CityHalfgate.NpcIdPayloadKey] = result.NpcId ?? string.Empty,
+                        [E2AreaMap.NpcIdPayloadKey] = result.NpcId ?? string.Empty,
                     },
                 };
                 await sceneManagerModal.OpenModal(result.ModalId!, ctx);
@@ -639,7 +639,7 @@ public partial class E5DistrictMap : Control, IScreen
 
     public Task OnSuspend(CancellationToken ct)
     {
-        // Same shape as E3CityHalfgate.OnSuspend: disable input + dim
+        // Same shape as E2AreaMap.OnSuspend: disable input + dim
         // while E4 modal is open. Visibility stays ON so the modal
         // overlay can render above E5 -- modal invariant J3-fix locked.
         ProcessMode = ProcessModeEnum.Disabled;

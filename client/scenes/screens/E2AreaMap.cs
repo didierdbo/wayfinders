@@ -193,7 +193,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// next screen.
 /// </para>
 /// </summary>
-public partial class E3CityHalfgate : Control, IScreen
+public partial class E2AreaMap : Control, IScreen
 {
     public string ScreenId => "E2_AREA";
 
@@ -413,7 +413,7 @@ public partial class E3CityHalfgate : Control, IScreen
         // wrong values, giving an immediate visible diagnostic before
         // any user input.
         GD.Print(
-            $"[E3CityHalfgate] ready, {_poiHandlers.Count} POI spawned, " +
+            $"[E2AreaMap] ready, {_poiHandlers.Count} POI spawned, " +
             $"world image={_panComponent.WorldImageSize}, " +
             $"camera initialCenter={initialCenter}, " +
             $"climb wired={_climbRequestedHandler is not null}, " +
@@ -654,7 +654,7 @@ public partial class E3CityHalfgate : Control, IScreen
         try
         {
             GD.Print(
-                $"[E3CityHalfgate] DrillRequested -> {DrillTargetScreenId} " +
+                $"[E2AreaMap] DrillRequested -> {DrillTargetScreenId} " +
                 $"at L2 cursor world=({cursorWorld.X:F1}, {cursorWorld.Y:F1}) " +
                 $"(resolver sentinel coord={coord} ignored, decision α)");
             await sceneManager.NavigateTo(DrillTargetScreenId, payload);
@@ -707,7 +707,7 @@ public partial class E3CityHalfgate : Control, IScreen
         var poi = FindPoi(poiId);
         if (poi is null)
         {
-            GD.PushWarning($"[E3CityHalfgate] POI clicked but no entry found: {poiId}");
+            GD.PushWarning($"[E2AreaMap] POI clicked but no entry found: {poiId}");
             return;
         }
 
@@ -715,13 +715,13 @@ public partial class E3CityHalfgate : Control, IScreen
         switch (result.Outcome)
         {
             case PoiDispatchOutcome.NavigateToScreen:
-                GD.Print($"[E3CityHalfgate] POI clicked: {poiId} ({poi.Kind}) -> navigating to {result.TargetScreenId}");
+                GD.Print($"[E2AreaMap] POI clicked: {poiId} ({poi.Kind}) -> navigating to {result.TargetScreenId}");
                 var sceneManager = GetNode<SceneManager>("/root/SceneManager");
                 await sceneManager.NavigateTo(result.TargetScreenId!);
                 break;
 
             case PoiDispatchOutcome.OpenModal:
-                GD.Print($"[E3CityHalfgate] POI clicked: {poiId} ({poi.Kind}) -> opening modal {result.ModalId} for npc {result.NpcId}");
+                GD.Print($"[E2AreaMap] POI clicked: {poiId} ({poi.Kind}) -> opening modal {result.ModalId} for npc {result.NpcId}");
                 var sceneManagerModal = GetNode<SceneManager>("/root/SceneManager");
                 var ctx = new ScreenContext
                 {
@@ -734,7 +734,7 @@ public partial class E3CityHalfgate : Control, IScreen
                 break;
 
             case PoiDispatchOutcome.ShowBlockedIndicator:
-                GD.Print($"[E3CityHalfgate] POI clicked: {poiId} ({poi.Kind}) -> blocked, {result.IndicatorTextKey}");
+                GD.Print($"[E2AreaMap] POI clicked: {poiId} ({poi.Kind}) -> blocked, {result.IndicatorTextKey}");
                 ShowBlockedFlash(result.IndicatorTextKey);
                 break;
         }
@@ -841,7 +841,7 @@ public partial class E3CityHalfgate : Control, IScreen
             && raw is Vector2I originCoord)
         {
             GD.Print(
-                $"[E3CityHalfgate] OnEnter: OriginCoord = ({originCoord.X}, {originCoord.Y}) " +
+                $"[E2AreaMap] OnEnter: OriginCoord = ({originCoord.X}, {originCoord.Y}) " +
                 "(logged for traceability ; not used for L2 camera focus this slice)");
         }
         return Task.CompletedTask;

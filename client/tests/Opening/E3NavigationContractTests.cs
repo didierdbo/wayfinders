@@ -6,7 +6,7 @@ namespace Wayfinders.Client.Tests.Opening;
 
 /// <summary>
 /// Contract tests for the E3 City Halfgate navigation surface in J4.
-/// The Godot-side <c>E3CityHalfgate</c> cannot be loaded from xUnit
+/// The Godot-side <c>E2AreaMap</c> cannot be loaded from xUnit
 /// (no engine), so these tests assert on a fake harness that mimics
 /// the SceneManager + dispatcher integration and locks the expected
 /// intents:
@@ -25,7 +25,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// E3 click handler is reproduced inline (fake "OnPoiPressed") so the
 /// dispatch -&gt; navigation/modal/blocked wiring is testable
 /// hors-Godot. Same exact flow as the real
-/// <c>E3CityHalfgate.OnPoiPressed</c> body.
+/// <c>E2AreaMap.OnPoiPressed</c> body.
 /// </para>
 /// </summary>
 public sealed class E3NavigationContractTests
@@ -33,7 +33,7 @@ public sealed class E3NavigationContractTests
     /// <summary>
     /// Stable payload key used by E3 to thread the npc id into the
     /// modal context. Mirrors the const on the Godot-side
-    /// <c>E3CityHalfgate.NpcIdPayloadKey</c> -- duplicated here so the
+    /// <c>E2AreaMap.NpcIdPayloadKey</c> -- duplicated here so the
     /// xUnit assembly does not need to compile-include the Godot
     /// screen file.
     /// </summary>
@@ -69,7 +69,7 @@ public sealed class E3NavigationContractTests
     }
 
     /// <summary>
-    /// Reproduces the E3CityHalfgate.OnPoiPressed dispatch shape
+    /// Reproduces the E2AreaMap.OnPoiPressed dispatch shape
     /// without the Godot context. Same code path as the Godot-side
     /// handler (D-J4-07): dispatcher decides the intent ; the navigator
     /// fulfils Navigate / OpenModal / ShowBlockedIndicator outcomes.
@@ -122,7 +122,7 @@ public sealed class E3NavigationContractTests
     {
         var nav = new FakeE3Navigator();
 
-        // E3CityHalfgate.OnBackPressed body equivalent.
+        // E2AreaMap.OnBackPressed body equivalent.
         await nav.NavigateBack();
 
         Assert.Single(nav.NavigateBackCalls);

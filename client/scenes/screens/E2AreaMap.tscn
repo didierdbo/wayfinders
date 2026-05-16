@@ -1,6 +1,6 @@
 [gd_scene load_steps=5 format=3 uid="uid://ce3hlfgt0001"]
 
-[ext_resource type="Script" path="res://scenes/screens/E3CityHalfgate.cs" id="1_e3hlf"]
+[ext_resource type="Script" path="res://scenes/screens/E2AreaMap.cs" id="1_e3hlf"]
 [ext_resource type="PackedScene" uid="uid://cwf_mappan2d0001" path="res://components/MapPan2DComponent.tscn" id="2_mappan"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panelE3"]
@@ -39,7 +39,7 @@ content_margin_top = 10.0
 content_margin_right = 18.0
 content_margin_bottom = 10.0
 
-[node name="E3CityHalfgate" type="Control"]
+[node name="E2AreaMap" type="Control"]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0

@@ -32,7 +32,7 @@ public sealed class E5NavigationContractTests
     /// <summary>
     /// Stable payload key used by E5 to thread the npc id into the
     /// modal context. Mirrors the const on the Godot-side
-    /// <c>E3CityHalfgate.NpcIdPayloadKey</c> -- duplicated here so the
+    /// <c>E2AreaMap.NpcIdPayloadKey</c> -- duplicated here so the
     /// xUnit assembly does not need to compile-include the Godot
     /// screen file. Same duplication pattern as
     /// <see cref="E3NavigationContractTests"/>.
@@ -199,7 +199,7 @@ public sealed class E5NavigationContractTests
         // Documentation test: the cross-scene contract is "E4.NpcId".
         // Both E3NavigationContractTests and E5NavigationContractTests
         // duplicate the constant -- a future rename of the Godot-side
-        // E3CityHalfgate.NpcIdPayloadKey would surface here only if
+        // E2AreaMap.NpcIdPayloadKey would surface here only if
         // both test files are also updated, which is the desired
         // friction (locks the cross-scene contract by sheer ceremony).
         Assert.Equal("E4.NpcId", NpcIdPayloadKey);

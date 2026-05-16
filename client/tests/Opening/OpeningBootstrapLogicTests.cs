@@ -57,7 +57,7 @@ public sealed class OpeningBootstrapLogicTests
     public void RegisterOnly_when_main_scene_is_a_production_screen()
     {
         // F6 / "Run Current Scene" path : the active main scene is itself
-        // a registered production screen (E1WorldMap, E3CityHalfgate, ...).
+        // a registered production screen (E1WorldMap, E2AreaMap, ...).
         // The autoload must register every screen and modal (so drill /
         // climb / POI dispatch keep working from the F6-launched screen)
         // but MUST NOT fire NavigateTo("E1_TITLE") -- that would push E1

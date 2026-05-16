@@ -22,7 +22,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///   <item>Backdrop semi-transparent + Esc/click-outside affordances
 ///         preserved.</item>
 ///   <item>NpcId payload contract verbatim
-///         (<see cref="E3CityHalfgate.NpcIdPayloadKey"/>) -- E3 and E5
+///         (<see cref="E2AreaMap.NpcIdPayloadKey"/>) -- E3 and E5
 ///         dispatchers thread the same key.</item>
 ///   <item>OpeningStrings extension only (no resource removed) --
 ///         backward compat with J4 strings preserved.</item>
@@ -201,7 +201,7 @@ public partial class E4CharacterSheet : Control, IModalOverlay
         SetupRedactionOverlay(_mentionsRedactionOverlay, _mentionsRedactionLabel, _mentionsBodyLabel);
 
         // TabContainer label override -- Godot reads each child Node's
-        // Name as the tab label (J4 quirk, doc'd in E3CityHalfgate
+        // Name as the tab label (J4 quirk, doc'd in E2AreaMap
         // Risk #1). We rename child nodes to the Varn-locked libellés
         // so the .tscn (where ASCII-only node names are easier to
         // author) keeps the screen-displayed labels in sync with the
@@ -263,7 +263,7 @@ public partial class E4CharacterSheet : Control, IModalOverlay
         // Fall back to null so the registry returns the default entry
         // when no payload was threaded (e.g. modal opened from a future
         // demo button or a hot-edit accident).
-        var npcId = context?.Payload?.TryGetValue(E3CityHalfgate.NpcIdPayloadKey, out var raw) == true
+        var npcId = context?.Payload?.TryGetValue(E2AreaMap.NpcIdPayloadKey, out var raw) == true
             ? raw?.ToString()
             : null;
 
