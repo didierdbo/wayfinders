@@ -226,12 +226,59 @@ public partial class E2AreaMap : Control, IScreen
     private const string DrillTargetScreenId = "E3_DISTRICT";
 
     private const string OpeningStringsResPath = "res://data/opening_strings.tres";
-    private const string CityPoisResPath = "res://data/area_pois.tres";
-    private const string CityBackgroundAssetKey = "e2.area.base";
+
+    // ---- Phase B (2026-05-16) : the Configure(string areaId) seam. ----
+    //
+    // The cité-level feuillet is no longer hardcoded to Halfgate at the
+    // class scope ; an `areaId` parameter selects which area assets +
+    // POI resource get loaded. For the MVP single-area MVP the resolver
+    // has one entry ("halfgate") but the surface is shaped so a future
+    // multi-area dispatcher (E1WorldMap → click city POI → drill into
+    // E2AreaMap with the city's areaId) drops in without touching the
+    // runtime shape.
+    //
+    // The areaId is threaded through `ScreenContext.Payload[AreaIdPayloadKey]`
+    // by the caller (E1WorldMap.OnPoiPressed / E1WorldMap.OnDrillRequested) ;
+    // E2AreaMap reads it in OnEnter and calls Configure(areaId). _Ready
+    // falls back to DefaultAreaId so F6 (Godot editor "Run Current Scene")
+    // and any future direct-instantiate path still produces a working
+    // screen.
+    public const string AreaIdPayloadKey = "E2.AreaId";
+    public const string DefaultAreaId = "halfgate";
+
+    // Shared chrome (banner / panels) is NOT per-area in the MVP -- the
+    // same iso bandeau and side panels frame every cité. If a future
+    // area authoritatively redesigns the chrome (Veylant rebuilt the
+    // panels post-collapse, say), these become per-area too.
     private const string BannerTopAssetKey = "e2.banner_top";
     private const string PanelLeftAssetKey = "e2.panel_left";
     private const string PanelRightAssetKey = "e2.panel_right";
     private const string PanelBottomAssetKey = "e2.panel_bottom";
+
+    /// <summary>
+    /// Resolve an areaId to its (assetKey, poisResPath) pair. The MVP
+    /// has exactly one entry ; throws if the areaId is unknown so a
+    /// payload typo surfaces loud rather than silently swapping in a
+    /// placeholder texture. Pure-static so it stays trivially testable.
+    /// </summary>
+    private static (string assetKey, string poisResPath) ResolveAreaAssets(string areaId)
+    {
+        return areaId switch
+        {
+            "halfgate" => ("e2.area.base", "res://data/area_pois.tres"),
+            _ => throw new System.ArgumentException(
+                $"[E2AreaMap] Unknown areaId '{areaId}'. Known : 'halfgate' (MVP single-area). " +
+                $"Add a switch arm here when introducing a new area.",
+                nameof(areaId)),
+        };
+    }
+
+    /// <summary>
+    /// The currently bound area. Set by Configure ; reset by _ExitTree
+    /// so a re-instantiation starts at DefaultAreaId. Used by the
+    /// preflight log + future diagnostic surfaces.
+    /// </summary>
+    private string _currentAreaId = DefaultAreaId;
 
     private const float BlockedFadeInSeconds = 0.1f;
     private const float BlockedHoldSeconds = 2.0f;
@@ -299,8 +346,14 @@ public partial class E2AreaMap : Control, IScreen
 
     public override void _Ready()
     {
+        // -- _Ready does NODE BINDING + SIGNAL SUBSCRIPTION + CHROME STRING
+        // -- ASSIGNMENT only. Area-specific work (texture load, pan-component
+        // -- Configure, POI spawn) is deferred to the Configure(areaId) seam,
+        // -- invoked at the end of _Ready with the DefaultAreaId fallback so
+        // -- F6 launches still produce a working screen, and re-invoked by
+        // -- OnEnter if the payload carries a different areaId. (Phase B
+        // -- refactor 2026-05-16.)
         _strings = ResourceLoader.Load<OpeningStrings>(OpeningStringsResPath) ?? new OpeningStrings();
-        _poisResource = ResourceLoader.Load<AreaPois>(CityPoisResPath) ?? new AreaPois();
 
         _panComponent = GetNode<MapPan2DComponent>("MapPan2DComponent");
 
@@ -331,34 +384,18 @@ public partial class E2AreaMap : Control, IScreen
         _blockedIndicator = GetNode<PanelContainer>("ChromeLayer/BlockedIndicator");
         _blockedIndicatorLabel = GetNode<Label>("ChromeLayer/BlockedIndicator/BlockedIndicatorLabel");
 
-        // Background + decoration textures (AssetResolver returns a
-        // deterministic placeholder if the file is missing, so this never
-        // null-refs even on a fresh checkout). Pre-warm panel slots --
-        // the StyleBoxFlat in the .tscn already gives us the parchment
-        // look, the asset slot exists for the Mira swap later.
+        // Shared chrome textures (same for every area). AssetResolver
+        // returns a deterministic placeholder if the file is missing.
         var assetResolver = GetNode<AssetResolver>("/root/AssetResolver");
-        var cityTexture = assetResolver.Resolve(CityBackgroundAssetKey);
         _bannerTop.Texture = assetResolver.Resolve(BannerTopAssetKey);
         _ = assetResolver.Resolve(PanelLeftAssetKey);
         _ = assetResolver.Resolve(PanelRightAssetKey);
         _ = assetResolver.Resolve(PanelBottomAssetKey);
 
-        // Slice 4 -- configure the pan component with the city texture
-        // and an initial center on the geometric center of the image.
-        // The OriginCoord payload (set by E2 at drill) is read in
-        // OnEnter for traceability but does NOT participate in the
-        // initial center : the L1-grid-coord-to-L2-image-position
-        // mapping is undefined for the MVP single-cité (different image
-        // entirely), so a literal-coord re-center here would be
-        // arbitrary. E3 always opens centered on the city image.
-        var initialCenter = cityTexture.GetSize() / 2f;
-        _panComponent.Configure(cityTexture, initialCenter);
-
-        // Strings -- single point of swap when Varn revises the .tres.
-        _bannerTitleLabel.Text = _strings.E3Title;
-        _bannerSubtitleLabel.Text = _strings.E3Subtitle;
-        _visibilityLabel.Text = _strings.E3VisibilityLabel;
-        _menaceLabel.Text = _strings.E3MenaceLabel;
+        // Chrome strings -- shared across every area in the MVP. The
+        // per-area title is set inside Configure() so a multi-area
+        // future can swap the banner subtitle per cité if Varn revises
+        // the spec.
         _panelLeftTitleLabel.Text = _strings.E3PanelLeftTitle;
         _panelLeftBodyLabel.Text = _strings.E3PanelLeftBody;
         _panelRightTitleLabel.Text = _strings.E3PanelRightTitle;
@@ -371,18 +408,14 @@ public partial class E2AreaMap : Control, IScreen
         _blockedIndicatorLabel.Text = _strings.E3KeyBuildingBlockedIndicator;
 
         // Godot quirk: TabContainer reads each child Node's Name as the
-        // tab label. We rename children here to the Varn-locked libellés
-        // so the .tscn (where node names cannot easily contain spaces +
-        // accents in editor authoring without quirks) stays readable.
-        // J4 D-J4-05 + Rune J4 pre-brief §11.2 backend-trap doc.
+        // tab label. Rename children to the Varn-locked libellés so the
+        // .tscn stays readable. J4 D-J4-05 + Rune J4 pre-brief §11.2.
         var routineTab = _contractsTabContainer.GetNode<Control>("Routine");
         var mandateTab = _contractsTabContainer.GetNode<Control>("MandatsDesArpenteurs");
         routineTab.Name = _strings.E3TabRoutine;
         mandateTab.Name = _strings.E3TabMandate;
 
         _backButton.Pressed += OnBackPressed;
-
-        SpawnPois(assetResolver);
 
         // Slice 4 -- subscribe to the climb signal. Captured-reference
         // discipline : store the handler in a field so _ExitTree can
@@ -393,27 +426,113 @@ public partial class E2AreaMap : Control, IScreen
         // Slice 5 -- install the always-true drill resolver and subscribe
         // to DrillRequested. Decision α (Didier locked) : at L2 there is
         // no fog gate -- ANY cap-Push triggers a drill into E5.
-        // Implementation : the resolver returns a constant
-        // (GridCoord(0,0), TileKnowledgeState.Levee) pair so
-        // ZoomNavLogic.EvaluateWheelInput classifies the cap-Push as
-        // DrillCandidate (Levee >= Esquissee). The coord (0,0) is a
-        // sentinel ; OnDrillRequested ignores it and instead captures
-        // the actual cursor world-space position from the viewport at
-        // handler entry, which is the meaningful "where did the drill
-        // fire" signal for E5's payload.
         _panComponent.SetDrillTargetResolver(AlwaysTrueDrillResolver);
         _drillRequestedHandler = OnDrillRequested;
         _panComponent.DrillRequested += _drillRequestedHandler;
 
-        // Slice 4+5 -- preflight self-check (Phase 8 trap "preflight
-        // GD.Print mandatory"). Surfaces the world-space migration's
-        // success at boot AND the slice 5 drill wiring : if the pan
-        // component, the climb signal, OR the drill signal wiring is
-        // silently broken, the console line below is missing / shows
-        // wrong values, giving an immediate visible diagnostic before
-        // any user input.
+        // -- Phase B (2026-05-16) : invoke the Configure seam with the
+        // -- DefaultAreaId fallback. If OnEnter later receives a different
+        // -- areaId via payload, it calls Configure again to re-bind. For
+        // -- the MVP single-area, the OnEnter call is a no-op (same id).
+        Configure(DefaultAreaId);
+    }
+
+    /// <summary>
+    /// Phase B seam (2026-05-16) -- bind this screen to the area
+    /// identified by <paramref name="areaId"/>. Resolves the area's
+    /// background texture asset key + POI resource path, loads them,
+    /// applies the texture to the <see cref="MapPan2DComponent"/>, and
+    /// (re)spawns the POI hotspots under the pan component's
+    /// <see cref="MapPan2DComponent.PoiContainer"/>.
+    ///
+    /// <para>
+    /// <b>Idempotency / re-entry contract.</b> Safe to call multiple
+    /// times on the same instance. Each call disconnects + frees the
+    /// existing POI hotspots (Risk #1 captured-reference discipline
+    /// kept intact via <see cref="_poiHandlers"/>) before spawning the
+    /// new area's POIs. The pan component's
+    /// <see cref="MapPan2DComponent.Configure"/> overwrites the world
+    /// texture + camera bounds, so the camera resets to the new image
+    /// center -- intended : a re-Configure means the player is now
+    /// looking at a different area, not the same one zoomed.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Per-area surface today (MVP single-area).</b>
+    /// <list type="bullet">
+    ///   <item>Background texture (AssetResolver-resolved by key).</item>
+    ///   <item>POI resource (<c>res://data/&lt;area&gt;_pois.tres</c>).</item>
+    ///   <item>Banner title + subtitle (currently shared via OpeningStrings,
+    ///         flagged for Varn reconciliation if a future area wants
+    ///         per-area chrome).</item>
+    /// </list>
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Out of scope (Phase B).</b> Continuous E2↔E2 transition (the
+    /// "switch cité without climbing back to E1WorldMap" flow). The
+    /// signature accepts the swap but the camera-state preservation,
+    /// the fade animation, and the multi-area Configure-pump on
+    /// SceneManager are deferred. Phase B only proves the seam works
+    /// for the existing "drill from E1WorldMap to the one and only
+    /// Halfgate" path -- callers always pass "halfgate" today.
+    /// </para>
+    /// </summary>
+    /// <param name="areaId">A known area identifier. Throws
+    /// <see cref="System.ArgumentException"/> if unknown -- a payload
+    /// typo surfaces loud rather than silently swapping in a placeholder
+    /// texture.</param>
+    public void Configure(string areaId)
+    {
+        _currentAreaId = areaId;
+        var (assetKey, poisResPath) = ResolveAreaAssets(areaId);
+
+        // (Re-)load the POI resource for this area.
+        _poisResource = ResourceLoader.Load<AreaPois>(poisResPath) ?? new AreaPois();
+
+        // (Re-)resolve and apply the area's background texture. The pan
+        // component's Configure overwrites the world texture + bounds,
+        // so a re-Configure on a previously-bound instance resets the
+        // camera to the new image center (intended).
+        var assetResolver = GetNode<AssetResolver>("/root/AssetResolver");
+        var areaTexture = assetResolver.Resolve(assetKey);
+        var initialCenter = areaTexture.GetSize() / 2f;
+        _panComponent.Configure(areaTexture, initialCenter);
+
+        // Per-area chrome strings. Today both Banner title + subtitle
+        // come from the shared OpeningStrings entries -- a multi-area
+        // future would resolve these from a per-area OpeningStrings
+        // slice or a separate AreaStrings resource. Out of scope for
+        // Phase B (flagged for Varn reconciliation pass).
+        _bannerTitleLabel.Text = _strings.E3Title;
+        _bannerSubtitleLabel.Text = _strings.E3Subtitle;
+        _visibilityLabel.Text = _strings.E3VisibilityLabel;
+        _menaceLabel.Text = _strings.E3MenaceLabel;
+
+        // Tear down any pre-existing POI hotspots from a prior Configure
+        // call. Disconnect handlers FIRST (Risk #1 captured-reference
+        // discipline), then free the hotspot Node2D roots.
+        foreach (var (area, handlers) in _poiHandlers)
+        {
+            if (area is null) continue;
+            area.InputEvent -= handlers.InputEvent;
+            area.MouseEntered -= handlers.MouseEntered;
+            area.MouseExited -= handlers.MouseExited;
+            area.GetParent()?.QueueFree();
+        }
+        _poiHandlers.Clear();
+        _poiHotspots.Clear();
+
+        SpawnPois(assetResolver);
+
+        // Phase 8 preflight self-check : surfaces the area binding +
+        // signal wiring at the console. If the area resolver returned
+        // a wrong key, the AssetResolver placeholder shows up here as
+        // a tiny gray-square texture instead of the parchment cité --
+        // immediate visible diagnostic.
         GD.Print(
-            $"[E2AreaMap] ready, {_poiHandlers.Count} POI spawned, " +
+            $"[E2AreaMap] Configure(areaId='{areaId}') -> {_poiHandlers.Count} POI spawned, " +
+            $"asset key='{assetKey}', pois='{poisResPath}', " +
             $"world image={_panComponent.WorldImageSize}, " +
             $"camera initialCenter={initialCenter}, " +
             $"climb wired={_climbRequestedHandler is not null}, " +
@@ -835,8 +954,30 @@ public partial class E2AreaMap : Control, IScreen
     /// statement makes the drill-then-arrive contract observable in
     /// the console -- a smoke-test affordance.
     /// </summary>
+    /// <summary>
+    /// Phase B (2026-05-16) -- OnEnter reads the areaId from the payload
+    /// and re-Configures if it differs from the current binding.
+    /// _Ready already invoked <c>Configure(DefaultAreaId)</c> as a
+    /// fallback ; here we honour the caller's explicit choice.
+    ///
+    /// <para>
+    /// Same OnEnter also logs the OriginCoord payload (slice 4 carryover)
+    /// for traceability of the drill-origin contract from E1WorldMap.
+    /// </para>
+    /// </summary>
     public Task OnEnter(ScreenContext context, CancellationToken ct)
     {
+        if (context.Payload.TryGetValue(AreaIdPayloadKey, out var areaIdRaw)
+            && areaIdRaw is string areaId
+            && !string.IsNullOrEmpty(areaId)
+            && areaId != _currentAreaId)
+        {
+            GD.Print(
+                $"[E2AreaMap] OnEnter: payload AreaId='{areaId}' differs from current " +
+                $"'{_currentAreaId}' -- re-Configuring");
+            Configure(areaId);
+        }
+
         if (context.Payload.TryGetValue(OriginCoordPayloadKey, out var raw)
             && raw is Vector2I originCoord)
         {

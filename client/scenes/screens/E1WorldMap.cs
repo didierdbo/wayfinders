@@ -489,10 +489,16 @@ public partial class E1WorldMap : Control, IScreen
         // viewport entry point ("you came from this corner of the
         // world map"). Today the slice doesn't read it back -- pre-
         // staged for slice 4.
+        // Phase B (2026-05-16) : pack the areaId into the payload so the
+        // target E2AreaMap binds to the right cité. Today the MVP locks
+        // it to "halfgate" -- the literal lives at this call site only,
+        // per the brief. A future world-cell-to-area dispatcher would
+        // map coord -> areaId here (e.g. coord-in-Veylant region -> "veylant").
         var payload = new ScreenContext
         {
             Payload = new Dictionary<string, object>
             {
+                [E2AreaMap.AreaIdPayloadKey] = "halfgate",
                 ["E1.OriginCoord"] = coord,
             },
         };
@@ -702,7 +708,19 @@ public partial class E1WorldMap : Control, IScreen
             case PoiDispatchOutcome.NavigateToScreen:
                 GD.Print($"[E1WorldMap] POI clicked: {poiId} -> navigating to {result.TargetScreenId}");
                 var sceneManager = GetNode<SceneManager>("/root/SceneManager");
-                await sceneManager.NavigateTo(result.TargetScreenId!);
+                // Phase B (2026-05-16) : thread the areaId through the payload
+                // when the target is E2AreaMap. MVP mono-area -> the poiId
+                // IS the areaId ("halfgate"). A future multi-area roster
+                // would key off a per-poi area-id field, not the poi-id
+                // itself, but the seam is identical.
+                var poiPayload = new ScreenContext
+                {
+                    Payload = new Dictionary<string, object>
+                    {
+                        [E2AreaMap.AreaIdPayloadKey] = poiId,
+                    },
+                };
+                await sceneManager.NavigateTo(result.TargetScreenId!, poiPayload);
                 break;
 
             case PoiDispatchOutcome.ShowBlockedIndicator:
