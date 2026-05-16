@@ -90,7 +90,42 @@ namespace Wayfinders.Client.Services;
 /// the main thread before mutating these slots.
 /// </para>
 /// </summary>
-public partial class GameState : Noden{n    /// <summary>n    /// Fired after a cell's reveal-substrate state changes vian    /// <see cref="/>. The render layer (an    /// <c>TileRevealRenderController</c> in the scene that owns then    /// face-B reveal subsystem) subscribes once at <c>_Ready</c> andn    /// animates the derived <c>reveal_level</c> float via a 300 msn    /// cubic-out Tween per the Varn-locked render mappingn    /// (<see cref="/>).n    /// Disconnection discipline is the consumer's responsibilityn    /// (Rune-coaching Risk #1, signal-leak trap).n    ///n    /// <para>n    /// <b>Wire format.</b> The cell is a <see cref="/>n    /// (one of the few Godot-native struct types that marshal throughn    /// the [Signal] binding in Godot 4.6) ; the states are integern    /// casts of <see cref="/> values. The consumern    /// casts back at the receiver edge ; seen    /// <c>TileRevealRenderController</c> for the canonical receiver.n    /// </para>n    ///n    /// <para>n    /// <b>Why on GameState (not on a dedicated store).</b> The revealn    /// substrate is a session-wide GameState authority per Varnn    /// reconciliation §3.2 : it lives alongsiden    /// <see cref="/> andn    /// <see cref="/> in the client-side authoritativen    /// snapshot. Promoting to a sub-Node store is reserved for the dayn    /// the dictionary grows past O(thousands) of cells and the cost ofn    /// holding it as a plain dict starts to matter.n    /// </para>n    /// </summary>n    [Signal]n    public delegate void TileRevealStateChangedEventHandler(Vector2I cell, int oldState, int newState);n
+public partial class GameState : Node
+{
+    /// <summary>
+    /// Fired after a cell's reveal-substrate state changes via
+    /// <see cref="SetTileRevealState"/>. The render layer (a
+    /// <c>TileRevealRenderController</c> in the scene that owns the
+    /// face-B reveal subsystem) subscribes once at <c>_Ready</c> and
+    /// animates the derived <c>reveal_level</c> float via a 300 ms
+    /// cubic-out Tween per the Varn-locked render mapping
+    /// (<see cref="TileRevealStateHelpers.ResolveRevealLevel(TileRevealState)"/>).
+    /// Disconnection discipline is the consumer's responsibility
+    /// (Rune-coaching Risk #1, signal-leak trap).
+    ///
+    /// <para>
+    /// <b>Wire format.</b> The cell is a <see cref="Vector2I"/>
+    /// (one of the few Godot-native struct types that marshal through
+    /// the [Signal] binding in Godot 4.6) ; the states are integer
+    /// casts of <see cref="TileRevealState"/> values. The consumer
+    /// casts back at the receiver edge ; see
+    /// <c>TileRevealRenderController</c> for the canonical receiver.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why on GameState (not on a dedicated store).</b> The reveal
+    /// substrate is a session-wide GameState authority per Varn
+    /// reconciliation 2026-05-16 §3.2 : it lives alongside
+    /// <see cref="PendingMissions"/> and
+    /// <see cref="ActiveMissions"/> in the client-side authoritative
+    /// snapshot. Promoting to a sub-Node store is reserved for the
+    /// day the dictionary grows past O(thousands) of cells and the
+    /// cost of holding it as a plain dict starts to matter.
+    /// </para>
+    /// </summary>
+    [Signal]
+    public delegate void TileRevealStateChangedEventHandler(Vector2I cell, int oldState, int newState);
+
     /// <summary>
     /// True if a save exists. J1: always false on boot, no persistence.
     /// J3+: replaced with a real save-system check.
@@ -272,7 +307,7 @@ public partial class GameState : Noden{n    /// <summary>n    /// Fired after a 
 
     /// <summary>
     /// Read the reveal-substrate state for a cell. Cells that have
-    /// never been mutated return <see cref="TileRevealState.Fog"/> —
+    /// never been mutated return <see cref="TileRevealState.Fog"/> -
     /// the canonical default per Varn reconciliation §3.2.
     /// </summary>
     public TileRevealState GetTileRevealState(Vector2I cell) =>
