@@ -10,7 +10,7 @@ Naming convention adopted (Mira v8.1 §1 shape: wf_<ecran>_<nom>_<variant>_<res>
                  from "e2/" legacy folder which holds the WorldMap
                  background, and from "e3/" which holds the area's
                  cité-level background).
-- <nom>       = role (tile, district_iso, portrait, fog, background, poi_marker).
+- <nom>       = role (tile, district_iso, neutral, portrait, fog, background, poi_marker).
 - <variant>   = district_type / npc id / role variant when applicable.
 - <res>       = dimensions in WxH.
 
@@ -18,22 +18,26 @@ The script is idempotent: rerun overwrites without prompt.
 
 Rune E2.1, 2026-05-16.
 
-E2.1c patch (2026-05-16, Didier lock).
-Adds a 7th asset family : `wf_e2_grid_district_iso_<suffix>_256x132.png`,
-6 PNGs sized to match the E1 iso tile (256x132 RGBA, transparent corners
-= face-top losange shape). The alpha mask is sourced from the canonical
-E1 tile bitmap at `client/assets/wayfinders_visual_assets/e1/wf_e1_tile_neutral.png`,
-which Godot ships as the iso losange template. Each district PNG carries
-the Varn-locked TintRgba colour (cf. `DistrictTypeHelpers.TintRgba`) as
-its base fill, plus a short 4-5 char label centred on the losange face
-(INTRA / WALL / GATE / OUTSK / FIELD / COAST) so the dev grid reads
-which district is which without a tooltip.
+E2.1c profond refonte (2026-05-16, Didier lock).
+The mapping district → cells dropped the 2x2 block constraint and switched
+to per-district irregular shapes (39 attributed cells across 6 districts +
+25 unattributed neutral cells = 64 total). The render layer's consequence
+on the asset pipeline :
 
-The legacy rectangular `wf_e2_grid_tile_<suffix>_256x256.png` is kept on
-disk for reference (no consumer points at it after asset_keys.json gets
-re-pointed at the iso variant), so the diff stays surgical : add a new
-asset family, repoint the key map, no deletion required for the smoke
-test.
+  1. The 6 district iso placeholders (wf_e2_grid_district_iso_<suffix>_256x132.png)
+     stay unchanged ; they keep their losange shape and per-district tint.
+  2. A NEW 7th iso placeholder is added : `wf_e2_grid_neutral_256x132.png`,
+     same 256x132 losange geometry as the E1 fog bitmap and the district
+     placeholders, but a distinct base colour (urban sand-beige) that
+     reads visually distinct from BOTH the per-district hues AND the E1
+     fog veil. This is what the 25 unattributed cells now render. The E1
+     fog bitmap is NO LONGER re-routed to neutral cells -- it stays
+     reserved for the fog reveal state alone (Didier 2026-05-16 : "on
+     prend un placeholder neutre par défaut mais pas celui du fog").
+
+The neutral placeholder shares the E1 alpha mask at script-gen time so the
+losange shape lines up pixel-perfect with the surrounding district +
+fog cells.
 """
 
 from __future__ import annotations
@@ -55,9 +59,9 @@ OUT_ROOT = Path(
 # Canonical source for the iso losange alpha mask. Resolved relative to
 # this script's location so the script stays portable across the Windows
 # clone and any future CI machine that runs it. `wf_e1_tile_neutral.png`
-# is the same bitmap E2AreaMap renders 64 times under E2.1a/b/c -- using
-# its alpha as the district-iso mask guarantees the losange shape lines
-# up pixel-perfect with the surrounding fog cells.
+# is the same bitmap E2AreaMap renders under E2.1a/b -- using its alpha
+# as the iso mask guarantees the losange shape lines up pixel-perfect
+# with the surrounding fog cells.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 E1_TILE_SOURCE = (
     REPO_ROOT / "client" / "assets" / "wayfinders_visual_assets" / "e1" / "wf_e1_tile_neutral.png"
@@ -121,6 +125,26 @@ DISTRICT_ISO_LABELS: dict[str, str] = {
     "hinterland_agri": "FIELD",
     "littoral": "COAST",
 }
+
+# Neutral iso placeholder (E2.1c profond refonte, Didier lock 2026-05-16).
+# Used for the 25 unattributed "space-between-quartiers" cells. The colour
+# is a slightly desaturated, slightly paler sand-beige -- close enough to
+# Outskirts (208, 187, 148) to belong to the same warm-earth axis, but
+# clearly cooler / paler so a side-by-side neutral cell vs Outskirts cell
+# does not collapse to the same hue. Picked at (217, 204, 184) which
+# corresponds to the sRGB float triplet (0.851, 0.800, 0.722) ≈ the
+# "urban beige" Didier suggested in the brief.
+#
+# The label is intentionally short and discreet : the neutral cells are
+# the visual breathing space between quartiers, NOT a 7th district. Two
+# options were considered :
+#  -- no label at all (would surface as "empty fog-shaped tile" with no
+#     hint of what it is during dev iteration).
+#  -- "URBAN" stamp at low-alpha umber.
+# We pick "URBAN" : dev legibility wins over visual minimalism at the
+# placeholder pass, Mira will drop the stamp at her final bitmap pass.
+NEUTRAL_ISO_COLOR: tuple[int, int, int] = (217, 204, 184)  # urban sand-beige
+NEUTRAL_ISO_LABEL: str = "URBAN"
 
 # Placeholder dimensions (square tiles for E2.1 ; isometric reshaping is
 # Mira's job post-validation).
@@ -207,19 +231,19 @@ def _draw_tile(
     print(f"  wrote {out_path.name}  ({dim[0]}x{dim[1]})")
 
 
-def _draw_district_iso_tile(
+def _draw_iso_alpha_masked_tile(
     out_path: Path,
     base_color: tuple[int, int, int],
     label: str,
     e1_source_path: Path,
 ) -> None:
-    """Draw an iso-shaped district tile placeholder.
+    """Draw an iso-shaped tile placeholder using the canonical E1 alpha mask.
 
     Pipeline :
       1. Open the canonical E1 tile bitmap (face-top losange + slab, RGBA
          with transparent corners).
       2. Build a flat-colour RGBA image the same size, filled with the
-         district base colour at full opacity.
+         base colour at full opacity.
       3. Composite (2) onto a fully transparent canvas using the E1
          bitmap's alpha as a mask -- this preserves the losange shape
          exactly, including the 4 px slab at the bottom of the bitmap
@@ -228,11 +252,9 @@ def _draw_district_iso_tile(
       4. Stamp a short label centred on the losange face, at low alpha
          umber, so the dev grid is legible without a tooltip.
 
-    The output is identical in dims + alpha topology to the source E1
-    bitmap, which means it drops in as a base sprite Texture with no
-    placement maths to redo : the existing iso math in
-    `E2AreaMap.AreaGrid.cs` lays each tile out assuming exactly this
-    geometry.
+    Used for both the 6 per-district iso placeholders AND the new
+    neutral placeholder (E2.1c profond refonte) -- same geometry,
+    different base colour, different label.
 
     Why composite with the E1 alpha mask vs drawing a polygon ourselves :
     PIL's polygon rasteriser would produce a different anti-aliased edge
@@ -264,7 +286,7 @@ def _draw_district_iso_tile(
     text_x = (width - tw) / 2
     text_y = (height - th) / 2 - 4
     # Low-alpha umber : reads as a discreet marker, not a UI label. The
-    # 180/255 alpha keeps it visible on every district hue including the
+    # 180/255 alpha keeps it visible on every base colour including the
     # darker Wall stone-grey.
     draw.text((text_x, text_y), label, fill=(*DARK_UMBER, 180), font=font)
 
@@ -467,29 +489,38 @@ def main() -> None:
         out = OUT_ROOT / f"wf_e2_grid_tile_{suffix}_256x256.png"
         _draw_tile(out, color, label)
 
-    # 6 district iso tile placeholders (E2.1c patch, 2026-05-16).
-    # Same losange shape as the E1 fog tile, district-tinted base colour,
-    # short label stamped on the face. These are the actual textures
-    # routed to E2AreaMap.BuildAreaGrid for the 24 cells covered by the
-    # 6 district 2x2 blocks ; the 40 unattributed cells continue to use
-    # the E1 fog bitmap (wf_e1_tile_neutral.png).
+    # E1 iso source bitmap is the shared alpha mask for every iso
+    # placeholder (6 district variants + 1 neutral variant). Resolve
+    # source dims once and reuse.
     if not E1_TILE_SOURCE.exists():
         raise SystemExit(
             f"[gen_e2_area_grid_placeholders] FATAL : E1 iso source bitmap "
-            f"not found at {E1_TILE_SOURCE} -- the district iso placeholders "
-            f"reuse its alpha mask to preserve losange shape. Restore the "
-            f"file (it ships in res://assets/wayfinders_visual_assets/e1/) "
-            f"and re-run."
+            f"not found at {E1_TILE_SOURCE} -- the iso placeholders reuse "
+            f"its alpha mask to preserve losange shape. Restore the file "
+            f"(it ships in res://assets/wayfinders_visual_assets/e1/) and "
+            f"re-run."
         )
-    # Read dims for the filename suffix (must match the in-engine
-    # TileTextureHeightPx constant : 256x132 on the canonical asset).
     src = Image.open(E1_TILE_SOURCE)
     src_w, src_h = src.size
     src.close()
+
+    # 6 district iso tile placeholders (E2.1c patch, 2026-05-16).
+    # Same losange shape as the E1 fog tile, district-tinted base colour,
+    # short label stamped on the face. These are the actual textures
+    # routed to E2AreaMap.BuildAreaGrid for the 39 cells covered by the
+    # 6 district cell lists at E2.1c profond refonte.
     for suffix, color in DISTRICT_ISO_COLORS.items():
         label = DISTRICT_ISO_LABELS[suffix]
         out = OUT_ROOT / f"wf_e2_grid_district_iso_{suffix}_{src_w}x{src_h}.png"
-        _draw_district_iso_tile(out, color, label, E1_TILE_SOURCE)
+        _draw_iso_alpha_masked_tile(out, color, label, E1_TILE_SOURCE)
+
+    # 1 neutral iso tile placeholder (E2.1c profond refonte, 2026-05-16).
+    # Used by the 25 unattributed "space-between-quartiers" cells. NOT
+    # to be confused with the E1 fog bitmap (which stays reserved for
+    # the fog reveal state alone -- Didier lock : "on prend un
+    # placeholder neutre par défaut mais pas celui du fog").
+    neutral_out = OUT_ROOT / f"wf_e2_grid_neutral_{src_w}x{src_h}.png"
+    _draw_iso_alpha_masked_tile(neutral_out, NEUTRAL_ISO_COLOR, NEUTRAL_ISO_LABEL, E1_TILE_SOURCE)
 
     # 3 NPC portrait placeholders. Accent colors tied to district_origin
     # for visual quick-read.
