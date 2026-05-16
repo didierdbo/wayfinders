@@ -14,7 +14,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// <b>Why a text test, not a Godot test.</b>
 /// xUnit cannot instantiate the Godot <see cref="Godot.InputMap"/> singleton
 /// (no engine in the test process). The runtime preflight in
-/// <c>E2WorldMap.DumpInputAndCameraState</c> covers the live-engine path.
+/// <c>E1WorldMap.DumpInputAndCameraState</c> covers the live-engine path.
 /// This test catches the regression earlier, at CI / pre-commit, by reading
 /// the source-controlled <c>project.godot</c> and pinning four invariants:
 /// the four action names exist, each has a <c>physical_keycode</c> entry,

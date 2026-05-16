@@ -297,7 +297,7 @@ public partial class IsoMapE1Probe : Node2D
     private const int PanWorldBottomPx = 4032 + 66;     // +4098
 
     // Vitesse pan en pixels-monde par seconde. La grille e1 fait ~16k x 8k
-    // monde-px (vs E2WorldMap 3840x2160 avec PanSpeedPxPerSec=800). 1200 px/s
+    // monde-px (vs E1WorldMap 3840x2160 avec PanSpeedPxPerSec=800). 1200 px/s
     // donne un cross-grille horizontal en ~13.6s a zoom 1.0x -- assez rapide
     // pour ne pas frustrer, assez lent pour rester lisible. A revisiter si
     // Didier playtest flagge trop rapide/lent.
@@ -522,7 +522,7 @@ public partial class IsoMapE1Probe : Node2D
     //   CameraPanLogic      -- ResolvePanDirection + AdvanceCameraCenter + ClampCameraCenter
     //   EdgeScrollLogic     -- ResolveEdgeDirection (livre 2026-05-13 pour ce probe)
     //   GameSettings        -- autoload qui expose MapPanButton (Middle|Right)
-    // Cf. components/MapPan2DComponent.cs pour le pattern complet sur E2WorldMap.
+    // Cf. components/MapPan2DComponent.cs pour le pattern complet sur E1WorldMap.
     private readonly MapPanInputLogic _panLogic = new();
     private MapPanButton _activePanButton = MapPanButton.Middle;
     private GameSettings? _gameSettings;

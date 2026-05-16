@@ -146,7 +146,7 @@ public partial class SceneManager : Node
     // 400ms is the smallest gap that survives "thumb resting on the wheel
     // during a sustained drag" without feeling sluggish on a deliberate
     // single-flick navigation. Belt to the screen-level _isDragging
-    // suppression's braces (E2WorldMap._Input).
+    // suppression's braces (E1WorldMap._Input).
     private const ulong WheelDebounceMs = 400;
     private ulong _lastWheelTickMs;
 
@@ -159,7 +159,7 @@ public partial class SceneManager : Node
     // scroll, sometimes I do a wheel action by accident just after, it
     // should be cancelled because it is likely an error".
     //
-    // Triggered by E2WorldMap calling NotifyDragReleased() at the moment
+    // Triggered by E1WorldMap calling NotifyDragReleased() at the moment
     // _isDragging flips false. Owned at the autoload (not on the screen)
     // because the wheel handler that consumes the input lives here, and
     // the grace timer is logically scoped to wheel input not to drag
@@ -691,7 +691,7 @@ public partial class SceneManager : Node
     ///
     /// <para>
     /// <b>J1 scene-flow bug (2026-05-15, Rune).</b> The Opening screens
-    /// (E1Title, E2WorldMap, ...) are instantiated under this autoload
+    /// (E1Title, E1WorldMap, ...) are instantiated under this autoload
     /// (<see cref="NavigateTo"/> calls <c>AddChild(screenNode)</c>). The
     /// scripted hop "Nouvelle Partie" -&gt; <c>IsoMapE1Probe.tscn</c> goes
     /// through <c>GetTree().ChangeSceneToFile</c>, which only swaps
@@ -801,7 +801,7 @@ public partial class SceneManager : Node
     /// <see cref="Input.IsMouseButtonPressed"/> for
     /// <see cref="MouseButton.Middle"/> at the wheel-event entry point,
     /// in addition to the screen-level <c>SetInputAsHandled</c> in
-    /// <see cref="Wayfinders.Client.Scenes.Screens.E2WorldMap._Input"/>.
+    /// <see cref="Wayfinders.Client.Scenes.Screens.E1WorldMap._Input"/>.
     /// The screen-level suppress is the architecturally clean path
     /// (option (c) per the P8.2-UX-fix closeout) ; this autoload-level
     /// poll is the belt to the screen-level braces. Either alone should
@@ -865,7 +865,7 @@ public partial class SceneManager : Node
 
             // Bug 2 belt-and-braces: if EITHER the middle OR the right
             // mouse button is currently held down, the player is mid-drag
-            // on E2WorldMap. P8.2 only checked Middle ; P8.3 (D-P8.3-10)
+            // on E1WorldMap. P8.2 only checked Middle ; P8.3 (D-P8.3-10)
             // extends the OR to Right so a player who selected the RMB-pan
             // option in the Options modal still benefits from the autoload
             // backstop. Both buttons are checked unconditionally regardless
@@ -875,7 +875,7 @@ public partial class SceneManager : Node
             // because the OR still honours the original "MMB-held implies
             // suppress" contract ; the new clause is purely additive.
             //
-            // E2WorldMap._Input also marks the wheel handled at the screen
+            // E1WorldMap._Input also marks the wheel handled at the screen
             // level, but a defensive poll on the autoload survives the
             // edge case where this _UnhandledInput somehow runs first
             // (frame-ordering race during the press of the pan button

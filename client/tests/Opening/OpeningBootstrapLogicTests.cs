@@ -14,7 +14,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// <b>Why this matters.</b> The 2026-05-09 J4 double-spawn bug was a
 /// silent regression : at boot, the FogTileLayer J4 canary printed twice
 /// (1089 cells × 2 spawns) because OpeningBootstrap pushed E1 on top of
-/// an F6-launched E2WorldMap, then the next "Nouvelle Partie" click
+/// an F6-launched E1WorldMap, then the next "Nouvelle Partie" click
 /// instantiated a SECOND E2 underneath. Pan visually froze, F debug
 /// dispatched to the wrong knowledge store, every singleton-shaped piece
 /// of state was doubled. The decision rule has THREE branches now (skip /
@@ -57,7 +57,7 @@ public sealed class OpeningBootstrapLogicTests
     public void RegisterOnly_when_main_scene_is_a_production_screen()
     {
         // F6 / "Run Current Scene" path : the active main scene is itself
-        // a registered production screen (E2WorldMap, E3CityHalfgate, ...).
+        // a registered production screen (E1WorldMap, E3CityHalfgate, ...).
         // The autoload must register every screen and modal (so drill /
         // climb / POI dispatch keep working from the F6-launched screen)
         // but MUST NOT fire NavigateTo("E1_TITLE") -- that would push E1

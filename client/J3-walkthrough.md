@@ -65,7 +65,7 @@ A `Camera3D` follower (current=true) shadows the prod `Camera2D` each frame, wit
 If something visible regresses, flip `EnableJ3Witness` to `false` on the `FogTileLayer` node in the inspector :
 
 ```
-E2WorldMap → MapPan2DComponent → WorldRoot → FogTileLayer → [Inspector] → EnableJ3Witness
+E1WorldMap → MapPan2DComponent → WorldRoot → FogTileLayer → [Inspector] → EnableJ3Witness
 ```
 
 The witness cell falls back to pre-J3 behaviour immediately (no recompile, no redeploy). Pattern L locked (cf. archi doc §4).

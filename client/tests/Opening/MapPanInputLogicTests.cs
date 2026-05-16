@@ -30,7 +30,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// <see cref="LadderResolutionLogicTests"/> and
 /// <see cref="CameraPanLogicTests"/>: the state machine is pure-C#
 /// (no Godot types reach this seam), so the contract pins here without
-/// the engine. The Godot-bound <c>E2WorldMap._Input</c> dispatch is
+/// the engine. The Godot-bound <c>E1WorldMap._Input</c> dispatch is
 /// validated via the P8.3 manual checklist (12 steps).
 /// </para>
 /// </summary>

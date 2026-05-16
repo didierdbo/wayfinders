@@ -21,7 +21,7 @@ public partial class PoiData: Resource
     ///
     /// <para>
     /// <b>Default empty.</b> Existing scenes (<c>M1Slice</c>,
-    /// <c>PoiSpawnProbe</c>, legacy <c>E2WorldMap</c> mocks) carry no
+    /// <c>PoiSpawnProbe</c>, legacy <c>E1WorldMap</c> mocks) carry no
     /// id ; the tooltip Pattern B aggregator treats an empty
     /// <see cref="PoiId"/> as "no missions filterable" — render path
     /// short-circuits, no regression. Backward-compat by design.

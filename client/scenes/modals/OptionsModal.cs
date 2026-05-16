@@ -181,7 +181,7 @@ public partial class OptionsModal : Control, IModalOverlay
     /// P8.3 real handler -- forwards the dropdown selection to the
     /// <see cref="GameSettings"/> autoload, which persists to
     /// <c>user://settings.cfg</c> and emits <c>SettingsChanged</c> for
-    /// <see cref="Wayfinders.Client.Scenes.Screens.E2WorldMap"/> to pick
+    /// <see cref="Wayfinders.Client.Scenes.Screens.E1WorldMap"/> to pick
     /// up the change without a screen reload (effet immédiat, exit
     /// criterion §1.2.3 of the pre-brief).
     /// </summary>

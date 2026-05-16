@@ -26,7 +26,7 @@ namespace Wayfinders.Client.Tests.Opening;
 ///
 /// <para>
 /// <b>The fix (commit hash referenced in feedback memo).</b> The single
-/// line at <c>E2WorldMap.cs:509</c> moved from
+/// line at <c>E1WorldMap.cs:509</c> moved from
 /// <c>await sceneManager.NavigateBack()</c> to
 /// <c>await sceneManager.NavigateLadderUp()</c>. The transition lock
 /// release in the finally block is unchanged -- the handler still
@@ -51,7 +51,7 @@ namespace Wayfinders.Client.Tests.Opening;
 ///   <item>The ladder helper, given E1_WORLD as current and the default
 ///         ladder, returns null -- the verb's substrate already encodes
 ///         the no-op contract independently of the SceneManager.</item>
-///   <item>The fake-harness body of <c>E2WorldMap.OnClimbRequested</c>
+///   <item>The fake-harness body of <c>E1WorldMap.OnClimbRequested</c>
 ///         (post-fix shape) calls <c>NavigateLadderUp</c> exactly once
 ///         and never <c>NavigateBack</c> on the climb path -- so a
 ///         future refactor that flips the verb back will fail this
@@ -99,11 +99,11 @@ public sealed class E2ClimbAtZoomMinDoesNotPopToE1Tests
     }
 
     /// <summary>
-    /// Reproduces the post-fix body of <c>E2WorldMap.OnClimbRequested</c>.
+    /// Reproduces the post-fix body of <c>E1WorldMap.OnClimbRequested</c>.
     /// Same shape as the E3/E5 climb handlers (try/finally with lock
     /// release in finally), but the verb is <c>NavigateLadderUp</c>
     /// instead of <c>NavigateBack</c> -- which is the whole regression
-    /// pin. If a future maintainer changes <c>E2WorldMap.cs:509</c>
+    /// pin. If a future maintainer changes <c>E1WorldMap.cs:509</c>
     /// back to <c>NavigateBack</c>, they must also change this fake
     /// body, which surfaces the contract change in the diff.
     /// </summary>

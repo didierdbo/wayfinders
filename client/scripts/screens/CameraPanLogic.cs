@@ -38,7 +38,7 @@
 /// the test project would re-couple this helper to GodotSharp and
 /// break the Godot-free invariant. <see cref="PanVec2"/> is a tiny
 /// readonly record struct with the two fields we need ; the
-/// <c>E2WorldMap</c> runtime translates between
+/// <c>E1WorldMap</c> runtime translates between
 /// <c>Godot.Vector2</c> and <see cref="PanVec2"/> at the seam (one-line
 /// constructor calls). Same trade-off Coda took on the FastAPI
 /// boundary -- never let an engine type leak into a logic seam.
@@ -421,7 +421,7 @@ public static class CameraPanLogic
 
 /// <summary>
 /// Tiny 2D float vector. Godot-free stand-in for <c>Godot.Vector2</c>
-/// at the pure-logic seam. The runtime <c>E2WorldMap.cs</c> converts
+/// at the pure-logic seam. The runtime <c>E1WorldMap.cs</c> converts
 /// between <c>Godot.Vector2</c> and this type at the boundary.
 ///
 /// <para>

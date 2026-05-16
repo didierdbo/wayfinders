@@ -13,7 +13,7 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// (two FogTileLayer canaries at boot, two MapPan2DComponent instances,
 /// only one Camera2D current -- pan visually frozen on the wrong instance)
 /// surfaced a third case : the active main scene is itself a registered
-/// production screen (Didier ran <c>F6</c> on <c>E2WorldMap.tscn</c>
+/// production screen (Didier ran <c>F6</c> on <c>E1WorldMap.tscn</c>
 /// while it was open in the editor). In that case the autoload must
 /// still register the screen registry (so wheel-drill into E3 keeps
 /// working) but must NOT fire <c>NavigateTo("E1_TITLE")</c> -- otherwise

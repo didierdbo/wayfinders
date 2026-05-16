@@ -243,7 +243,7 @@ public partial class OpeningStrings : Resource
 
     /// <summary>
     /// E2.G -- tag template for grisée POI cities (Cadastre suspendu).
-    /// Contains the <c>[Nom]</c> placeholder which E2WorldMap substitutes
+    /// Contains the <c>[Nom]</c> placeholder which E1WorldMap substitutes
     /// at runtime with <see cref="PoiDefinition.DisplayName"/>. Voix A.
     /// </summary>
     [Export] public string E2PoiCitySuspendedTooltipTemplate { get; set; } =

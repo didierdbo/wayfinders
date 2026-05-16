@@ -8,7 +8,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// gestures.
 ///
 /// <para>
-/// While E2WorldMap is in an active drag (middle button held), wheel
+/// While E1WorldMap is in an active drag (middle button held), wheel
 /// events must be consumed at <c>_Input</c> priority so SceneManager's
 /// <c>_UnhandledInput</c> never dispatches a ladder navigation under
 /// the player's thumb. The triple-fix adds defense-in-depth: the
@@ -74,7 +74,7 @@ public sealed class WheelDuringDragSuppressionTests
         }
 
         /// <summary>
-        /// Mirrors the triple-fix Bug 2 path in <c>E2WorldMap._Input</c>:
+        /// Mirrors the triple-fix Bug 2 path in <c>E1WorldMap._Input</c>:
         /// if a wheel event arrives during an active drag (OR while the
         /// middle button is held independent of <c>_isDragging</c>),
         /// consume it. Returns true to indicate the event was handled.

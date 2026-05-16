@@ -216,7 +216,7 @@ public partial class M1Slice : Node2D
     /// PR6 — when the POI input router emits <c>PoiClicked</c> for one of
     /// the spawned POIs, navigate to this screen id via
     /// <see cref="SceneManager.NavigateTo"/>. Defaults to
-    /// <c>E2_AREA</c> (the existing E2WorldMap dispatch target).
+    /// <c>E2_AREA</c> (the existing E1WorldMap dispatch target).
     /// Empty string disables navigation — the click is only logged.
     /// MVP only : a future PR replaces this single-target field with a
     /// per-POI dispatch table keyed by <c>DisplayName</c>.

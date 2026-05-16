@@ -59,7 +59,7 @@ namespace Wayfinders.Client.Services;
 /// the same time -- pan stuck on the wrong WorldCamera, F debug
 /// dispatching to the wrong knowledge store, every singleton-shaped piece
 /// of E2 state doubled. Root cause : Didier ran <c>F6 Run Current Scene</c>
-/// on <c>E2WorldMap.tscn</c> while it was open in the editor. F6
+/// on <c>E1WorldMap.tscn</c> while it was open in the editor. F6
 /// temporarily swaps <c>run/main_scene</c> to the active scene, but
 /// autoloads (including this one) still fire. The skip_opening_bootstrap
 /// meta gate above only fires for probes ; production screens have no
@@ -80,7 +80,7 @@ namespace Wayfinders.Client.Services;
 public partial class OpeningBootstrap : Node
 {
     private const string E1ScenePath = "res://scenes/screens/E1Title.tscn";
-    private const string E2ScenePath = "res://scenes/screens/E2WorldMap.tscn";
+    private const string E2ScenePath = "res://scenes/screens/E1WorldMap.tscn";
     private const string E3ScenePath = "res://scenes/screens/E3CityHalfgate.tscn";
     private const string E4ScenePath = "res://scenes/screens/E4CharacterSheet.tscn";
     private const string E5ScenePath = "res://scenes/screens/E5DistrictMap.tscn";

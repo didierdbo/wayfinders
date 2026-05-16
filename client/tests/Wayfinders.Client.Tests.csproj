@@ -100,7 +100,7 @@
        advance-by-delta contract independent of Godot's runtime
        Camera2D.LimitLeft/Top/Right/Bottom (which actually applies the
        clamp at runtime). The Godot-bound drag-pan + ZQSD wiring lives
-       in E2WorldMap.cs and is validated via the P8.2 manual checklist
+       in E1WorldMap.cs and is validated via the P8.2 manual checklist
        (10 steps). -->
   <ItemGroup>
     <Compile Include="..\scripts\screens\CameraPanLogic.cs" Link="src\CameraPanLogic.cs" />
@@ -108,7 +108,7 @@
 
   <!-- Phase 8 P8.3 (M3): map pan config + drag threshold pure-C#
        seam. MapPanInputLogic is the state machine (Idle / Tracking /
-       Dragging) wired by E2WorldMap ; MapPanButton is the typed enum
+       Dragging) wired by E1WorldMap ; MapPanButton is the typed enum
        persisted via GameSettingsStore. The store + IConfigBackend
        interface live in services/ but are Godot-free by design so
        xUnit pins the persistence policy (load defaults, malformed
@@ -153,7 +153,7 @@
        (six branches: continuous zoom, drill candidate, drill blocked,
        climb candidate, debounced, none). The runtime MapPan2DComponent
        slice 3 wiring (Camera2D.Zoom tween, cursor-centred zoom, signal
-       emit to E2WorldMap for SceneManager.NavigateTo) stays in the client
+       emit to E1WorldMap for SceneManager.NavigateTo) stays in the client
        csproj only and is exercised through manual integration. -->
   <ItemGroup>
     <Compile Include="..\scripts\screens\ZoomNavLogic.cs" Link="src\ZoomNavLogic.cs" />

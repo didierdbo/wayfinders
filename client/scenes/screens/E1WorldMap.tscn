@@ -1,6 +1,6 @@
 [gd_scene load_steps=6 format=3 uid="uid://ce2world0001"]
 
-[ext_resource type="Script" path="res://scenes/screens/E2WorldMap.cs" id="1_e2wld"]
+[ext_resource type="Script" path="res://scenes/screens/E1WorldMap.cs" id="1_e2wld"]
 [ext_resource type="PackedScene" uid="uid://cwf_mappan2d0001" path="res://components/MapPan2DComponent.tscn" id="2_mappan"]
 [ext_resource type="Script" path="res://components/FogTileLayer.cs" id="3_fogtile"]
 [ext_resource type="PackedScene" uid="uid://cwf_tilestore0001" path="res://services/TileKnowledgeStore.tscn" id="4_tkstore"]
@@ -29,7 +29,7 @@ content_margin_top = 10.0
 content_margin_right = 18.0
 content_margin_bottom = 10.0
 
-[node name="E2WorldMap" type="Control"]
+[node name="E1WorldMap" type="Control"]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0

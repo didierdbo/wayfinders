@@ -13,7 +13,7 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// <b>Why a separate helper.</b> Edge-scroll is a third pan input source
 /// after MMB-drag (event-driven, <see cref="MapPanInputLogic"/>) and ZQSD
 /// (frame-polled, <see cref="CameraPanLogic.ResolvePanDirection"/>). The
-/// two existing helpers are battle-tested for E2WorldMap ; rather than
+/// two existing helpers are battle-tested for E1WorldMap ; rather than
 /// extend their signatures with an edge-scroll mode, we add a sibling
 /// that emits the same <see cref="PanVec2"/> shape and lets the runtime
 /// sum the keyboard + edge-scroll directions (then re-normalise once)

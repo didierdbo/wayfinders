@@ -6,7 +6,7 @@ namespace Wayfinders.Client.Tests.Opening;
 
 /// <summary>
 /// Contract tests for the E2 World Map navigation surface in J3. The
-/// Godot-side <c>E2WorldMap</c> cannot be loaded from xUnit (no engine),
+/// Godot-side <c>E1WorldMap</c> cannot be loaded from xUnit (no engine),
 /// so these tests assert on a fake harness that mimics the SceneManager
 /// + dispatcher integration and locks the expected intents:
 /// <list type="bullet">
@@ -50,7 +50,7 @@ public sealed class E2NavigationContractTests
     }
 
     /// <summary>
-    /// Reproduces the E2WorldMap.OnPoiPressed dispatch shape without
+    /// Reproduces the E1WorldMap.OnPoiPressed dispatch shape without
     /// the Godot context: dispatcher decides the intent, the navigator
     /// fulfils it. Same code path as the Godot-side handler.
     /// </summary>
@@ -86,7 +86,7 @@ public sealed class E2NavigationContractTests
     {
         var nav = new FakeNavigator();
 
-        // E2WorldMap.OnBackPressed body equivalent.
+        // E1WorldMap.OnBackPressed body equivalent.
         await nav.NavigateBack();
 
         Assert.Single(nav.NavigateBackCalls);

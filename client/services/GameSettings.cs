@@ -27,7 +27,7 @@ namespace Wayfinders.Client.Services;
 /// <para>
 /// <b>Why an autoload not a static class (P8.3 §3.3).</b>
 /// <see cref="SettingsChanged"/> must be a Godot signal so consumers
-/// like <see cref="Wayfinders.Client.Scenes.Screens.E2WorldMap"/> can
+/// like <see cref="Wayfinders.Client.Scenes.Screens.E1WorldMap"/> can
 /// subscribe via <c>+= / -=</c> with the disconnection discipline that
 /// every other Godot signal in the codebase uses. A static C# event
 /// would technically work but break the pattern parity with
@@ -76,7 +76,7 @@ public partial class GameSettings : Node
     /// <see cref="MapPanButton"/> setter for the gating logic.
     /// Subscribers must follow the disconnection discipline (subscribe
     /// in <c>_Ready</c>, unsubscribe in <c>_ExitTree</c>) ;
-    /// <see cref="Wayfinders.Client.Scenes.Screens.E2WorldMap"/> is the
+    /// <see cref="Wayfinders.Client.Scenes.Screens.E1WorldMap"/> is the
     /// canonical example.
     /// </summary>
     [Signal]

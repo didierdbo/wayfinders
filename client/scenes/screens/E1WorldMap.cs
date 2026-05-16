@@ -56,7 +56,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// </list>
 /// </para>
 /// </summary>
-public partial class E2WorldMap : Control, IScreen
+public partial class E1WorldMap : Control, IScreen
 {
     public string ScreenId => "E1_WORLD";
 
@@ -218,7 +218,7 @@ public partial class E2WorldMap : Control, IScreen
             Mathf.Max(imageSize.X, fogGridBounds.X),
             Mathf.Max(imageSize.Y, fogGridBounds.Y));
         GD.Print(
-            $"[E2WorldMap] world bounds = max(bitmap {imageSize}, " +
+            $"[E1WorldMap] world bounds = max(bitmap {imageSize}, " +
             $"fogGrid ({fogGridBounds.X}, {fogGridBounds.Y}) at " +
             $"{fogGridDimensions.Columns}x{fogGridDimensions.Rows} cells x " +
             $"{_fogTileLayer.CellSizePx}px {_fogTileLayer.Projection}) = {worldBounds}");
@@ -289,13 +289,13 @@ public partial class E2WorldMap : Control, IScreen
         if (!InputMap.HasAction(DebugToggleFogActionName))
         {
             GD.PushWarning(
-                $"[E2WorldMap] preflight: {DebugToggleFogActionName} action missing from InputMap. " +
+                $"[E1WorldMap] preflight: {DebugToggleFogActionName} action missing from InputMap. " +
                 "Slice 2 fog cycle commands (F / Shift+F / Ctrl+F / Alt+F) will silently no-op.");
         }
         if (!InputMap.HasAction(DebugToggleZoomOverlayActionName))
         {
             GD.PushWarning(
-                $"[E2WorldMap] preflight: {DebugToggleZoomOverlayActionName} action missing from InputMap. " +
+                $"[E1WorldMap] preflight: {DebugToggleZoomOverlayActionName} action missing from InputMap. " +
                 "Slice 3 livrable 5 zoom overlay (G) will silently no-op.");
         }
     }
@@ -410,7 +410,7 @@ public partial class E2WorldMap : Control, IScreen
             var dimensions = _fogTileLayer.Dimensions;
             _knowledgeStore.SetAllToLevee(dimensions);
             GD.Print(
-                $"[E2WorldMap] debug Alt+F: flipped every cell to Levée " +
+                $"[E1WorldMap] debug Alt+F: flipped every cell to Levée " +
                 $"({dimensions.Columns}×{dimensions.Rows} = {dimensions.TotalCells} cells)");
             viewport.SetInputAsHandled();
             return;
@@ -422,7 +422,7 @@ public partial class E2WorldMap : Control, IScreen
             var before = _knowledgeStore.NonDefaultEntryCount;
             _knowledgeStore.Clear();
             GD.Print(
-                $"[E2WorldMap] debug Ctrl+F: reset all non-default cells to Inconnue " +
+                $"[E1WorldMap] debug Ctrl+F: reset all non-default cells to Inconnue " +
                 $"(was {before} entries, now 0)");
             viewport.SetInputAsHandled();
             return;
@@ -437,7 +437,7 @@ public partial class E2WorldMap : Control, IScreen
         var coord = _fogTileLayer.WorldPositionToCell(worldPos);
         if (coord is null)
         {
-            GD.Print($"[E2WorldMap] debug F: cursor at {worldPos} is outside grid bounds");
+            GD.Print($"[E1WorldMap] debug F: cursor at {worldPos} is outside grid bounds");
             return;
         }
 
@@ -453,7 +453,7 @@ public partial class E2WorldMap : Control, IScreen
         var after = _knowledgeStore.GetState(coord.Value);
         var direction = key.ShiftPressed ? "Shift+F (prev)" : "F (next)";
         GD.Print(
-            $"[E2WorldMap] debug {direction}: cell ({coord.Value.Col},{coord.Value.Row}) " +
+            $"[E1WorldMap] debug {direction}: cell ({coord.Value.Col},{coord.Value.Row}) " +
             $"{before2} -> {after}");
         viewport.SetInputAsHandled();
     }
@@ -655,7 +655,7 @@ public partial class E2WorldMap : Control, IScreen
     /// </summary>
     private async void OnBackPressed()
     {
-        GD.Print("[E2WorldMap J6] BackButton clicked (Refermer le feuillet) -- delegating to SceneManager");
+        GD.Print("[E1WorldMap J6] BackButton clicked (Refermer le feuillet) -- delegating to SceneManager");
         var sceneManager = GetNode<SceneManager>("/root/SceneManager");
 
         // F6 fallback : in production, E2 sits above E1 on the stack and
@@ -666,7 +666,7 @@ public partial class E2WorldMap : Control, IScreen
         if (sceneManager.CurrentScreenId is null)
         {
             GD.Print(
-                "[E2WorldMap J6] BackButton in F6 mode (SceneManager stack empty) " +
+                "[E1WorldMap J6] BackButton in F6 mode (SceneManager stack empty) " +
                 "-- routing to E1_TITLE instead of quitting the editor");
             try
             {
@@ -678,7 +678,7 @@ public partial class E2WorldMap : Control, IScreen
                 // Log and stay on E2 ; closing the editor app from a
                 // BackButton click is never the right answer.
                 GD.PushWarning(
-                    $"[E2WorldMap J6] F6-mode NavigateTo(E1_TITLE) failed : {e.Message}. " +
+                    $"[E1WorldMap J6] F6-mode NavigateTo(E1_TITLE) failed : {e.Message}. " +
                     $"Staying on E2 -- close the editor manually if you want to exit.");
             }
             return;
@@ -692,7 +692,7 @@ public partial class E2WorldMap : Control, IScreen
         var poi = FindPoi(poiId);
         if (poi is null)
         {
-            GD.PushWarning($"[E2WorldMap] POI clicked but no entry found: {poiId}");
+            GD.PushWarning($"[E1WorldMap] POI clicked but no entry found: {poiId}");
             return;
         }
 
@@ -700,13 +700,13 @@ public partial class E2WorldMap : Control, IScreen
         switch (result.Outcome)
         {
             case PoiDispatchOutcome.NavigateToScreen:
-                GD.Print($"[E2WorldMap] POI clicked: {poiId} -> navigating to {result.TargetScreenId}");
+                GD.Print($"[E1WorldMap] POI clicked: {poiId} -> navigating to {result.TargetScreenId}");
                 var sceneManager = GetNode<SceneManager>("/root/SceneManager");
                 await sceneManager.NavigateTo(result.TargetScreenId!);
                 break;
 
             case PoiDispatchOutcome.ShowBlockedIndicator:
-                GD.Print($"[E2WorldMap] POI clicked: {poiId} -> blocked, Cadastre suspendu");
+                GD.Print($"[E1WorldMap] POI clicked: {poiId} -> blocked, Cadastre suspendu");
                 ShowBlockedFlash();
                 break;
         }
@@ -817,7 +817,7 @@ public partial class E2WorldMap : Control, IScreen
         {
             UpdateZoomOverlayText(); // immediate refresh so the first frame is populated
         }
-        GD.Print($"[E2WorldMap] zoom overlay toggled -> {_zoomOverlayVisible}");
+        GD.Print($"[E1WorldMap] zoom overlay toggled -> {_zoomOverlayVisible}");
     }
 
     /// <summary>

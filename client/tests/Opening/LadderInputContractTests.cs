@@ -310,7 +310,7 @@ public sealed class LadderInputContractTests
         // silently ignored at the autoload level too. This is the
         // contract that the SceneManager Input.IsMouseButtonPressed
         // poll pins, in addition to the screen-level _isDragging
-        // suppress in E2WorldMap._Input.
+        // suppress in E1WorldMap._Input.
         var h = new FakeWheelHandler(LadderResolutionLogic.DefaultLadder)
         {
             CurrentScreenId = "E1_WORLD",

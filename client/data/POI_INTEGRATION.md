@@ -106,5 +106,5 @@ the iso projection, the tile coord is wrong, not the router.
 - **Single SceneManager dispatch target** : `M1Slice.PoiClickNavigateTo`
   is one string for all POIs. When a second POI needs a different screen
   id, swap to a `Dictionary<string, string>` keyed by DisplayName.
-- **J3/J4 `PoiDefinition`** : the older 2D-pixel POI model on `E2WorldMap`
+- **J3/J4 `PoiDefinition`** : the older 2D-pixel POI model on `E1WorldMap`
   is **not migrated**. M2 decision per prebrief anti-checklist.

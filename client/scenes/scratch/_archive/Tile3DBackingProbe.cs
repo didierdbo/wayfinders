@@ -28,7 +28,7 @@ namespace Wayfinders.Client.Scenes.Scratch;
 ///
 /// <para>
 /// <b>Strict isolation.</b> This scene touches no production node :
-/// <c>E2WorldMap</c>, <c>FogTileLayer</c>, <c>MapPan2DComponent</c>,
+/// <c>E1WorldMap</c>, <c>FogTileLayer</c>, <c>MapPan2DComponent</c>,
 /// <c>FogTileGridLogic</c>, the autoloads, the simulation grid — all
 /// untouched. The probe is fully reversible : delete the
 /// <c>scenes/scratch/</c> folder and the production behavior is bit-for-bit

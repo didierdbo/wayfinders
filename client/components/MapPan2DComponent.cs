@@ -43,14 +43,14 @@ namespace Wayfinders.Client.Components;
 /// </para>
 ///
 /// <para>
-/// <b>Why extract this from E2WorldMap (refactor motivation).</b>
+/// <b>Why extract this from E1WorldMap (refactor motivation).</b>
 /// Pre-slice-1, the entire pan stack lived inline in
-/// <see cref="Wayfinders.Client.Scenes.Screens.E2WorldMap"/>'s
+/// <see cref="Wayfinders.Client.Scenes.Screens.E1WorldMap"/>'s
 /// <c>_Ready</c> / <c>_Input</c> / <c>_Process</c> (~600 LOC). That
 /// scene is the one we extend in slice 1 (livrable 2 fog layer) and
 /// will keep extending in slice 2+ (zoom-driven nav transitions,
 /// Varn-locked nav redesign §Q5 two-stage wheel pipeline). Inlining
-/// every new feature would push E2WorldMap past the maintainable
+/// every new feature would push E1WorldMap past the maintainable
 /// threshold for a single screen file. Extracting the pan stack into
 /// a reusable component sets up three downstream wins :
 /// <list type="bullet">
@@ -69,7 +69,7 @@ namespace Wayfinders.Client.Components;
 /// <para>
 /// <b>Compatibility contract — every Phase 8.x invariant preserved.</b>
 /// The component is a verbatim translation of the pre-slice-1 inline
-/// code in E2WorldMap, with the surface reorganised into typed signals
+/// code in E1WorldMap, with the surface reorganised into typed signals
 /// and public methods. Behaviours pinned by the Phase 8 closeouts and
 /// the Phase 8 input traps memo (mémoire <c>feedback_godot_rendering_input_traps</c>)
 /// remain green :
@@ -118,7 +118,7 @@ public partial class MapPan2DComponent : Node2D
 {
     /// <summary>
     /// ZQSD / WASD / arrow pan speed in world pixels per second
-    /// (D-P8.2-05). Carried over from <see cref="Wayfinders.Client.Scenes.Screens.E2WorldMap"/>'s
+    /// (D-P8.2-05). Carried over from <see cref="Wayfinders.Client.Scenes.Screens.E1WorldMap"/>'s
     /// <c>PanSpeedPxPerSec</c> verbatim — sized so a sustained pan
     /// crosses 3840 px in ~4.8 s. Exported as <c>[Export]</c> so the
     /// E3 / L3 instances Varn §5.2 calls for can override per-layer
@@ -261,7 +261,7 @@ public partial class MapPan2DComponent : Node2D
     /// Names of the four InputMap actions <see cref="_Process"/> polls.
     /// Held in one place so the preflight self-check (<see cref="_Ready"/>)
     /// can verify each one is registered and emit a console warning if
-    /// not — same diagnostic reflex E2WorldMap had pre-extraction.
+    /// not — same diagnostic reflex E1WorldMap had pre-extraction.
     /// </summary>
     private static readonly string[] PanActionNames =
     {
@@ -278,7 +278,7 @@ public partial class MapPan2DComponent : Node2D
     /// Slice 3 -- emitted when the player has zoomed to <see cref="ZoomMax"/>
     /// and pushed an additional wheel tick over a cell whose tile knowledge
     /// state is at <see cref="TileKnowledgeState.Esquissee"/> or higher.
-    /// The consumer (<see cref="Wayfinders.Client.Scenes.Screens.E2WorldMap"/>)
+    /// The consumer (<see cref="Wayfinders.Client.Scenes.Screens.E1WorldMap"/>)
     /// translates this into a <c>SceneManager.NavigateTo</c> call with
     /// the origin coord packed into the <see cref="ScreenContext"/> payload.
     /// Coordinates are passed as <c>Vector2I</c> (Godot-native, one of the
@@ -338,7 +338,7 @@ public partial class MapPan2DComponent : Node2D
     // 2026-05-09 fix : the camera limits track the WORLD BOUNDS, which on
     // E2 World Map exceed the source bitmap on iso projection (4224x2112
     // grid vs 2048x1024 bitmap). Defaults to _worldImageSize via the
-    // backward-compat Configure overload, set explicitly by E2WorldMap via
+    // backward-compat Configure overload, set explicitly by E1WorldMap via
     // the three-arg overload. Z (vertical pan) was frozen pre-fix because
     // viewport.Y > _worldImageSize.Y triggered ClampCameraCenter snap-to-
     // image-center on Y -- now it clamps against bounds.Y instead.
@@ -508,7 +508,7 @@ public partial class MapPan2DComponent : Node2D
     {
         // Backward-compatible overload : world bounds default to the source
         // texture size. Used by E3 / E5 (no fog overlay extending the world
-        // beyond the bitmap). E2WorldMap calls the explicit-bounds overload
+        // beyond the bitmap). E1WorldMap calls the explicit-bounds overload
         // because its iso fog grid extends past the source bitmap on both
         // axes (4224x2112 grid vs 2048x1024 bitmap), and the camera limits
         // must follow the perceivable world, not just the bitmap.
@@ -593,7 +593,7 @@ public partial class MapPan2DComponent : Node2D
 
     /// <summary>
     /// Slice 3 -- consumer hook for the "what cell is under the cursor
-    /// + its knowledge state" lookup. The consumer (<see cref="Wayfinders.Client.Scenes.Screens.E2WorldMap"/>)
+    /// + its knowledge state" lookup. The consumer (<see cref="Wayfinders.Client.Scenes.Screens.E1WorldMap"/>)
     /// supplies this at <c>_Ready</c> after wiring its fog layer and
     /// knowledge store ; the component invokes the delegate every time
     /// a wheel event reaches the cap-Push branch and needs to evaluate
@@ -814,7 +814,7 @@ public partial class MapPan2DComponent : Node2D
         // across MMB and RMB regardless of which is currently active —
         // a stale press of the inactive button is a benign suppression,
         // never a false-negative on the active one. See pre-extraction
-        // E2WorldMap class doc paragraph "P8.1+P8.2 triple-fix".
+        // E1WorldMap class doc paragraph "P8.1+P8.2 triple-fix".
         //
         // KEEP THIS BRANCH FIRST in slice 3 -- a drag in progress
         // dominates any wheel-zoom intent. If the player is panning
@@ -1215,7 +1215,7 @@ public partial class MapPan2DComponent : Node2D
     }
 
     /// <summary>
-    /// Mirror of E2WorldMap's pre-extraction <c>DumpInputAndCameraState</c>
+    /// Mirror of E1WorldMap's pre-extraction <c>DumpInputAndCameraState</c>
     /// : a one-shot console dump of every state dimension the pan stack
     /// touches, fired from <see cref="Configure"/>. Cheap, allocation-
     /// free in the hot path. The phase-8 input traps memo (mémoire

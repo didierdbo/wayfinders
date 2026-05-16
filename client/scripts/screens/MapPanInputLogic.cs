@@ -5,7 +5,7 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// for the E2 World Map pan gesture (P8.3, M3 / Arc 3 / Phase 8.3).
 /// Same Godot-free pattern as <see cref="LadderResolutionLogic"/> at P8.1
 /// and <see cref="CameraPanLogic"/> at P8.2: the runtime
-/// <see cref="Wayfinders.Client.Scenes.Screens.E2WorldMap"/> translates
+/// <see cref="Wayfinders.Client.Scenes.Screens.E1WorldMap"/> translates
 /// <see cref="Godot.InputEventMouseButton"/> /
 /// <see cref="Godot.InputEventMouseMotion"/> events into method calls on
 /// this helper, the helper returns intent records, and the runtime
@@ -57,7 +57,7 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// <b>Why this is Godot-free.</b> Every input enters as a primitive
 /// (<see cref="MapPanButton"/> enum, <see cref="PanVec2"/> for positions),
 /// every output exits as a record struct. The runtime
-/// <c>E2WorldMap._Input</c> handles the
+/// <c>E1WorldMap._Input</c> handles the
 /// <see cref="Godot.MouseButton"/> -&gt; <see cref="MapPanButton"/>
 /// translation and the <see cref="Godot.Vector2"/> -&gt;
 /// <see cref="PanVec2"/> conversion at the seam. xUnit pins this contract
@@ -69,7 +69,7 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// <b>Reset discipline (P8.3 §3.6 D-P8.3-11).</b>
 /// <see cref="Reset"/> snaps the state machine back to
 /// <see cref="MapPanState.Idle"/> regardless of where it was. Two
-/// callers wire it: (1) modal-open in <c>E2WorldMap._Input</c> -- mirror
+/// callers wire it: (1) modal-open in <c>E1WorldMap._Input</c> -- mirror
 /// of P8.1's modal-owns-input rule ; (2) <c>OnSettingsChanged</c> --
 /// if the player toggles MMB-vs-RMB while a drag is live, we cut the
 /// gesture cleanly instead of carrying ambiguous state across the
@@ -184,7 +184,7 @@ public sealed class MapPanInputLogic
     /// <summary>
     /// Snap to <see cref="MapPanState.Idle"/> regardless of where the
     /// state machine currently sits. Wired by two callers: modal-open
-    /// in <c>E2WorldMap._Input</c> (mirrors P8.1 modal-owns-input) and
+    /// in <c>E1WorldMap._Input</c> (mirrors P8.1 modal-owns-input) and
     /// the <c>SettingsChanged</c> handler (so a mid-drag MMB-to-RMB
     /// flip does not leak ambiguous state across the preference change).
     /// </summary>

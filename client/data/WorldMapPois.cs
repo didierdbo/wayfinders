@@ -6,7 +6,7 @@ namespace Wayfinders.Client.Data;
 /// Top-level Resource holding the list of <see cref="PoiDefinition"/>
 /// entries for the E2 World Map. Authored as
 /// <c>res://data/world_map_pois.tres</c>, loaded once at
-/// <see cref="Wayfinders.Client.Scenes.Screens.E2WorldMap"/>'s
+/// <see cref="Wayfinders.Client.Scenes.Screens.E1WorldMap"/>'s
 /// <c>_Ready</c>.
 ///
 /// <para>
@@ -17,7 +17,7 @@ namespace Wayfinders.Client.Data;
 /// editor inspector understands. A <c>List&lt;PoiDefinition&gt;</c>
 /// would compile, but the <c>.tres</c> editor would refuse to expose
 /// the array for visual authoring. We pay the marshalling tax once at
-/// load time (<see cref="Wayfinders.Client.Scenes.Screens.E2WorldMap"/>
+/// load time (<see cref="Wayfinders.Client.Scenes.Screens.E1WorldMap"/>
 /// projects each entry to a pure-C# DTO before dispatch logic runs).
 /// </para>
 ///

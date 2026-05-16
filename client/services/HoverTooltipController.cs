@@ -30,7 +30,7 @@ namespace Wayfinders.Client.Services;
 ///
 /// <para>
 /// <b>Risk #3 mitigation (tooltip orphelin if E2 freed mid-hover).</b>
-/// E2WorldMap's <c>_ExitTree</c> calls
+/// E1WorldMap's <c>_ExitTree</c> calls
 /// <see cref="CancelTooltip"/>. Without that, the autoload (which
 /// outlives E2) would still own a scheduled timer that fires after E2
 /// is gone, briefly showing a tooltip on the next screen. Cancellation
@@ -115,7 +115,7 @@ public partial class HoverTooltipController : Node
     }
 
     /// <summary>
-    /// Cancel any pending or visible tooltip. Called by E2WorldMap's
+    /// Cancel any pending or visible tooltip. Called by E1WorldMap's
     /// <c>_ExitTree</c> (Risk #3 mitigation) and on hover-out from
     /// individual POIs.
     /// </summary>

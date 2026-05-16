@@ -3,7 +3,7 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// <summary>
 /// Identifies which physical mouse button drives the world-map drag-pan
 /// gesture. Persisted via <see cref="Wayfinders.Client.Services.GameSettingsStore"/>
-/// and read at <see cref="Wayfinders.Client.Scenes.Screens.E2WorldMap"/>
+/// and read at <see cref="Wayfinders.Client.Scenes.Screens.E1WorldMap"/>
 /// runtime through the <see cref="Wayfinders.Client.Services.GameSettings"/>
 /// autoload.
 ///
