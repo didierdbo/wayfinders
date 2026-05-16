@@ -448,6 +448,40 @@ public partial class E2AreaMap : Control, IScreen
         _drillRequestedHandler = OnDrillRequested;
         _panComponent.DrillRequested += _drillRequestedHandler;
 
+        // -- E2.1a strict scope (2026-05-16, Didier lock).
+        // -- The iso 8x8 fog grid is the ONLY thing the player should see
+        // -- at E2.1a. Hide the two chrome CanvasLayers (DecorationLayer
+        // -- = banner + sub-banner + Compagnie panel + Contrats panel +
+        // -- bottom Journal panel + LayerIndicatorLabel ; ChromeLayer =
+        // -- "Quitter la cité" BackButton + BlockedIndicator) by setting
+        // -- their Visible to false. CanvasLayer.Visible propagates to
+        // -- every descendant, so we do not have to enumerate the inner
+        // -- Controls. Hide (not QueueFree) so flipping ScopeMode to
+        // -- "E2.1b" / "E2.1c" / "E2.2" dégèle the chrome progressively
+        // -- without re-binding any field reference -- _Ready already
+        // -- bound the labels and the back button to fields above.
+        // --
+        // -- ESC ladder-up is NOT affected : SceneManager._UnhandledInput
+        // -- maps ui_cancel to NavigateBack at the autoload layer (see
+        // -- SceneManager.cs around line 831). The BackButton being
+        // -- hidden simply removes the on-screen affordance ; the
+        // -- keyboard shortcut keeps working because the Control root
+        // -- has mouse_filter = Ignore and no _Input handler on this
+        // -- screen claims ui_cancel.
+        if (CurrentScopeMode == "E2.1a")
+        {
+            var decorationLayer = GetNode<CanvasLayer>("DecorationLayer");
+            var chromeLayer = GetNode<CanvasLayer>("ChromeLayer");
+            decorationLayer.Visible = false;
+            chromeLayer.Visible = false;
+            GD.Print(
+                "[E2AreaMap] E2.1a strict : hidden DecorationLayer + " +
+                "ChromeLayer (banner, sub-banner, Compagnie panel, " +
+                "Contrats panel, Journal panel, LayerIndicator, " +
+                "BackButton, BlockedIndicator). ESC shortcut remains " +
+                "active via SceneManager._UnhandledInput.");
+        }
+
         // -- Phase B (2026-05-16) : invoke the Configure seam with the
         // -- DefaultAreaId fallback. If OnEnter later receives a different
         // -- areaId via payload, it calls Configure again to re-bind. For
