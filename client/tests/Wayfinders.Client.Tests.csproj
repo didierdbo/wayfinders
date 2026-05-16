@@ -297,4 +297,22 @@
     <Compile Include="..\scripts\screens\TileRevealStateLogic.cs" Link="src\TileRevealStateLogic.cs" />
   </ItemGroup>
 
+  <!-- E2.1 Halfgate area-grid foundation (Varn A4 lock 2026-05-16):
+       DistrictType closed lookup (A4.4), 8x8 grid coord->district
+       mapping (AreaGridLogic), hardcoded tuto mission encoded against
+       the A4.2 reveal grammar (pop_effect/success_effect/reveal_on_fail),
+       3 POC NPCs with A4.3 known_tiles + district_origin, and the EC6
+       per-cell hover tooltip composition. Godot-free seam, xUnit pins
+       the Varn-locked anchors (closed-lookup integer values, footprint
+       covers central intramuros, known_tiles in-bounds, fail rule =
+       keep_partial EC4 default). Godot-bound rendering lives in
+       E2AreaMap and is validated via the E2.1 smoke checklist. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\DistrictType.cs" Link="src\DistrictType.cs" />
+    <Compile Include="..\scripts\screens\AreaGridLogic.cs" Link="src\AreaGridLogic.cs" />
+    <Compile Include="..\scripts\screens\HalfgateMissionAuthoring.cs" Link="src\HalfgateMissionAuthoring.cs" />
+    <Compile Include="..\scripts\screens\HalfgateNpcAuthoring.cs" Link="src\HalfgateNpcAuthoring.cs" />
+    <Compile Include="..\scripts\screens\HalfgateRumorHooks.cs" Link="src\HalfgateRumorHooks.cs" />
+  </ItemGroup>
+
 </Project>
