@@ -36,7 +36,7 @@ public sealed class AreaGridLogicTests
         // E2.1c profond refonte : the 8×8 grid is partitioned into 4×4
         // zones of 2×2 cells each, giving 16 zone-centres available to
         // the DistrictCentroid lookup. Any drift here changes the
-        // centroid math (CentroidCol = 2*zCol+1.0) and shifts every POI
+        // centroid math (CentroidCol = 2*zCol+0.5, the geometric centre of the 4 cells -- fix Didier 2026-05-16 smoke) and shifts every POI
         // marker visually.
         Assert.Equal(2, AreaGridLogic.ZoneSize);
         Assert.Equal(4, AreaGridLogic.ZonesPerAxis);

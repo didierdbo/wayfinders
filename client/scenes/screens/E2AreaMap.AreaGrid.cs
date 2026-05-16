@@ -57,7 +57,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///         mission's POI marker lands at the centre of the locked zone
 ///         resolved by <see cref="AreaGridLogic.DistrictCentroid"/> --
 ///         a fractional grid coord of the form
-///         <c>(2*zCol + 1.0, 2*zRow + 1.0)</c>. The zone is chosen so it
+///         <c>(2*zCol + 0.5, 2*zRow + 0.5)</c>. The zone is chosen so it
 ///         contains AT LEAST ONE cell of the target district (no
 ///         requirement that all 4 cells do).</item>
 ///   <item><b>Wash uniformity preserved.</b> The umber-terracotta wash
@@ -504,7 +504,7 @@ public partial class E2AreaMap
 
     /// <summary>
     /// Iso-translate a FRACTIONAL grid position (e.g. a district zone
-    /// centroid like (3.0, 3.0) for Intramuros) into the same iso-placed
+    /// centroid like (2.5, 2.5) for Intramuros) into the same iso-placed
     /// world-space the integer cell centres live in. Same formula as
     /// <see cref="IsoCellCentre"/> ; the only difference is the input
     /// type. Used by <see cref="SpawnE2MissionPoiMarkers"/> to land a
@@ -542,7 +542,7 @@ public partial class E2AreaMap
     /// <para>
     /// <b>E2.1c profond refonte (2026-05-16).</b> Each centroid is now
     /// guaranteed to sit on one of the 16 zone-centres
-    /// (= <c>(2*zCol + 1.0, 2*zRow + 1.0)</c>), AND the picked zone is
+    /// (= <c>(2*zCol + 0.5, 2*zRow + 0.5)</c>), AND the picked zone is
     /// guaranteed to contain at least one cell of the target district.
     /// The previous E2.1c pass used per-district 2×2 block centroids ;
     /// the new lookup decouples zone-pick from cell-shape so districts

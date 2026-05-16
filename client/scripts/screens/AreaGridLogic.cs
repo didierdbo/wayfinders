@@ -37,7 +37,7 @@ namespace Wayfinders.Client.Scripts.Screens;
 ///   <item><b>POI marker anchor = 1 of 16 zone-centres.</b> The 8×8 grid
 ///         is partitioned into 16 axis-aligned 2×2 zones. A POI marker
 ///         sits at the geometric centre of ONE zone (= the (col, row)
-///         pair <c>(2*zCol + 1.0, 2*zRow + 1.0)</c> with
+///         pair <c>(2*zCol + 0.5, 2*zRow + 0.5)</c> with
 ///         <c>zCol, zRow ∈ [0, 3]</c>). A district is "eligible" for a
 ///         zone if AT LEAST ONE of the zone's 4 cells belongs to the
 ///         district -- no requirement that all 4 cells do.
@@ -100,27 +100,27 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// <para>
 /// <b>Zone-centre POI placements (Varn-locked).</b> Each of the 16
 /// axis-aligned 2×2 zones has a centre at fractional grid coord
-/// <c>(2*zCol + 1.0, 2*zRow + 1.0)</c>. Among the zones eligible for each
+/// <c>(2*zCol + 0.5, 2*zRow + 0.5)</c>. Among the zones eligible for each
 /// district (= containing ≥ 1 cell of the district), one is locked as the
 /// canonical POI anchor :
 /// <list type="bullet">
-///   <item><b>Intramuros</b> -- zone (1,1) = centre (3.0, 3.0). The only
+///   <item><b>Intramuros</b> -- zone (1,1) = centre (2.5, 2.5). The only
 ///         zone where all 4 cells are Intramuros (the geometric heart of
 ///         the centre body).</item>
-///   <item><b>Wall</b> -- zone (2,2) = centre (5.0, 5.0). Reads as
+///   <item><b>Wall</b> -- zone (2,2) = centre (4.5, 4.5). Reads as
 ///         "SE corner of the ring" -- the wall's most loaded segment.</item>
-///   <item><b>Gateway</b> -- zone (1,0) = centre (3.0, 1.0). All Gateway
+///   <item><b>Gateway</b> -- zone (1,0) = centre (2.5, 0.5). All Gateway
 ///         cells live in this zone or zone (2,0) ; (1,0) gives a
 ///         centroid that lines up with the Intramuros (3,3) on a clean
 ///         N-S axis. Visually : "gate above the core".</item>
-///   <item><b>Outskirts</b> -- zone (0,2) = centre (1.0, 5.0). The
+///   <item><b>Outskirts</b> -- zone (0,2) = centre (0.5, 4.5). The
 ///         northern edge of the SW faubourg ; centroid pulls slightly
 ///         toward Intramuros so the marker reads as "outskirts adjacent
 ///         to the wall", not "lost in the SW corner".</item>
-///   <item><b>HinterlandAgri</b> -- zone (2,0) = centre (5.0, 1.0).
+///   <item><b>HinterlandAgri</b> -- zone (2,0) = centre (4.5, 0.5).
 ///         Mirror image of Gateway's anchor on the east side. Lines up
 ///         with the Wall anchor on a clean N-S axis.</item>
-///   <item><b>Littoral</b> -- zone (0,1) = centre (1.0, 3.0). The
+///   <item><b>Littoral</b> -- zone (0,1) = centre (0.5, 2.5). The
 ///         densest Littoral zone (3 of 4 cells = Littoral). Mirror image
 ///         of Wall's anchor on the west side.</item>
 /// </list>
@@ -390,7 +390,7 @@ public static class AreaGridLogic
     /// POI marker (E2.1c profond refonte Didier lock 2026-05-16). Returns
     /// a FRACTIONAL position that is GUARANTEED to be one of the 16 zone
     /// centres on the 8×8 grid -- i.e.
-    /// <c>(2*zCol + 1.0, 2*zRow + 1.0)</c> for some integer
+    /// <c>(2*zCol + 0.5, 2*zRow + 0.5)</c> for some integer
     /// <c>zCol, zRow ∈ [0, 3]</c>. The chosen zone is also guaranteed to
     /// contain at least one cell of the district (the
     /// "zone-eligibility" invariant pinned by
@@ -413,18 +413,18 @@ public static class AreaGridLogic
     /// <b>Locked zone picks (see class XML doc §Zone-centre POI placements
     /// for the narrative rationale).</b>
     /// <list type="bullet">
-    ///   <item><b>Intramuros</b> → zone (1,1), centroid (3.0, 3.0).</item>
-    ///   <item><b>Wall</b> → zone (2,2), centroid (5.0, 5.0).</item>
-    ///   <item><b>Gateway</b> → zone (1,0), centroid (3.0, 1.0).</item>
-    ///   <item><b>Outskirts</b> → zone (0,2), centroid (1.0, 5.0).</item>
-    ///   <item><b>HinterlandAgri</b> → zone (2,0), centroid (5.0, 1.0).</item>
-    ///   <item><b>Littoral</b> → zone (0,1), centroid (1.0, 3.0).</item>
+    ///   <item><b>Intramuros</b> → zone (1,1), centroid (2.5, 2.5).</item>
+    ///   <item><b>Wall</b> → zone (2,2), centroid (4.5, 4.5).</item>
+    ///   <item><b>Gateway</b> → zone (1,0), centroid (2.5, 0.5).</item>
+    ///   <item><b>Outskirts</b> → zone (0,2), centroid (0.5, 4.5).</item>
+    ///   <item><b>HinterlandAgri</b> → zone (2,0), centroid (4.5, 0.5).</item>
+    ///   <item><b>Littoral</b> → zone (0,1), centroid (0.5, 2.5).</item>
     /// </list>
     /// </para>
     ///
     /// <para>
     /// <b>Out-of-bounds defensive return.</b> An unknown enum value
-    /// (stale persisted int) returns zone (1,1)'s centroid (3.0, 3.0) --
+    /// (stale persisted int) returns zone (1,1)'s centroid (2.5, 2.5) --
     /// the most central position on the 16-slot lattice -- rather than
     /// throwing. The caller can still spawn the marker without a crash.
     /// </para>
@@ -442,9 +442,15 @@ public static class AreaGridLogic
             _                            => (1, 1),
         };
         // Zone (zCol, zRow) covers cells (2*zCol, 2*zRow) through
-        // (2*zCol+1, 2*zRow+1). Its centre is the (col, row) at
-        // (2*zCol + 1.0, 2*zRow + 1.0) -- exactly between the 4 cells.
-        return (ZoneSize * zCol + 1.0f, ZoneSize * zRow + 1.0f);
+        // (2*zCol+1, 2*zRow+1). Its geometric centre, in the project's
+        // iso convention where integer (col, row) addresses the CELL
+        // CENTRE (not the NW corner -- see IsoCellCentre), is the
+        // average of the 4 cell centres = (2*zCol + 0.5, 2*zRow + 0.5).
+        // Picking (2*zCol + 1.0, 2*zRow + 1.0) would land the marker on
+        // the SE corner of the zone (= the meeting-point of 4 cells),
+        // which is +half-a-tile too low in iso-screen Y. Fix Didier
+        // 2026-05-16 smoke.
+        return (ZoneSize * zCol + 0.5f, ZoneSize * zRow + 0.5f);
     }
 
     /// <summary>

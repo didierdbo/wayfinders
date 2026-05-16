@@ -1,4 +1,4 @@
-using System.Linq;
+﻿using System.Linq;
 using Wayfinders.Client.Scripts.Screens;
 
 namespace Wayfinders.Client.Tests.Opening;
@@ -14,7 +14,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// dropped the 2×2 block constraint and switched to per-district
 /// irregular cell lists (39 attributed + 25 neutral). The centroid
 /// anchors moved from "corner intersection of the 2×2 block" to "one of
-/// 16 axis-aligned zone-centres" (= <c>(2*zCol + 1.0, 2*zRow + 1.0)</c>
+/// 16 axis-aligned zone-centres" (= <c>(2*zCol + 0.5, 2*zRow + 0.5)</c>
 /// for some integer zCol, zRow in [0, 3]). The picked zone is guaranteed
 /// to contain at least one cell of the target district.
 /// </para>
@@ -167,18 +167,18 @@ public sealed class HalfgateE2MissionAuthoringTests
 
     [Theory]
     // E2.1c profond refonte zone-centre centroids :
-    //   Intramuros     -> zone (1,1) -> (3.0, 3.0)   the centre of the centre
-    //   Wall           -> zone (2,2) -> (5.0, 5.0)   SE corner of the ring
-    //   Gateway        -> zone (1,0) -> (3.0, 1.0)   N strip
-    //   Outskirts      -> zone (0,2) -> (1.0, 5.0)   NW corner of the SW faubourg
-    //   HinterlandAgri -> zone (2,0) -> (5.0, 1.0)   NE field cluster
-    //   Littoral       -> zone (0,1) -> (1.0, 3.0)   densest Littoral zone
-    [InlineData(DistrictType.Intramuros,     3.0f, 3.0f)]
-    [InlineData(DistrictType.Wall,           5.0f, 5.0f)]
-    [InlineData(DistrictType.Gateway,        3.0f, 1.0f)]
-    [InlineData(DistrictType.Outskirts,      1.0f, 5.0f)]
-    [InlineData(DistrictType.HinterlandAgri, 5.0f, 1.0f)]
-    [InlineData(DistrictType.Littoral,       1.0f, 3.0f)]
+    //   Intramuros     -> zone (1,1) -> (2.5, 2.5)   the centre of the centre
+    //   Wall           -> zone (2,2) -> (4.5, 4.5)   SE corner of the ring
+    //   Gateway        -> zone (1,0) -> (2.5, 0.5)   N strip
+    //   Outskirts      -> zone (0,2) -> (0.5, 4.5)   NW corner of the SW faubourg
+    //   HinterlandAgri -> zone (2,0) -> (4.5, 0.5)   NE field cluster
+    //   Littoral       -> zone (0,1) -> (0.5, 2.5)   densest Littoral zone
+    [InlineData(DistrictType.Intramuros,     2.5f, 2.5f)]
+    [InlineData(DistrictType.Wall,           4.5f, 4.5f)]
+    [InlineData(DistrictType.Gateway,        2.5f, 0.5f)]
+    [InlineData(DistrictType.Outskirts,      0.5f, 4.5f)]
+    [InlineData(DistrictType.HinterlandAgri, 4.5f, 0.5f)]
+    [InlineData(DistrictType.Littoral,       0.5f, 2.5f)]
     public void District_centroid_anchors_are_locked(
         DistrictType d, float expectedCol, float expectedRow)
     {
@@ -194,12 +194,12 @@ public sealed class HalfgateE2MissionAuthoringTests
     public void District_centroid_is_total_returns_zone_one_one_for_unknown_value()
     {
         // Defensive : a stale persisted int returns zone (1,1)'s centroid
-        // (3.0, 3.0) -- the most central position on the 16-slot lattice
+        // (2.5, 2.5) -- the most central position on the 16-slot lattice
         // -- so the marker still spawns at a visible position (least
         // surprising fallback) while a higher layer logs the typo.
         var centroid = AreaGridLogic.DistrictCentroid((DistrictType)42);
-        Assert.Equal(3.0f, centroid.Col);
-        Assert.Equal(3.0f, centroid.Row);
+        Assert.Equal(2.5f, centroid.Col);
+        Assert.Equal(2.5f, centroid.Row);
     }
 
     [Theory]
@@ -231,12 +231,12 @@ public sealed class HalfgateE2MissionAuthoringTests
         // E2.1c profond refonte invariant : the centroid is GUARANTEED
         // to sit on one of the 16 zone-centres. Decompose centroid into
         // (zCol, zRow) integers and verify it lines up with
-        // (2*zCol + 1, 2*zRow + 1).
+        // (2*zCol + 0.5, 2*zRow + 0.5).
         var centroid = AreaGridLogic.DistrictCentroid(d);
-        // Subtract 1 then divide by ZoneSize. If the result is not an
+        // Subtract 0.5 then divide by ZoneSize. If the result is not an
         // integer in [0, ZonesPerAxis), the centroid is off-lattice.
-        var rawZCol = (centroid.Col - 1.0f) / AreaGridLogic.ZoneSize;
-        var rawZRow = (centroid.Row - 1.0f) / AreaGridLogic.ZoneSize;
+        var rawZCol = (centroid.Col - 0.5f) / AreaGridLogic.ZoneSize;
+        var rawZRow = (centroid.Row - 0.5f) / AreaGridLogic.ZoneSize;
         // Integer check : the float should be very close to its int cast.
         Assert.Equal(rawZCol, (int)rawZCol, 3);
         Assert.Equal(rawZRow, (int)rawZRow, 3);
@@ -259,8 +259,8 @@ public sealed class HalfgateE2MissionAuthoringTests
         // the zone) would land the POI marker on cells of a different
         // district, breaking the narrative anchor.
         var centroid = AreaGridLogic.DistrictCentroid(d);
-        var zCol = (int)((centroid.Col - 1.0f) / AreaGridLogic.ZoneSize);
-        var zRow = (int)((centroid.Row - 1.0f) / AreaGridLogic.ZoneSize);
+        var zCol = (int)((centroid.Col - 0.5f) / AreaGridLogic.ZoneSize);
+        var zRow = (int)((centroid.Row - 0.5f) / AreaGridLogic.ZoneSize);
 
         var zoneCells = AreaGridLogic.CellsOfZone(zCol, zRow).ToList();
         Assert.Equal(4, zoneCells.Count);
