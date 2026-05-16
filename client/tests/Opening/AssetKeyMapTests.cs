@@ -18,7 +18,7 @@ public sealed class AssetKeyMapTests
             {
               "keys": {
                 "e1.bureau": "e1/bg.png",
-                "e2.world_map": "e2/world.png"
+                "e1.world_map": "e2/world.png"
               }
             }
             """;
@@ -27,7 +27,7 @@ public sealed class AssetKeyMapTests
 
         Assert.Equal(2, map.Count);
         Assert.Equal("e1/bg.png", map.TryResolvePath("e1.bureau"));
-        Assert.Equal("e2/world.png", map.TryResolvePath("e2.world_map"));
+        Assert.Equal("e2/world.png", map.TryResolvePath("e1.world_map"));
     }
 
     [Fact]

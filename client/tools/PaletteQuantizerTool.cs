@@ -83,7 +83,7 @@ public partial class PaletteQuantizerTool : Node
     /// <see cref="Wayfinders.Client.Services.AssetResolver"/> uses, so
     /// the tool bakes from whatever the runtime would actually display.
     /// </summary>
-    [Export] public string AssetKey { get; set; } = "e2.world_map";
+    [Export] public string AssetKey { get; set; } = "e1.world_map";
 
     /// <summary>
     /// Manual override : if non-empty, the tool loads <b>this exact path</b>

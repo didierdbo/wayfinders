@@ -99,8 +99,8 @@ public partial class PoiDefinition : Resource
 
     /// <summary>
     /// Asset key (resolved by <c>AssetResolver</c>) for the marker
-    /// texture. J3 keys: <c>e2.poi_marker.active</c> (Halfgate) and
-    /// <c>e2.poi_marker.suspended</c> (grisée cities). J4 keys:
+    /// texture. J3 keys: <c>e1.poi_marker.active</c> (Halfgate) and
+    /// <c>e1.poi_marker.suspended</c> (grisée cities). J4 keys:
     /// <c>e3.poi.district</c>, <c>e3.poi.key_building.hq</c>,
     /// <c>e3.poi.npc_candidate</c>.
     /// </summary>

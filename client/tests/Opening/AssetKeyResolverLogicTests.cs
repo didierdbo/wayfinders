@@ -35,10 +35,10 @@ public sealed class AssetKeyResolverLogicTests
     [Fact]
     public void ResolvePathsForKey_known_key_returns_user_then_res_pair()
     {
-        var map = MakeMap(("e2.world_map", "e2/wf_e2_carte_monde_base_3840x2160.png"));
+        var map = MakeMap(("e1.world_map", "e2/wf_e2_carte_monde_base_3840x2160.png"));
 
         var resolved = AssetKeyResolverLogic.ResolvePathsForKey(
-            "e2.world_map",
+            "e1.world_map",
             "user://wayfinders_visual_assets/",
             "res://assets/wayfinders_visual_assets/",
             map);
@@ -74,12 +74,12 @@ public sealed class AssetKeyResolverLogicTests
     {
         // Critical: runtime AssetResolver.Resolve trims a single trailing
         // slash before concat. Tool must do the exact same thing.
-        var map = MakeMap(("e2.world_map", "e2/world.png"));
+        var map = MakeMap(("e1.world_map", "e2/world.png"));
 
         var withSlash = AssetKeyResolverLogic.ResolvePathsForKey(
-            "e2.world_map", "user://root/", "res://root/", map);
+            "e1.world_map", "user://root/", "res://root/", map);
         var noSlash = AssetKeyResolverLogic.ResolvePathsForKey(
-            "e2.world_map", "user://root", "res://root", map);
+            "e1.world_map", "user://root", "res://root", map);
 
         Assert.NotNull(withSlash);
         Assert.NotNull(noSlash);
@@ -92,10 +92,10 @@ public sealed class AssetKeyResolverLogicTests
     [Fact]
     public void ResolvePathsForKey_does_not_double_slash_when_both_root_and_relative_have_slashes()
     {
-        var map = MakeMap(("e2.world_map", "e2/world.png"));
+        var map = MakeMap(("e1.world_map", "e2/world.png"));
 
         var resolved = AssetKeyResolverLogic.ResolvePathsForKey(
-            "e2.world_map", "user://wayfinders_visual_assets/", "res://assets/wayfinders_visual_assets/", map);
+            "e1.world_map", "user://wayfinders_visual_assets/", "res://assets/wayfinders_visual_assets/", map);
 
         Assert.NotNull(resolved);
         Assert.DoesNotContain("//e2/", resolved!.Value.UserPath.AsSpan(8).ToString());
@@ -170,14 +170,14 @@ public sealed class AssetKeyResolverLogicTests
     {
         // Diagnostic helper field — useful when the tool / autoload logs
         // the resolution. Pin the value matches what TryResolvePath returned.
-        var map = MakeMap(("e2.world_map", "e2/wf_e2_carte_monde_base_3840x2160.png"));
+        var map = MakeMap(("e1.world_map", "e2/wf_e2_carte_monde_base_3840x2160.png"));
 
         var resolved = AssetKeyResolverLogic.ResolvePathsForKey(
-            "e2.world_map", "user://x/", "res://y/", map);
+            "e1.world_map", "user://x/", "res://y/", map);
 
         Assert.NotNull(resolved);
         Assert.Equal("e2/wf_e2_carte_monde_base_3840x2160.png", resolved!.Value.RelativePath);
-        Assert.Equal(map.TryResolvePath("e2.world_map"), resolved.Value.RelativePath);
+        Assert.Equal(map.TryResolvePath("e1.world_map"), resolved.Value.RelativePath);
     }
 
     [Fact]

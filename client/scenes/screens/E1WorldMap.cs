@@ -62,7 +62,7 @@ public partial class E1WorldMap : Control, IScreen
 
     private const string OpeningStringsResPath = "res://data/opening_strings.tres";
     private const string WorldMapPoisResPath = "res://data/world_map_pois.tres";
-    private const string WorldMapBackgroundAssetKey = "e2.world_map";
+    private const string WorldMapBackgroundAssetKey = "e1.world_map";
     private const string BannerTopAssetKey = "shared.banner_top";
     private const string PanelLeftAssetKey = "shared.panel_left";
     private const string PanelRightAssetKey = "shared.panel_right";

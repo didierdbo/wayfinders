@@ -14,7 +14,7 @@ namespace Wayfinders.Client.Services;
 /// <para>
 /// <b>Why extract this.</b> Slice 3.6 surfaced a silent mismatch: the
 /// runtime <see cref="AssetResolver"/> followed user:// → res:// for
-/// <c>e2.world_map</c>, but <see cref="Wayfinders.Client.Tools.PaletteQuantizerTool"/>
+/// <c>e1.world_map</c>, but <see cref="Wayfinders.Client.Tools.PaletteQuantizerTool"/>
 /// hard-coded a <c>res://</c> path. When Didier baked from the placeholder
 /// res:// PNG while the runtime loaded the user:// override, the bake
 /// dimensions were correct for the placeholder but wrong for the live
@@ -48,7 +48,7 @@ public static class AssetKeyResolverLogic
     /// trimming a single trailing slash, mirroring
     /// <see cref="AssetResolver.Resolve"/>.
     /// </summary>
-    /// <param name="assetKey">e.g. <c>"e2.world_map"</c>.</param>
+    /// <param name="assetKey">e.g. <c>"e1.world_map"</c>.</param>
     /// <param name="userAssetRoot">e.g. <c>"user://wayfinders_visual_assets/"</c>.</param>
     /// <param name="resAssetRoot">e.g. <c>"res://assets/wayfinders_visual_assets/"</c>.</param>
     /// <param name="keyMap">Loaded asset key map (typically from asset_keys.json).</param>
