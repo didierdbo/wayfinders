@@ -50,7 +50,8 @@ namespace Wayfinders.Client.Scenes.Scratch.IsoMapE1Probe;
 ///         tooltip disparaît, la caméra zoom vers 2.5× sur 1.0s
 ///         (ease_in_quad), puis un <c>ColorRect</c> noir fade in 400ms
 ///         (crossfade), puis <c>ChangeSceneToFile</c> vers
-///         <c>res://scenes/scratch/E2Stub/E2Stub.tscn</c>.</item>
+///         <c>res://scenes/screens/E2AreaMap.tscn</c> (production,
+///         re-routé 2026-05-16 ; était auparavant E2Stub.tscn).</item>
 ///   <item><b>Activation différée</b> : hover + click sont désactivés
 ///         (<c>_poiHoverEnabled=false</c>) jusqu'à la fin de la
 ///         cinématique (<c>_poiFadeInCompleted=true</c>, t≈5.55s). Évite
@@ -131,8 +132,11 @@ namespace Wayfinders.Client.Scenes.Scratch.IsoMapE1Probe;
 ///   <item>Approcher la souris d'un bord du viewport : le tooltip
 ///         <b>bascule</b> du côté opposé et <b>reste visible</b>.</item>
 ///   <item>Clic gauche sur le POI → zoom-in fluide vers 2.5× sur ~1s,
-///         puis fondu noir, puis scène E2Stub magenta avec label
-///         "E2 Halfgate Stub - Placeholder Scene".</item>
+///         puis fondu noir, puis scène <b>E2AreaMap</b> (production)
+///         avec grille 8×8 Halfgate, mission tuto qui pop, 4 tuiles
+///         centrales <c>fog → partial</c>, 3 PNJ et hover-tooltips.
+///         <i>(Critère mis à jour 2026-05-16 ; était auparavant
+///         le placeholder E2Stub magenta.)</i></item>
 ///   <item>Console output contient deux lignes <c>[PLACEHOLDER LOAD]</c>
 ///         supplémentaires (tooltip + seal) au boot, et un log
 ///         <c>[PROBE IsoMapE1Probe] click POI</c> au moment du clic.</item>
@@ -267,8 +271,15 @@ public partial class IsoMapE1Probe : Node2D
     private const double HoverModulateTweenSec = 0.08;
 
 
-    // --- E2 transition target ---
-    private const string E2StubScenePath = "res://scenes/scratch/E2Stub/E2Stub.tscn";
+    // --- E2 transition target (2026-05-16) ---
+    // Was: res://scenes/scratch/E2Stub/E2Stub.tscn (placeholder magenta).
+    // Now: production E2AreaMap (8x8 grid + tuto mission + Halfgate area).
+    // E1Title -> IsoMapE1Probe (iso 4x4 cinematic) -> click POI Halfgate
+    // -> zoom-in + crossfade -> ChangeSceneToFile(E2AreaMap).
+    // E2AreaMap._Ready falls back to Configure(DefaultAreaId="halfgate")
+    // since ChangeSceneToFile bypasses SceneManager.OnEnter (the payload-
+    // driven Configure path is for the future E1WorldMap drill route).
+    private const string E2TargetScenePath = "res://scenes/screens/E2AreaMap.tscn";
 
     // --- Pan camera (3 modes : MMB/RMB drag, ZQSD keyboard, edge-scroll) ---
     // Bornes monde calculees a partir de la grille iso 64x64 :
@@ -702,7 +713,7 @@ public partial class IsoMapE1Probe : Node2D
     public override void _ExitTree()
     {
         // Si on a touche le cursor shape pendant cette scene, on remet Arrow
-        // avant de partir -- sinon la scene suivante (E2Stub ou autre) heriterait
+        // avant de partir -- sinon la scene suivante (E2AreaMap ou autre) heriterait
         // d'un PointingHand colle qu'elle ne saurait pas reset.
         if (_currentCursorShape != Input.CursorShape.Arrow)
         {
@@ -746,7 +757,7 @@ public partial class IsoMapE1Probe : Node2D
         // Gating :
         //   - Mode SINGLE_TILE : pas de pan (tuile fixe en inspection).
         //   - _isRevealAnimating : cinematique flip en cours (t=3.0s -> ~5.0s) -> bloque.
-        //   - _clickInProgress    : transition zoom-in + crossfade vers E2Stub -> bloque.
+        //   - _clickInProgress    : transition zoom-in + crossfade vers E2AreaMap -> bloque.
         //   - _isDragging         : un drag est en cours, le keyboard/edge cohabite
         //                           normalement mais on laisse le drag avoir l'autorite
         //                           sur la position (le drag ecrit camera.Position dans
@@ -1935,12 +1946,12 @@ public partial class IsoMapE1Probe : Node2D
             return;
         }
 
-        // 3. Switch scene vers E2Stub.
-        GD.Print($"[PROBE IsoMapE1Probe] crossfade complete — calling ChangeSceneToFile({E2StubScenePath})");
-        var err = GetTree().ChangeSceneToFile(E2StubScenePath);
+        // 3. Switch scene vers la production E2AreaMap (re-routé 2026-05-16).
+        GD.Print($"[PROBE IsoMapE1Probe] crossfade complete — calling ChangeSceneToFile({E2TargetScenePath})");
+        var err = GetTree().ChangeSceneToFile(E2TargetScenePath);
         if (err != Error.Ok)
         {
-            GD.PushError($"[PROBE IsoMapE1Probe] ChangeSceneToFile failed with error {err} — E2Stub.tscn introuvable ?");
+            GD.PushError($"[PROBE IsoMapE1Probe] ChangeSceneToFile failed with error {err} — E2AreaMap.tscn introuvable ?");
         }
     }
 
@@ -1979,7 +1990,7 @@ public partial class IsoMapE1Probe : Node2D
         if (_openingCinematicPoiData is null || displayName != _openingCinematicPoiData.DisplayName) return;
         if (_openingCinematicPoi is null || !IsInstanceValid(_openingCinematicPoi)) return;
 
-        GD.Print($"[PROBE IsoMapE1Probe] click POI '{displayName}' (router bitmap hit-test) -- starting zoom-in + crossfade to E2Stub");
+        GD.Print($"[PROBE IsoMapE1Probe] click POI '{displayName}' (router bitmap hit-test) -- starting zoom-in + crossfade to E2AreaMap");
         _ = HandlePoiClickAsync();
     }
 
@@ -3324,14 +3335,15 @@ public partial class IsoMapE1Probe : Node2D
         bool tooltipTexturesOk = parchDimsOk && parchSourceOk && sealDimsOk && sealSourceOk;
         GD.Print($"[PROBE IsoMapE1Probe] 13/17 Tooltip textures: parchment={parchW}x{parchH} type={parchTypeName} (expected {TooltipParchmentWidthPx}x{TooltipParchmentHeightPx} CompressedTexture2D via AssetLoader) ; seal={sealW}x{sealH} type={sealTypeName} (expected {SealWaxWidthPx}x{SealWaxHeightPx} CompressedTexture2D via AssetLoader) -- {(tooltipTexturesOk ? "OK" : "FAIL")}");
 
-        // 14. E2Stub.tscn existence sur disque + crossfade rect prêt.
-        bool e2StubExists = FileAccess.FileExists(E2StubScenePath);
+        // 14. E2AreaMap.tscn existence sur disque + crossfade rect prêt.
+        //     (Re-routé 2026-05-16 : était E2Stub.tscn auparavant.)
+        bool e2TargetExists = FileAccess.FileExists(E2TargetScenePath);
         bool crossfadeRectOk = _crossfadeRect is not null && IsInstanceValid(_crossfadeRect)
             && Mathf.IsEqualApprox(_crossfadeRect.Color.A, 0f);
         bool crossfadeMouseFilterOk = _crossfadeRect is not null
             && _crossfadeRect.MouseFilter == Control.MouseFilterEnum.Ignore;
-        bool e2AndCrossfadeOk = e2StubExists && crossfadeRectOk && crossfadeMouseFilterOk;
-        GD.Print($"[PROBE IsoMapE1Probe] 14/17 Transition target: e2_stub_scene='{E2StubScenePath}' exists={e2StubExists} ; CrossfadeRect ready={crossfadeRectOk} alpha_init={(_crossfadeRect?.Color.A ?? -1f):F2} mouse_filter={(_crossfadeRect?.MouseFilter.ToString() ?? "null")} (expected file_exists=true, alpha=0.00, mouse_filter=Ignore) ; click sequence = zoom 1.00s → crossfade 0.40s → ChangeSceneToFile -- {(e2AndCrossfadeOk ? "OK" : "FAIL")}");
+        bool e2AndCrossfadeOk = e2TargetExists && crossfadeRectOk && crossfadeMouseFilterOk;
+        GD.Print($"[PROBE IsoMapE1Probe] 14/17 Transition target: e2_target_scene='{E2TargetScenePath}' exists={e2TargetExists} ; CrossfadeRect ready={crossfadeRectOk} alpha_init={(_crossfadeRect?.Color.A ?? -1f):F2} mouse_filter={(_crossfadeRect?.MouseFilter.ToString() ?? "null")} (expected file_exists=true, alpha=0.00, mouse_filter=Ignore) ; click sequence = zoom 1.00s → crossfade 0.40s → ChangeSceneToFile(E2AreaMap) -- {(e2AndCrossfadeOk ? "OK" : "FAIL")}");
 
         // 15. Face-B Halfgate : 16 textures chargées, dimensions 256×128,
         //     aucune fallback sur _PLACEHOLDER (les 16 PNGs Mira existent
