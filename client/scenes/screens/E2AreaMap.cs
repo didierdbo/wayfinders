@@ -256,16 +256,34 @@ public partial class E2AreaMap : Control, IScreen
     private const string PanelBottomAssetKey = "e2.panel_bottom";
 
     /// <summary>
-    /// Resolve an areaId to its (assetKey, poisResPath) pair. The MVP
-    /// has exactly one entry ; throws if the areaId is unknown so a
-    /// payload typo surfaces loud rather than silently swapping in a
-    /// placeholder texture. Pure-static so it stays trivially testable.
+    /// Resolve an areaId to its (assetKey, poisResPath, useAreaGridLayer)
+    /// triple. The MVP has exactly one entry ; throws if the areaId is
+    /// unknown so a payload typo surfaces loud rather than silently
+    /// swapping in a placeholder texture. Pure-static so it stays
+    /// trivially testable.
+    ///
+    /// <para>
+    /// <b>E2.1 (2026-05-16) -- area-grid layer rerouting.</b>
+    /// <c>useAreaGridLayer = true</c> rewires the screen to render the
+    /// 8x8 intra-area grid (via <see cref="BuildAreaGrid"/> in the
+    /// partial file) instead of the legacy free-form POI plate. The
+    /// area-grid background asset replaces the cite-level bitmap ;
+    /// the legacy POI hotspots (marche, port, QG, npc candidates from
+    /// <c>area_pois.tres</c>) are NOT spawned for that area. Halfgate
+    /// is the only area on the area-grid path at E2.1 ; the legacy POI
+    /// flow stays available for any future area that wants the
+    /// free-form layout (none planned today). Flagged for Varn
+    /// reconciliation : the legacy POIs may need either retirement
+    /// (their roles fold into the grid + future cite-overlay) or
+    /// promotion (KeyBuilding POIs become a dedicated layer above the
+    /// grid). Out of E2.1 scope.
+    /// </para>
     /// </summary>
-    private static (string assetKey, string poisResPath) ResolveAreaAssets(string areaId)
+    private static (string assetKey, string poisResPath, bool useAreaGridLayer) ResolveAreaAssets(string areaId)
     {
         return areaId switch
         {
-            "halfgate" => ("e2.area.base", "res://data/area_pois.tres"),
+            "halfgate" => ("e2.area_grid.background", "res://data/area_pois.tres", true),
             _ => throw new System.ArgumentException(
                 $"[E2AreaMap] Unknown areaId '{areaId}'. Known : 'halfgate' (MVP single-area). " +
                 $"Add a switch arm here when introducing a new area.",
@@ -485,7 +503,7 @@ public partial class E2AreaMap : Control, IScreen
     public void Configure(string areaId)
     {
         _currentAreaId = areaId;
-        var (assetKey, poisResPath) = ResolveAreaAssets(areaId);
+        var (assetKey, poisResPath, useAreaGridLayer) = ResolveAreaAssets(areaId);
 
         // (Re-)load the POI resource for this area.
         _poisResource = ResourceLoader.Load<AreaPois>(poisResPath) ?? new AreaPois();
@@ -523,15 +541,37 @@ public partial class E2AreaMap : Control, IScreen
         _poiHandlers.Clear();
         _poiHotspots.Clear();
 
-        SpawnPois(assetResolver);
+        // E2.1 path : when useAreaGridLayer is true, the legacy free-form
+        // POI plate is replaced by the 8x8 area-grid render layer. The
+        // legacy SpawnPois call is skipped so the marche/port/QG hotspots
+        // from area_pois.tres do not coexist with the grid (their
+        // image-space positions in the 3840x2160 frame are outside the
+        // 2048x2048 grid bounds, so they would not visually render but
+        // they would still register Area2D hit-tests at world coords
+        // outside the camera view, surfacing nothing useful).
+        if (useAreaGridLayer)
+        {
+            BuildAreaGrid();
+            ApplyTutorialMissionPopEffect();
+        }
+        else
+        {
+            SpawnPois(assetResolver);
+        }
 
         // Phase 8 preflight self-check : surfaces the area binding +
         // signal wiring at the console. If the area resolver returned
         // a wrong key, the AssetResolver placeholder shows up here as
         // a tiny gray-square texture instead of the parchment cité --
         // immediate visible diagnostic.
+        var (fogCount, partialCount, revealedCount) = useAreaGridLayer
+            ? CountRevealStates()
+            : (0, 0, 0);
         GD.Print(
-            $"[E2AreaMap] Configure(areaId='{areaId}') -> {_poiHandlers.Count} POI spawned, " +
+            $"[E2AreaMap] Configure(areaId='{areaId}') -> " +
+            $"useAreaGridLayer={useAreaGridLayer}, " +
+            $"legacy_poi_count={_poiHandlers.Count}, " +
+            $"area_grid_reveal=(fog={fogCount}, partial={partialCount}, revealed={revealedCount}), " +
             $"asset key='{assetKey}', pois='{poisResPath}', " +
             $"world image={_panComponent.WorldImageSize}, " +
             $"camera initialCenter={initialCenter}, " +
@@ -541,6 +581,16 @@ public partial class E2AreaMap : Control, IScreen
 
     public override void _ExitTree()
     {
+        // E2.1 -- tear down the area-grid layer first (disconnects
+        // the cell-hover + npc-hover handlers, frees the AreaGridLayer
+        // Node2D subtree which in turn frees the TileRevealRenderController
+        // child whose own _ExitTree disconnects from GameState.
+        // TILED reveal state in GameState.TileRevealStates persists --
+        // that is the intended sparse-dict semantic (a future re-entry
+        // to E2AreaMap on the same session would observe the already-
+        // partial cells without re-popping the tuto mission).
+        TearDownAreaGrid();
+
         // Disconnect chrome handlers first.
         if (_backButton is not null) _backButton.Pressed -= OnBackPressed;
 
