@@ -618,20 +618,27 @@ public partial class E2AreaMap
         Texture2D tileE1Texture)
     {
         // -- Base tile sprite. At E2.1a + E2.1b + E2.1c, all 64 cells
-        //    use the E1 bitmap (Didier lock 2026-05-16, E2.1b smoke fix +
-        //    Rune extension at E2.1c : the Option C district_tint shader
-        //    path delivers the 6 visually-distinct district zones from
-        //    the single neutral bitmap, so the per-district placeholder
-        //    bitmaps stay untouched until proper Mira-painted iso losange
-        //    versions land at E2.2+). The per-district placeholder bitmaps
-        //    are 256x256 fully-opaque coloured squares with the district
-        //    name stamped on them ; routing here to them produced visible
-        //    "Hinterland / Gateway / Littoral / Land Agri" rectangles
-        //    around the grid pourtour AND made every cell render as a
-        //    brique rectangulaire (no losange shape) because those PNGs
-        //    have no transparent corners. The E1 neutral bitmap (256x132
-        //    RGBA, transparent corners) is the correct base for the
-        //    district_tint shader multiplication path.
+        //    use the E1 bitmap (Didier lock 2026-05-16). The original
+        //    Option C path multiplied the bitmap by a per-district tint
+        //    to synthesize 6 zones from one neutral bitmap ; E2.1c refonte
+        //    (same lock date, post-visual-review) ratified a uniform
+        //    umber-terracotta wash with NO per-district tint -- the
+        //    per-district visual consistency arrives with Mira's painted
+        //    per-district bitmaps at E2.1d+. The district_tint shader
+        //    uniform stays in place (pushed to white = identity at the
+        //    spawn site below) so Mira can re-enable it as a subtle hue
+        //    lift on top of her painted bitmaps without a shader rebuild.
+        //
+        //    Why NOT route to the per-district placeholder bitmaps at this
+        //    jalon : they are 256x256 fully-opaque coloured squares with
+        //    the district name stamped on them. Routing here would produce
+        //    visible "Hinterland / Gateway / Littoral / Land Agri"
+        //    rectangles around the grid pourtour AND make every cell
+        //    render as a brique rectangulaire (no losange shape) because
+        //    those PNGs have no transparent corners. The E1 neutral bitmap
+        //    (256x132 RGBA, transparent corners) preserves the iso losange
+        //    shape -- correct base until Mira's per-district iso bitmaps
+        //    land.
         var baseTexture = (ScopeMode == "E2.1a" || ScopeMode == "E2.1b" || ScopeMode == "E2.1c")
             ? tileE1Texture
             : assetResolver.Resolve(
@@ -661,15 +668,24 @@ public partial class E2AreaMap
         {
             var material = new ShaderMaterial { Shader = _areaGridTileShader };
             material.SetShaderParameter("parchment_alpha", 0.0f);
-            // Per-cell district tint (Rune lock 2026-05-16, Option C).
-            // Set once at spawn ; the shader multiplies the base bitmap
-            // by this colour so all 64 cells share the E1 iso losange
-            // bitmap yet render as 6 visually-distinct district zones.
-            // The pure-C# TintRgba lives in DistrictTypeHelpers and stays
-            // Godot-free ; we wrap into Godot.Color at the seam here.
-            var district = AreaGridLogic.ResolveDistrictType(coord);
-            var tint = DistrictTypeHelpers.TintRgba(district);
-            material.SetShaderParameter("district_tint", new Color(tint.R, tint.G, tint.B, tint.A));
+            // Per-cell district tint -- E2.1c refonte (Didier lock
+            // 2026-05-16) : pushed to identity white. The original Option
+            // C path multiplied the base bitmap by a per-district tint to
+            // synthesize 6 visually-distinct zones from a single neutral
+            // bitmap. Didier reviewed the visual result and ratified a
+            // simpler MVE shape : uniform umber-terracotta wash across all
+            // 64 cells, with per-district visual identity to come from
+            // Mira's per-district painted bitmaps at E2.1d+. The tint
+            // uniform STAYS in the shader (no surface churn for Mira's
+            // pass) ; we push white = vec4(1,1,1,1) = identity so the
+            // multiplication is a no-op at E2.1c.
+            //
+            // The Varn-locked palette in DistrictTypeHelpers.TintRgba is
+            // unused at the spawn site at this jalon but stays put for
+            // E2.1d+ : it is xUnit-pinned so a silent edit elsewhere
+            // surfaces red, and Mira may consume it as a hue-lift on top
+            // of her painted bitmaps if a subtle district hint is wanted.
+            material.SetShaderParameter("district_tint", new Color(1.0f, 1.0f, 1.0f, 1.0f));
             baseSprite.Material = material;
         }
         _tileBaseLayer!.AddChild(baseSprite);

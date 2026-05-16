@@ -19,28 +19,69 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// </para>
 ///
 /// <para>
-/// <b>Grid layout (Varn-locked for Halfgate, 8×8).</b>
+/// <b>E2.1c refonte (2026-05-16, Didier lock).</b> The first E2.1c pass
+/// modelled the grid as a city-with-wall pattern (cardinal-symmetric ring)
+/// and authored per-district centroids picked from the "primary zone"
+/// of each district. Didier reviewed the visual result and ratified a
+/// simpler MVE shape :
+/// <list type="bullet">
+///   <item><b>No per-district visual tint.</b> All 64 cells share the
+///         same umber-terracotta wash (<c>district_tint</c> shader uniform
+///         pushed to white = identity at the spawn site). The per-district
+///         visual consistency will come from Mira's per-district bitmaps
+///         at E2.1d+ -- the tint uniform stays in the shader, prepared
+///         for that pass, but does not paint anything visible today.</item>
+///   <item><b>District-to-cells = simple 2×2 blocks.</b> Each of the 6
+///         districts owns a single, contiguous 2×2 block of 4 cells.
+///         The 6 blocks together cover 24 of the 64 cells ; the
+///         remaining 40 cells are unattributed at this jalon ("space
+///         between quartiers" semantics for the MVE).</item>
+///   <item><b>POI marker anchor = corner intersection of the 2×2 block</b>
+///         = the geometric centre of the 4 cells, lands BETWEEN them.</item>
+/// </list>
+/// </para>
+///
+/// <para>
+/// <b>Grid layout (2×2 block authoring per E2.1c refonte).</b> Letters
+/// mark the 24 district cells ; dots mark the 40 unattributed cells.
 /// </para>
 /// <code>
 ///   col  0  1  2  3  4  5  6  7
 /// row
-///  0    A  A  A  G  G  A  A  A    A = HinterlandAgri (north/south fields)
-///  1    A  O  O  W  W  O  O  A    O = Outskirts
-///  2    L  O  W  I  I  W  O  L    W = Wall ring
-///  3    L  G  I  I  I  I  G  L    I = Intramuros (centre)
-///  4    L  G  I  I  I  I  G  L    G = Gateway (cardinal piercings)
-///  5    L  O  W  I  I  W  O  L    L = Littoral (E and W edges)
-///  6    A  O  O  W  W  O  O  A
-///  7    A  A  A  G  G  A  A  A
+///  0    .  .  .  G  G  .  .  .    G = Gateway       block (3,0)(4,0)(3,1)(4,1)
+///  1    .  .  .  G  G  .  .  .    H = HinterlandAgri block (5,1)(6,1)(5,2)(6,2)
+///  2    .  .  .  .  .  H  H  .    L = Littoral      block (0,3)(1,3)(0,4)(1,4)
+///  3    L  L  .  I  I  .  .  .    I = Intramuros    block (3,3)(4,3)(3,4)(4,4)
+///  4    L  L  .  I  I  .  .  .    W = Wall          block (3,5)(4,5)(3,6)(4,6)
+///  5    .  O  O  W  W  .  .  .    O = Outskirts     block (1,5)(2,5)(1,6)(2,6)
+///  6    .  O  O  W  W  .  .  .
+///  7    .  .  .  .  .  .  .  .
 /// </code>
 ///
 /// <para>
-/// <b>Cardinal symmetry on purpose.</b> The pattern is N-S + E-W mirror
-/// symmetric (the cité is roughly circular). This is the smallest layout
-/// that exercises all 6 <see cref="DistrictType"/> values inside a single
-/// area, which is the E2.1 acceptance criterion (hover any cell, see the
-/// right district_type). Varn may revise the exact placements post-MVP
-/// without changing the grid size or the closed lookup.
+/// <b>2×2 block placement rationale.</b>
+/// <list type="bullet">
+///   <item><b>Intramuros</b> -- centre of the 8×8 grid (rows 3-4, cols
+///         3-4). The city core, true geometric centre.</item>
+///   <item><b>Wall</b> -- immediately south of Intramuros (rows 5-6, cols
+///         3-4). The masonry ring band, adjacent to the centre.</item>
+///   <item><b>Gateway</b> -- north strip (rows 0-1, cols 3-4). The
+///         cardinal "front door" of Halfgate, aligned with the city's
+///         north-south axis through Intramuros.</item>
+///   <item><b>Outskirts</b> -- south-west faubourg (rows 5-6, cols 1-2).
+///         Outside the wall, west of it -- the workshop / road-approach
+///         cluster.</item>
+///   <item><b>HinterlandAgri</b> -- north-east fields (rows 1-2, cols
+///         5-6). Outside the wall, beyond the gateway.</item>
+///   <item><b>Littoral</b> -- west coast (rows 3-4, cols 0-1). The
+///         seaward edge facing the open water.</item>
+/// </list>
+/// The 6 blocks are pairwise disjoint (no shared cells), which means
+/// each cell belongs to at most one district. <see cref="CellsOfDistrict"/>
+/// returns exactly 4 cells per district at E2.1c ; the unattributed 40
+/// cells return <see cref="DistrictType.Outskirts"/> from
+/// <see cref="ResolveDistrictType"/> via the defensive fallback path
+/// (NOT because they are Outskirts -- because the helper is total).
 /// </para>
 ///
 /// <para>
@@ -72,46 +113,74 @@ public static class AreaGridLogic
     /// <summary>
     /// Resolve a cell coordinate to its Varn-locked
     /// <see cref="DistrictType"/> for Halfgate. Returns
-    /// <see cref="DistrictType.Outskirts"/> for out-of-bounds coords
-    /// (defensive : the caller should bounds-check first, but the helper
-    /// stays total-by-default to avoid throwing on hover at the grid
-    /// edge).
+    /// <see cref="DistrictType.Outskirts"/> for out-of-bounds coords AND
+    /// for unattributed in-bounds cells (defensive : the helper is total
+    /// so callers can be lazy about bounds). At E2.1c only 24 of the 64
+    /// cells belong to a district block ; the other 40 fall through this
+    /// fallback by design (MVE "space between quartiers" semantics).
     ///
     /// <para>
-    /// See the class XML doc for the visual ASCII layout. The
-    /// implementation is a flat lookup table -- explicit per cell -- so
-    /// reading the source matches reading the ASCII art.
+    /// See the class XML doc for the visual ASCII layout. The lookup is
+    /// driven by <see cref="DistrictBlocks"/> -- each entry is a (top-left
+    /// col, top-left row) anchor of a 2×2 block.
     /// </para>
     /// </summary>
     public static DistrictType ResolveDistrictType(GridCoord coord)
     {
         if (!IsInBounds(coord)) return DistrictType.Outskirts;
-        return _grid[coord.Row, coord.Col];
+
+        foreach (var (district, blockCol, blockRow) in DistrictBlocks)
+        {
+            if (coord.Col >= blockCol && coord.Col < blockCol + BlockSize
+                && coord.Row >= blockRow && coord.Row < blockRow + BlockSize)
+            {
+                return district;
+            }
+        }
+        return DistrictType.Outskirts;
     }
 
     /// <summary>
-    /// Locked 8×8 grid. Indexed as <c>_grid[row, col]</c>. The literal
-    /// authorship mirrors the ASCII art in the class XML doc -- read top
-    /// to bottom, left to right.
+    /// Side length of each district's 2×2 block. Locked at 2 per the
+    /// E2.1c refonte ; a future jalon may grow blocks district-by-district
+    /// (Wall could be a 2×4 ring, Littoral a 1×4 strip etc.) -- bumping
+    /// this constant alone is NOT the way to do that (the per-district
+    /// shape becomes heterogeneous, which means dropping the constant and
+    /// authoring per-district cell lists). Kept as a constant here to
+    /// signal "every district is the same shape at E2.1c".
     /// </summary>
-    private static readonly DistrictType[,] _grid = new DistrictType[GridSize, GridSize]
+    private const int BlockSize = 2;
+
+    /// <summary>
+    /// District block authoring : one entry per district = (district,
+    /// top-left col, top-left row) anchor of a 2×2 block. The 6 entries
+    /// are pairwise disjoint -- no two blocks share a cell. Consumed by
+    /// <see cref="ResolveDistrictType"/> (linear scan, 6 entries, cheap
+    /// even on hover) and by <see cref="DistrictCentroid"/> (lookup by
+    /// district enum).
+    ///
+    /// <para>
+    /// <b>Why a tuple list and not a Dictionary.</b> The list is read
+    /// in row-major scan order in <see cref="ResolveDistrictType"/> ;
+    /// indexing by district is a sub-microsecond switch in
+    /// <see cref="DistrictCentroid"/>. A Dictionary would add allocation
+    /// overhead for no gain at 6 entries.
+    /// </para>
+    /// </summary>
+    private static readonly (DistrictType District, int Col, int Row)[] DistrictBlocks = new[]
     {
-        // row 0 (north hinterland strip)
-        { DistrictType.HinterlandAgri, DistrictType.HinterlandAgri, DistrictType.HinterlandAgri, DistrictType.Gateway,        DistrictType.Gateway,        DistrictType.HinterlandAgri, DistrictType.HinterlandAgri, DistrictType.HinterlandAgri },
-        // row 1 (outskirts ring + wall corners)
-        { DistrictType.HinterlandAgri, DistrictType.Outskirts,      DistrictType.Outskirts,      DistrictType.Wall,           DistrictType.Wall,           DistrictType.Outskirts,      DistrictType.Outskirts,      DistrictType.HinterlandAgri },
-        // row 2 (wall + intramuros begin)
-        { DistrictType.Littoral,       DistrictType.Outskirts,      DistrictType.Wall,           DistrictType.Intramuros,     DistrictType.Intramuros,     DistrictType.Wall,           DistrictType.Outskirts,      DistrictType.Littoral       },
-        // row 3 (intramuros core + east/west gates)
-        { DistrictType.Littoral,       DistrictType.Gateway,        DistrictType.Intramuros,     DistrictType.Intramuros,     DistrictType.Intramuros,     DistrictType.Intramuros,     DistrictType.Gateway,        DistrictType.Littoral       },
-        // row 4 (intramuros core + east/west gates -- mirror of row 3)
-        { DistrictType.Littoral,       DistrictType.Gateway,        DistrictType.Intramuros,     DistrictType.Intramuros,     DistrictType.Intramuros,     DistrictType.Intramuros,     DistrictType.Gateway,        DistrictType.Littoral       },
-        // row 5 (mirror of row 2)
-        { DistrictType.Littoral,       DistrictType.Outskirts,      DistrictType.Wall,           DistrictType.Intramuros,     DistrictType.Intramuros,     DistrictType.Wall,           DistrictType.Outskirts,      DistrictType.Littoral       },
-        // row 6 (mirror of row 1)
-        { DistrictType.HinterlandAgri, DistrictType.Outskirts,      DistrictType.Outskirts,      DistrictType.Wall,           DistrictType.Wall,           DistrictType.Outskirts,      DistrictType.Outskirts,      DistrictType.HinterlandAgri },
-        // row 7 (mirror of row 0)
-        { DistrictType.HinterlandAgri, DistrictType.HinterlandAgri, DistrictType.HinterlandAgri, DistrictType.Gateway,        DistrictType.Gateway,        DistrictType.HinterlandAgri, DistrictType.HinterlandAgri, DistrictType.HinterlandAgri },
+        // Centre of the grid : Intramuros 2×2 at (3,3)(4,3)(3,4)(4,4).
+        (DistrictType.Intramuros,     3, 3),
+        // Immediately south of Intramuros : Wall 2×2 at (3,5)(4,5)(3,6)(4,6).
+        (DistrictType.Wall,           3, 5),
+        // North strip : Gateway 2×2 at (3,0)(4,0)(3,1)(4,1).
+        (DistrictType.Gateway,        3, 0),
+        // South-west faubourg : Outskirts 2×2 at (1,5)(2,5)(1,6)(2,6).
+        (DistrictType.Outskirts,      1, 5),
+        // North-east fields : HinterlandAgri 2×2 at (5,1)(6,1)(5,2)(6,2).
+        (DistrictType.HinterlandAgri, 5, 1),
+        // West coast : Littoral 2×2 at (0,3)(1,3)(0,4)(1,4).
+        (DistrictType.Littoral,       0, 3),
     };
 
     /// <summary>
@@ -133,18 +202,19 @@ public static class AreaGridLogic
     /// <summary>
     /// Centre cell of the grid. For an 8×8 grid the geometric centre is
     /// between (3,3) and (4,4) ; we pick (4,4) as the canonical anchor
-    /// (matches the Varn ASCII layout where intramuros occupies the
-    /// 4-cell square centred on this coord). Used by the mission tuto
-    /// boot footprint and by the future autoload-life NPC spawn logic.
+    /// (matches the E2.1c Intramuros 2×2 block which is centred on this
+    /// coord). Used by the legacy boot tuto footprint and by future
+    /// autoload-life NPC spawn logic.
     /// </summary>
     public static GridCoord Centre => new(4, 4);
 
     /// <summary>
     /// Resolve the 4-cell footprint surrounding the centre of the grid
     /// (the canonical "POI footprint" for the Halfgate boot tuto
-    /// mission). Returns intramuros cells (3,3) (3,4) (4,3) (4,4) -- the
-    /// four central tiles of the city. A4.2 reveal grammar consumes this
-    /// list as <c>pop_effect.tiles_to_partial</c>.
+    /// mission). Returns Intramuros cells (3,3) (3,4) (4,3) (4,4) -- the
+    /// four central tiles of the city, which match the Intramuros 2×2
+    /// block at E2.1c. A4.2 reveal grammar consumes this list as
+    /// <c>pop_effect.tiles_to_partial</c>.
     /// </summary>
     public static IReadOnlyList<GridCoord> CentralPoiFootprint() => _centralFootprint;
 
@@ -156,17 +226,10 @@ public static class AreaGridLogic
     /// <summary>
     /// Enumerate every cell that resolves to the given
     /// <see cref="DistrictType"/>. Row-major order (matches
-    /// <see cref="AllCells"/>). Useful for centroid sanity checks,
+    /// <see cref="AllCells"/>). At E2.1c this returns exactly 4 cells per
+    /// district (the 2×2 block). Useful for centroid sanity checks,
     /// mission footprint visualisation, and the future per-district
     /// hover dispatcher.
-    ///
-    /// <para>
-    /// <b>Why iterator (yield) and not a List.</b> Callers either consume
-    /// the result once (sanity check loop, the most frequent case) or
-    /// pass it through a LINQ chain that materialises lazily. Returning
-    /// a pre-built List would force one allocation per call ; yield
-    /// costs only a state machine which the JIT inlines aggressively.
-    /// </para>
     /// </summary>
     public static IEnumerable<GridCoord> CellsOfDistrict(DistrictType district)
     {
@@ -181,120 +244,41 @@ public static class AreaGridLogic
 
     /// <summary>
     /// Resolve the canonical (col, row) centroid anchor for a district's
-    /// POI marker (E2.1c Rune lock 2026-05-16). Returns a FRACTIONAL
-    /// position because districts with even cell counts have a true
-    /// centroid that falls BETWEEN cells, which is exactly where the
-    /// marker should sit visually (a marker pinned to a cell centre
-    /// would read "this specific cell" instead of "this district").
+    /// POI marker (E2.1c refonte Didier lock 2026-05-16). Returns a
+    /// FRACTIONAL position equal to the CORNER INTERSECTION of the 4 cells
+    /// of the district's 2×2 block -- i.e. the geometric centre of the
+    /// block, which lands BETWEEN the 4 cells. This is exactly where the
+    /// marker should sit visually : pinned to a cell centre would read
+    /// "this specific cell" instead of "this 2×2 zone".
     ///
     /// <para>
-    /// <b>Disjoint-zone tie-break rule (Varn-locked authoring choice).</b>
-    /// Three of the 6 districts span two disjoint zones :
-    /// <list type="bullet">
-    ///   <item><see cref="DistrictType.Wall"/> -- inner ring (rows 2 + 5,
-    ///         cols 2 + 5) + corner cells (rows 1 + 6, cols 3 + 4).</item>
-    ///   <item><see cref="DistrictType.Gateway"/> -- two N/S strips
-    ///         (rows 0 + 7, cols 3 + 4) and two E/W single-cell gates
-    ///         (rows 3 + 4, cols 1 + 6).</item>
-    ///   <item><see cref="DistrictType.Littoral"/> -- two coastal strips
-    ///         (col 0 and col 7, rows 2..5).</item>
-    /// </list>
-    ///
-    /// <para>
-    /// For these, the bare geometric centroid lands at the cardinal
-    /// symmetry point (3.5, 3.5), which is the WORST possible POI
-    /// position : three markers would stack on the grid centre,
-    /// occluding the Intramuros marker and reading as one POI instead
-    /// of three. The Varn-locked anchor lookup below picks the centroid
-    /// of the PRIMARY zone of each district, chosen for visual clarity :
+    /// <b>Centroid formula.</b> For a 2×2 block with top-left anchor
+    /// (blockCol, blockRow), the corner intersection sits at
+    /// (blockCol + 1.0, blockRow + 1.0) -- the (col, row) of the
+    /// shared corner of the 4 cells. Example : Intramuros block anchored
+    /// at (3, 3) covers (3,3)(4,3)(3,4)(4,4) ; the corner intersection
+    /// is at (4.0, 4.0).
     /// </para>
-    /// </para>
-    ///
-    /// <list type="bullet">
-    ///   <item><see cref="DistrictType.Intramuros"/> -- true geometric
-    ///         centroid of the 12 contiguous Intramuros cells. The
-    ///         centroid lands at (3.5, 3.5) -- exactly the city
-    ///         centre.</item>
-    ///   <item><see cref="DistrictType.Wall"/> -- centroid of the NORTH
-    ///         wall zone (4 cells : (3,1) (4,1) (2,2) (5,2)). Resolves
-    ///         to (3.5, 1.5) -- reads "north wall section".</item>
-    ///   <item><see cref="DistrictType.Gateway"/> -- centroid of the
-    ///         NORTH gateway strip (2 cells : (3,0) (4,0)). Resolves to
-    ///         (3.5, 0) -- reads "north gate".</item>
-    ///   <item><see cref="DistrictType.Outskirts"/> -- centroid of the
-    ///         NW outskirts cluster (3 cells : (1,1) (2,1) (1,2)).
-    ///         Resolves to (~1.33, ~1.33) -- reads "north-west
-    ///         faubourg".</item>
-    ///   <item><see cref="DistrictType.HinterlandAgri"/> -- centroid of
-    ///         the NORTH-WEST agri sub-cluster (3 cells : (0,0) (1,0)
-    ///         (2,0)). Resolves to (1, 0) -- reads "north-west
-    ///         fields".</item>
-    ///   <item><see cref="DistrictType.Littoral"/> -- centroid of the
-    ///         WEST coastal strip (4 cells : col=0 rows 2..5). Resolves
-    ///         to (0, 3.5) -- reads "west coast".</item>
-    /// </list>
     ///
     /// <para>
     /// <b>Out-of-bounds defensive return.</b> An unknown enum value
-    /// (stale persisted int) returns the grid centre (3.5, 3.5) rather
-    /// than throwing -- the caller can still spawn the marker without
-    /// a crash and the centre position is the least surprising fallback.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Why a static lookup and not a runtime computation.</b> The
-    /// district topology is Varn-locked authoring data, not engineered
-    /// geometry. Re-deriving the "which zone is primary" rule at runtime
-    /// would either need extra metadata (a zone-id per cell, off-spec)
-    /// or a connected-components algorithm whose tie-break rule would
-    /// have to BE the lookup anyway. Authoring the 6 entries directly
-    /// is the readable path -- a Varn reading the source can sanity-
-    /// check the centroids against the ASCII layout in seconds.
+    /// (stale persisted int) returns the grid centre (4.0, 4.0) rather
+    /// than throwing -- the caller can still spawn the marker without a
+    /// crash and the centre position is the least surprising fallback.
     /// </para>
     /// </summary>
-    public static (float Col, float Row) DistrictCentroid(DistrictType district) => district switch
+    public static (float Col, float Row) DistrictCentroid(DistrictType district)
     {
-        // Intramuros : true centroid of 12 contiguous central cells.
-        // 12 cells = 4 inner ((3,3) (4,3) (3,4) (4,4)) + 8 ring around
-        // them. Sum col = 3+4+3+4 (inner) + 3+4+2+5+2+5+3+4 (ring) = 14+28=42.
-        // Sum row = 3+3+4+4 (inner) + 2+2+3+3+4+4+5+5 (ring) = 14+28=42.
-        // Mean = (42/12, 42/12) = (3.5, 3.5).
-        DistrictType.Intramuros     => (3.5f, 3.5f),
-
-        // Wall NORTH zone : (3,1) (4,1) (2,2) (5,2). Mean = ((3+4+2+5)/4,
-        // (1+1+2+2)/4) = (3.5, 1.5). Visually reads "north wall section",
-        // which is the strongest masonry stripe of the Halfgate ring.
-        DistrictType.Wall           => (3.5f, 1.5f),
-
-        // Gateway NORTH strip : (3,0) (4,0). Mean = (3.5, 0). Reads
-        // "north gate". The Gateway district has 3 other zones (south
-        // strip + east + west single gates) ; the north strip is the
-        // narratively dominant one (the cardinal "front door" of
-        // Halfgate, per Varn's roadmap-from-the-coast description).
-        DistrictType.Gateway        => (3.5f, 0.0f),
-
-        // Outskirts NW cluster : (1,1) (2,1) (1,2). Mean = ((1+2+1)/3,
-        // (1+1+2)/3) = (4/3, 4/3) ~= (1.333, 1.333). Reads "north-west
-        // faubourg".
-        DistrictType.Outskirts      => (4.0f / 3.0f, 4.0f / 3.0f),
-
-        // HinterlandAgri NW sub-cluster : row 0 cols 0,1,2. Mean =
-        // ((0+1+2)/3, 0) = (1, 0). The full N+S+corners zone has 20
-        // cells with a true centroid of (3.5, 3.5) (cardinal symmetry),
-        // so we deliberately pick the NW corner sub-cluster for the
-        // marker. Reads "north-west fields".
-        DistrictType.HinterlandAgri => (1.0f, 0.0f),
-
-        // Littoral WEST strip : (0,2) (0,3) (0,4) (0,5). Mean = (0,
-        // (2+3+4+5)/4) = (0, 3.5). Reads "west coast / quays". The east
-        // strip is the mirror but the west is the narratively dominant
-        // one (where the docks face the open sea per Varn's
-        // micro-topology).
-        DistrictType.Littoral       => (0.0f, 3.5f),
-
-        // Defensive : unknown enum value (stale persisted int) returns
-        // the grid centre rather than throwing. The marker still spawns
-        // somewhere visible while a higher layer logs the typo.
-        _ => (3.5f, 3.5f),
-    };
+        foreach (var (d, col, row) in DistrictBlocks)
+        {
+            if (d == district)
+            {
+                // Corner intersection of the 2×2 block = (anchor + 1.0, anchor + 1.0).
+                return (col + 1.0f, row + 1.0f);
+            }
+        }
+        // Defensive fallback : grid centre (4.0, 4.0) = corner of the
+        // Intramuros block, the most central position on the grid.
+        return (4.0f, 4.0f);
+    }
 }
