@@ -142,4 +142,80 @@ public sealed class AreaGridLogicTests
             .ToHashSet();
         Assert.Equal(6, districts.Count);
     }
+
+    /// <summary>
+    /// E2.1c patch (2026-05-16, Didier lock). The
+    /// <see cref="AreaGridLogic.IsInDistrictBlock"/> helper is the explicit
+    /// seam the E2AreaMap tile spawn loop uses to discriminate the 24
+    /// district cells (which render per-district iso bitmaps) from the 40
+    /// unattributed cells (which continue to render the E1 fog bitmap).
+    /// Pinning the helper here surfaces a silent drift in the
+    /// <c>DistrictBlocks</c> table as a red xUnit step, BEFORE the visual
+    /// smoke test catches it via a misrendered cell.
+    /// </summary>
+    [Theory]
+    // One cell per district 2×2 block (the 6 NW corners).
+    [InlineData(3, 3)]  // Intramuros block NW
+    [InlineData(3, 5)]  // Wall block NW
+    [InlineData(3, 0)]  // Gateway block NW
+    [InlineData(1, 5)]  // Outskirts block NW
+    [InlineData(5, 1)]  // HinterlandAgri block NW
+    [InlineData(0, 3)]  // Littoral block NW
+    // One cell per district 2×2 block (the 6 SE corners).
+    [InlineData(4, 4)]  // Intramuros block SE
+    [InlineData(4, 6)]  // Wall block SE
+    [InlineData(4, 1)]  // Gateway block SE
+    [InlineData(2, 6)]  // Outskirts block SE
+    [InlineData(6, 2)]  // HinterlandAgri block SE
+    [InlineData(1, 4)]  // Littoral block SE
+    public void IsInDistrictBlock_returns_true_for_every_block_cell(int col, int row)
+    {
+        Assert.True(AreaGridLogic.IsInDistrictBlock(new GridCoord(col, row)));
+    }
+
+    [Theory]
+    // Sample "space between quartiers" cells (the 40 unattributed). The
+    // critical case is (5, 5) : it sits outside every block but
+    // ResolveDistrictType returns Outskirts as its defensive fallback,
+    // which would collide with the legit Outskirts cells if a caller
+    // relied on the enum alone. IsInDistrictBlock must return false here.
+    [InlineData(0, 0)]
+    [InlineData(7, 0)]
+    [InlineData(0, 7)]
+    [InlineData(7, 7)]
+    [InlineData(5, 5)]
+    [InlineData(2, 2)]
+    [InlineData(2, 0)]
+    [InlineData(5, 0)]
+    public void IsInDistrictBlock_returns_false_for_unattributed_cells(int col, int row)
+    {
+        Assert.False(AreaGridLogic.IsInDistrictBlock(new GridCoord(col, row)));
+    }
+
+    [Fact]
+    public void IsInDistrictBlock_returns_false_for_out_of_bounds()
+    {
+        // Defensive contract : like ResolveDistrictType, the helper is
+        // total at the grid edge. Out-of-bounds returns false (= "do not
+        // route to a district bitmap"), matching the spawn-loop semantics
+        // (out-of-bounds cells don't get spawned in the first place, but
+        // the helper has to stay total so the seam survives lazy callers).
+        Assert.False(AreaGridLogic.IsInDistrictBlock(new GridCoord(-1, 0)));
+        Assert.False(AreaGridLogic.IsInDistrictBlock(new GridCoord(0, -1)));
+        Assert.False(AreaGridLogic.IsInDistrictBlock(new GridCoord(8, 0)));
+        Assert.False(AreaGridLogic.IsInDistrictBlock(new GridCoord(0, 8)));
+        Assert.False(AreaGridLogic.IsInDistrictBlock(new GridCoord(8, 8)));
+    }
+
+    [Fact]
+    public void IsInDistrictBlock_covers_exactly_twenty_four_cells()
+    {
+        // The 6 disjoint 2×2 blocks = 24 cells. If a block bumps to 2×4
+        // or 3×3, this count changes : the spawn loop's "24 district
+        // cells + 40 fog cells" comment becomes stale, and the visual
+        // ratio Didier locked at E2.1c drifts. Pin the total.
+        var count = AreaGridLogic.AllCells()
+            .Count(AreaGridLogic.IsInDistrictBlock);
+        Assert.Equal(24, count);
+    }
 }

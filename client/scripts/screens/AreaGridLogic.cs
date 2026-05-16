@@ -141,6 +141,52 @@ public static class AreaGridLogic
     }
 
     /// <summary>
+    /// True if the cell sits inside one of the 6 Varn-locked
+    /// <see cref="DistrictBlocks"/> 2×2 blocks (the 24 attributed cells),
+    /// false otherwise (the 40 unattributed "space between quartiers"
+    /// cells, plus every out-of-bounds coord).
+    ///
+    /// <para>
+    /// <b>Why a separate helper and not "is ResolveDistrictType == X".</b>
+    /// <see cref="ResolveDistrictType"/> is total by contract : it returns
+    /// <see cref="DistrictType.Outskirts"/> as the defensive fallback for
+    /// unattributed AND out-of-bounds coords, AND it returns
+    /// <see cref="DistrictType.Outskirts"/> legitimately for the 4 cells of
+    /// the actual Outskirts 2×2 block. The xUnit suite pins this contract
+    /// (see <c>AreaGridLogicTests.ResolveDistrictType_falls_back_to_outskirts_for_unattributed_cells</c>).
+    /// Callers that need to discriminate "this cell IS in a district block"
+    /// from "this cell is unattributed and fell back to Outskirts" cannot
+    /// do it on the enum alone -- the two cases collapse to the same value.
+    /// This helper is the explicit seam : it scans the same
+    /// <see cref="DistrictBlocks"/> table and returns a bool that does NOT
+    /// suffer the fallback collision.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>E2.1c patch consumer (2026-05-16).</b> The E2AreaMap tile spawn
+    /// loop uses this helper to choose between the per-district iso bitmap
+    /// (when true) and the E1 neutral fog bitmap (when false). Pre-patch,
+    /// every cell rendered the E1 bitmap regardless ; the 24 district
+    /// cells now read as district-tinted iso losanges while the 40
+    /// unattributed cells continue to read as the fog substrate.
+    /// </para>
+    /// </summary>
+    public static bool IsInDistrictBlock(GridCoord coord)
+    {
+        if (!IsInBounds(coord)) return false;
+
+        foreach (var (_, blockCol, blockRow) in DistrictBlocks)
+        {
+            if (coord.Col >= blockCol && coord.Col < blockCol + BlockSize
+                && coord.Row >= blockRow && coord.Row < blockRow + BlockSize)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Side length of each district's 2×2 block. Locked at 2 per the
     /// E2.1c refonte ; a future jalon may grow blocks district-by-district
     /// (Wall could be a 2×4 ring, Littoral a 1×4 strip etc.) -- bumping
