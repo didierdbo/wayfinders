@@ -5,10 +5,10 @@ using Wayfinders.Client.Scripts.Screens;
 namespace Wayfinders.Client.Services;
 
 /// <summary>
-/// Runtime store of <see cref="TileKnowledgeState"/> per grid cell, slice 1
+/// Runtime store of <see cref="TileKnowledgeLadder"/> per grid cell, slice 1
 /// MVP scaffold (M3 / L1 World fondations / livrable 3) extended at slice 2
 /// with cycle-next / cycle-previous / set-all-to-Levée debug commands.
-/// Holds the <c>Dictionary&lt;GridCoord, TileKnowledgeState&gt;</c> backing
+/// Holds the <c>Dictionary&lt;GridCoord, TileKnowledgeLadder&gt;</c> backing
 /// map, emits a <see cref="KnowledgeChanged"/> signal on every mutation,
 /// exposes ladder-walking debug helpers (slice 2 livrable 4 exit criterion).
 ///
@@ -25,14 +25,14 @@ namespace Wayfinders.Client.Services;
 /// <para>
 /// <b>Persistence shape.</b> The dictionary is keyed by
 /// <see cref="GridCoord"/> (Godot-free record struct), value is
-/// <see cref="TileKnowledgeState"/> (Godot-free enum, integer values
+/// <see cref="TileKnowledgeLadder"/> (Godot-free enum, integer values
 /// pinned). The pair serialises trivially to JSON
 /// (<c>{"col":3,"row":7,"state":3}</c> per entry).
 /// </para>
 ///
 /// <para>
 /// <b>Default-state semantics.</b> Cells absent from the dictionary are
-/// treated as <see cref="TileKnowledgeState.Inconnue"/> by
+/// treated as <see cref="TileKnowledgeLadder.Inconnue"/> by
 /// <see cref="GetState"/>. This keeps the dictionary sparse at startup
 /// and lines up with Varn §6.1 "tout le reste à <c>INCONNUE</c>". Only
 /// cells whose state has been explicitly mutated occupy a slot.
@@ -50,21 +50,21 @@ public partial class TileKnowledgeStore : Node
     /// </summary>
     /// <param name="col">Zero-indexed grid column of the changed cell.</param>
     /// <param name="row">Zero-indexed grid row of the changed cell.</param>
-    /// <param name="newState">Integer cast of the new <see cref="TileKnowledgeState"/>
+    /// <param name="newState">Integer cast of the new <see cref="TileKnowledgeLadder"/>
     /// (Godot's <c>[Signal]</c> binding does not accept enum types directly
     /// in 4.6 ; the consumer casts back at the receiver edge).</param>
     [Signal]
     public delegate void KnowledgeChangedEventHandler(int col, int row, int newState);
 
-    private readonly Dictionary<GridCoord, TileKnowledgeState> _states = new();
+    private readonly Dictionary<GridCoord, TileKnowledgeLadder> _states = new();
 
     /// <summary>
     /// Read the knowledge state for a cell. Cells that have never been
-    /// mutated return <see cref="TileKnowledgeState.Inconnue"/> — the
+    /// mutated return <see cref="TileKnowledgeLadder.Inconnue"/> — the
     /// canonical default per Varn §6.1.
     /// </summary>
-    public TileKnowledgeState GetState(GridCoord coord) =>
-        _states.TryGetValue(coord, out var state) ? state : TileKnowledgeState.Inconnue;
+    public TileKnowledgeLadder GetState(GridCoord coord) =>
+        _states.TryGetValue(coord, out var state) ? state : TileKnowledgeLadder.Inconnue;
 
     /// <summary>
     /// Set the knowledge state for a cell and emit
@@ -72,12 +72,12 @@ public partial class TileKnowledgeStore : Node
     /// Idempotent: setting a cell to its current state is a silent
     /// no-op (no signal fired, no allocation).
     /// </summary>
-    public void SetState(GridCoord coord, TileKnowledgeState newState)
+    public void SetState(GridCoord coord, TileKnowledgeLadder newState)
     {
         var current = GetState(coord);
         if (current == newState) return;
 
-        if (newState == TileKnowledgeState.Inconnue)
+        if (newState == TileKnowledgeLadder.Inconnue)
         {
             // Keep the dictionary sparse — Inconnue is the implicit
             // default, no need to occupy a slot.
@@ -92,14 +92,14 @@ public partial class TileKnowledgeStore : Node
 
     /// <summary>
     /// Slice 1 toggle helper, retained at slice 2 for back-compat.
-    /// Cycles between <see cref="TileKnowledgeState.Inconnue"/> and
-    /// <see cref="TileKnowledgeState.Levee"/>. Slice 2 debug surface uses
+    /// Cycles between <see cref="TileKnowledgeLadder.Inconnue"/> and
+    /// <see cref="TileKnowledgeLadder.Levee"/>. Slice 2 debug surface uses
     /// <see cref="CycleNextAtCell"/> / <see cref="CyclePreviousAtCell"/>
     /// instead.
     /// </summary>
     public void ToggleAtCell(GridCoord coord)
     {
-        var next = TileKnowledgeStateHelpers.Toggle(GetState(coord));
+        var next = TileKnowledgeLadderHelpers.Toggle(GetState(coord));
         SetState(coord, next);
     }
 
@@ -110,7 +110,7 @@ public partial class TileKnowledgeStore : Node
     /// </summary>
     public void CycleNextAtCell(GridCoord coord)
     {
-        var next = TileKnowledgeStateHelpers.CycleNext(GetState(coord));
+        var next = TileKnowledgeLadderHelpers.CycleNext(GetState(coord));
         SetState(coord, next);
     }
 
@@ -120,7 +120,7 @@ public partial class TileKnowledgeStore : Node
     /// </summary>
     public void CyclePreviousAtCell(GridCoord coord)
     {
-        var next = TileKnowledgeStateHelpers.CyclePrevious(GetState(coord));
+        var next = TileKnowledgeLadderHelpers.CyclePrevious(GetState(coord));
         SetState(coord, next);
     }
 
@@ -148,13 +148,13 @@ public partial class TileKnowledgeStore : Node
         var coords = new List<GridCoord>(_states.Keys);
         foreach (var coord in coords)
         {
-            SetState(coord, TileKnowledgeState.Inconnue);
+            SetState(coord, TileKnowledgeLadder.Inconnue);
         }
     }
 
     /// <summary>
     /// Slice 2 livrable 4 — Alt+F handler. Flip every cell of the grid
-    /// to <see cref="TileKnowledgeState.Levee"/>. Iterates the supplied
+    /// to <see cref="TileKnowledgeLadder.Levee"/>. Iterates the supplied
     /// dimensions rather than the dictionary (which is sparse and would
     /// miss cells still at the default Inconnue) so the operation is
     /// deterministic regardless of how many cells have already been
@@ -176,7 +176,7 @@ public partial class TileKnowledgeStore : Node
     {
         foreach (var coord in FogTileGridLogic.EnumerateCells(dimensions))
         {
-            SetState(coord, TileKnowledgeState.Levee);
+            SetState(coord, TileKnowledgeLadder.Levee);
         }
     }
 
@@ -193,5 +193,5 @@ public partial class TileKnowledgeStore : Node
 /// </summary>
 /// <param name="Col">Grid column of the cell.</param>
 /// <param name="Row">Grid row of the cell.</param>
-/// <param name="State">Integer cast of <see cref="TileKnowledgeState"/>.</param>
+/// <param name="State">Integer cast of <see cref="TileKnowledgeLadder"/>.</param>
 public readonly record struct TileKnowledgeEntry(int Col, int Row, int State);

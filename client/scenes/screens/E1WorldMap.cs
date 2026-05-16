@@ -464,7 +464,7 @@ public partial class E1WorldMap : Control, IScreen
     /// state. Returns null when the cursor is outside the grid (the
     /// pan component then suppresses the drill candidate silently).
     /// </summary>
-    private (GridCoord coord, TileKnowledgeState state)? ResolveDrillTarget(Vector2 cursorWorldPosition)
+    private (GridCoord coord, TileKnowledgeLadder state)? ResolveDrillTarget(Vector2 cursorWorldPosition)
     {
         var coord = _fogTileLayer.WorldPositionToCell(cursorWorldPosition);
         if (coord is null) return null;

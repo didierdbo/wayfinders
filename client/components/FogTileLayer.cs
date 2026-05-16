@@ -28,7 +28,7 @@ namespace Wayfinders.Client.Components;
 ///   <item><b>CartonFace</b> (z 10) — Polygon2D <i>with</i> the source-map
 ///         texture and absolute-source UV coords (the slice 3.6 hotfix
 ///         math). Alpha resolved by
-///         <see cref="TileKnowledgeStateHelpers.ResolveCartonFaceAlpha"/>.
+///         <see cref="TileKnowledgeLadderHelpers.ResolveCartonFaceAlpha"/>.
 ///         Rendered <i>below</i> the back so the back masks it when the
 ///         cell is fully Inconnue.</item>
 ///   <item><b>CartonBack</b> (z 11) — Polygon2D, optionally textured by
@@ -38,7 +38,7 @@ namespace Wayfinders.Client.Components;
 ///         same iso-losange bitmap is repeated identically on every
 ///         cell's back, modulate RGB clamped to white so the bitmap is
 ///         not tinted (alpha still resolved by
-///         <see cref="TileKnowledgeStateHelpers.ResolveCartonBackAlpha"/>).
+///         <see cref="TileKnowledgeLadderHelpers.ResolveCartonBackAlpha"/>).
 ///         Acts as the visual blocker that hides face + world map below
 ///         it when the cell is Inconnue.</item>
 /// </list>
@@ -64,7 +64,7 @@ namespace Wayfinders.Client.Components;
 /// swatch's role is fulfilled by the face. The swatch node is kept in the
 /// scene for back-compat (any consumer that walks the cell tree by name
 /// won't crash) but is set <c>Visible = false</c> at every state by
-/// <see cref="TileKnowledgeStateHelpers.ShouldRenderPaletteSwatch"/>.
+/// <see cref="TileKnowledgeLadderHelpers.ShouldRenderPaletteSwatch"/>.
 /// </para>
 ///
 /// <para>
@@ -613,7 +613,7 @@ public partial class FogTileLayer : Node2D
             // Resync modulate (RGB depends on texture presence) for the
             // current state ; skip animation since this is a static
             // re-skin, not a state transition.
-            var state = _knowledgeStore?.GetState(coord) ?? TileKnowledgeState.Inconnue;
+            var state = _knowledgeStore?.GetState(coord) ?? TileKnowledgeLadder.Inconnue;
             ApplyVisualState(coord, state, animate: false);
             applied++;
         }
@@ -668,7 +668,7 @@ public partial class FogTileLayer : Node2D
     /// <summary>
     /// Slice 3.6 livrable 4 — visual feedback for a drill that the player
     /// attempted at a cell whose knowledge state is below
-    /// <see cref="TileKnowledgeState.Esquissee"/>. Plays a 200 ms scale
+    /// <see cref="TileKnowledgeLadder.Esquissee"/>. Plays a 200 ms scale
     /// pulse 1.0 → 1.05 → 1.0 on both CartonBack and CartonFace in
     /// parallel so the pulse reads as the cell pulsing as a unit.
     /// </summary>
@@ -1134,7 +1134,7 @@ public partial class FogTileLayer : Node2D
     /// diamond. Retained from slice 3.5 for back-compat ; the swatch is
     /// hidden by default at slice 3.6 design fix but the bands are still
     /// synthesised so a future flip of
-    /// <see cref="TileKnowledgeStateHelpers.ShouldRenderPaletteSwatch"/>
+    /// <see cref="TileKnowledgeLadderHelpers.ShouldRenderPaletteSwatch"/>
     /// works without re-spawning cells.
     /// </summary>
     private Vector2[][] ComputeSwatchBandVertices(float halfW, float halfH)
@@ -1223,17 +1223,17 @@ public partial class FogTileLayer : Node2D
     private void OnKnowledgeChanged(int col, int row, int newState)
     {
         var coord = new GridCoord(col, row);
-        ApplyVisualState(coord, (TileKnowledgeState)newState, animate: true);
+        ApplyVisualState(coord, (TileKnowledgeLadder)newState, animate: true);
     }
 
-    private void ApplyVisualState(GridCoord coord, TileKnowledgeState state, bool animate)
+    private void ApplyVisualState(GridCoord coord, TileKnowledgeLadder state, bool animate)
     {
         if (!_cells.TryGetValue(coord, out var visuals)) return;
 
-        var targetBackAlpha = TileKnowledgeStateHelpers.ResolveCartonBackAlpha(state);
-        var targetFaceAlpha = TileKnowledgeStateHelpers.ResolveCartonFaceAlpha(state);
-        var showSwatch = TileKnowledgeStateHelpers.ShouldRenderPaletteSwatch(state);
-        var showSceau = TileKnowledgeStateHelpers.ShouldRenderSceau(state);
+        var targetBackAlpha = TileKnowledgeLadderHelpers.ResolveCartonBackAlpha(state);
+        var targetFaceAlpha = TileKnowledgeLadderHelpers.ResolveCartonFaceAlpha(state);
+        var showSwatch = TileKnowledgeLadderHelpers.ShouldRenderPaletteSwatch(state);
+        var showSceau = TileKnowledgeLadderHelpers.ShouldRenderSceau(state);
         var backRgb = ResolveCartonBackTintRgb();
 
         if (!animate)
@@ -1267,7 +1267,7 @@ public partial class FogTileLayer : Node2D
         // transitioning to Levée AND the back is still drawn" — using
         // back alpha (not face alpha) is correct since the back is the
         // visual blocker that "lifts off".
-        var isPliure = state == TileKnowledgeState.Levee
+        var isPliure = state == TileKnowledgeLadder.Levee
             && visuals.CartonBack.Color.A > 0f;
 
         if (isPliure)
@@ -1283,7 +1283,7 @@ public partial class FogTileLayer : Node2D
     private void SchedulePliure(
         GridCoord coord,
         CellVisuals visuals,
-        TileKnowledgeState targetState,
+        TileKnowledgeLadder targetState,
         bool showSwatch,
         bool showSceau)
     {
@@ -1348,7 +1348,7 @@ public partial class FogTileLayer : Node2D
     private void ScheduleCrossfade(
         GridCoord coord,
         CellVisuals visuals,
-        TileKnowledgeState targetState,
+        TileKnowledgeLadder targetState,
         float targetBackAlpha,
         float targetFaceAlpha,
         bool showSwatch,
@@ -1392,10 +1392,10 @@ public partial class FogTileLayer : Node2D
         _activeCellTweens[coord] = tween;
     }
 
-    private void FinalizeCell(CellVisuals visuals, TileKnowledgeState state, bool showSwatch, bool showSceau)
+    private void FinalizeCell(CellVisuals visuals, TileKnowledgeLadder state, bool showSwatch, bool showSceau)
     {
-        var backAlpha = TileKnowledgeStateHelpers.ResolveCartonBackAlpha(state);
-        var faceAlpha = TileKnowledgeStateHelpers.ResolveCartonFaceAlpha(state);
+        var backAlpha = TileKnowledgeLadderHelpers.ResolveCartonBackAlpha(state);
+        var faceAlpha = TileKnowledgeLadderHelpers.ResolveCartonFaceAlpha(state);
         var backRgb = ResolveCartonBackTintRgb();
 
         visuals.CartonBack.Color = WithAlpha(backRgb, backAlpha);

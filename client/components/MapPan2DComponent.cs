@@ -277,7 +277,7 @@ public partial class MapPan2DComponent : Node2D
     /// <summary>
     /// Slice 3 -- emitted when the player has zoomed to <see cref="ZoomMax"/>
     /// and pushed an additional wheel tick over a cell whose tile knowledge
-    /// state is at <see cref="TileKnowledgeState.Esquissee"/> or higher.
+    /// state is at <see cref="TileKnowledgeLadder.Esquissee"/> or higher.
     /// The consumer (<see cref="Wayfinders.Client.Scenes.Screens.E1WorldMap"/>)
     /// translates this into a <c>SceneManager.NavigateTo</c> call with
     /// the origin coord packed into the <see cref="ScreenContext"/> payload.
@@ -290,7 +290,7 @@ public partial class MapPan2DComponent : Node2D
     /// <summary>
     /// Slice 3 -- emitted when the player has zoomed to <see cref="ZoomMax"/>
     /// and pushed an additional wheel tick over a cell whose tile knowledge
-    /// state is BELOW <see cref="TileKnowledgeState.Esquissee"/>. The
+    /// state is BELOW <see cref="TileKnowledgeLadder.Esquissee"/>. The
     /// consumer plays the visual feedback ("tuile veut être vue mais pas
     /// encore") via <see cref="FogTileLayer.PlayDrillBlockedFeedback"/>.
     /// No transition fires.
@@ -317,7 +317,7 @@ public partial class MapPan2DComponent : Node2D
     /// </summary>
     /// <param name="cursorWorldPosition">Cursor position in world coords.</param>
     /// <returns>Cell coord + knowledge state pair, or null if outside the grid.</returns>
-    public delegate (GridCoord coord, TileKnowledgeState state)? DrillTargetResolverDelegate(
+    public delegate (GridCoord coord, TileKnowledgeLadder state)? DrillTargetResolverDelegate(
         Vector2 cursorWorldPosition);
 
     private Node2D _worldRoot = null!;
@@ -1173,9 +1173,9 @@ public partial class MapPan2DComponent : Node2D
     /// no resolver is wired (in which case the state is assumed Inconnue,
     /// which makes drill candidates degrade to DrillBlocked safely).
     /// </summary>
-    private GridCoord? ResolveCellAtCursor(out TileKnowledgeState state)
+    private GridCoord? ResolveCellAtCursor(out TileKnowledgeLadder state)
     {
-        state = TileKnowledgeState.Inconnue;
+        state = TileKnowledgeLadder.Inconnue;
         if (_drillTargetResolver is null)
         {
             return null;

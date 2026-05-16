@@ -77,7 +77,7 @@ namespace Wayfinders.Client.Scripts.Screens;
 ///
 /// <para>
 /// <b>Tile-knowledge gate.</b> Drill-in only fires when the cell under
-/// the cursor has knowledge state at <see cref="TileKnowledgeState.Esquissee"/>
+/// the cursor has knowledge state at <see cref="TileKnowledgeLadder.Esquissee"/>
 /// or higher (Varn §1.4 lock D-TILE-03). Below that, the action is
 /// <see cref="ZoomNavAction.DrillBlocked"/> -- the runtime plays the
 /// "tuile veut être vue mais pas encore" feedback without transitioning.
@@ -125,7 +125,7 @@ public static class ZoomNavLogic
     public static ZoomNavOutcome EvaluateWheelInput(
         float currentZoom,
         WheelGesture gesture,
-        TileKnowledgeState tileKnowledgeAtCursor,
+        TileKnowledgeLadder tileKnowledgeAtCursor,
         ulong lastTransitionTimeMs,
         ulong currentTimeMs,
         ZoomThresholds thresholds)
@@ -173,7 +173,7 @@ public static class ZoomNavLogic
             {
                 // At or past max -- evaluate drill candidacy with the
                 // tile-knowledge gate.
-                if (tileKnowledgeAtCursor >= TileKnowledgeState.Esquissee)
+                if (tileKnowledgeAtCursor >= TileKnowledgeLadder.Esquissee)
                 {
                     return ZoomNavOutcome.DrillCandidate();
                 }

@@ -240,14 +240,14 @@ public sealed class E2AreaMapDrillToDistrictContractTests
     public void Always_true_resolver_returns_DrillCandidate_at_cap_Push()
     {
         // Slice 5 decision α -- the always-true resolver returns a
-        // (sentinel coord, TileKnowledgeState.Levee) pair. With
+        // (sentinel coord, TileKnowledgeLadder.Levee) pair. With
         // Levee >= Esquissee, ZoomNavLogic at zoom == ZoomMax with
         // gesture == Push returns DrillCandidate, never DrillBlocked.
         // Pinning this with the actual ZoomNavLogic call (not a mock)
         // is what catches a future regression where the threshold gate
         // changes and the always-true resolver silently stops triggering
         // drills.
-        const TileKnowledgeState alwaysTrueState = TileKnowledgeState.Levee;
+        const TileKnowledgeLadder alwaysTrueState = TileKnowledgeLadder.Levee;
         var thresholds = ZoomThresholds.Default;
 
         var outcome = ZoomNavLogic.EvaluateWheelInput(
@@ -278,7 +278,7 @@ public sealed class E2AreaMapDrillToDistrictContractTests
         var atCap = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: thresholds.ZoomMax,
             gesture: WheelGesture.Push,
-            tileKnowledgeAtCursor: TileKnowledgeState.Levee,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Levee,
             lastTransitionTimeMs: 0,
             currentTimeMs: 1000,
             thresholds: thresholds);
@@ -289,7 +289,7 @@ public sealed class E2AreaMapDrillToDistrictContractTests
         var pastCap = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: thresholds.ZoomMax + ZoomNavLogic.ZoomEpsilon * 0.5f,
             gesture: WheelGesture.Push,
-            tileKnowledgeAtCursor: TileKnowledgeState.Levee,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Levee,
             lastTransitionTimeMs: 0,
             currentTimeMs: 1000,
             thresholds: thresholds);

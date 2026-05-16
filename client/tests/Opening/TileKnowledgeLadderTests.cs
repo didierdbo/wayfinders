@@ -3,11 +3,11 @@ using Wayfinders.Client.Scripts.Screens;
 namespace Wayfinders.Client.Tests.Opening;
 
 /// <summary>
-/// Pure-C# tests for <see cref="TileKnowledgeState"/> +
-/// <see cref="TileKnowledgeStateHelpers"/> (slice 1 / livrable 3 — M3 /
+/// Pure-C# tests for <see cref="TileKnowledgeLadder"/> +
+/// <see cref="TileKnowledgeLadderHelpers"/> (slice 1 / livrable 3 — M3 /
 /// L1 World fondations / 2026-05-08). Pins the MVP rendering contract:
-/// only <see cref="TileKnowledgeState.Levee"/> and
-/// <see cref="TileKnowledgeState.Scellee"/> hide the fog tile, every
+/// only <see cref="TileKnowledgeLadder.Levee"/> and
+/// <see cref="TileKnowledgeLadder.Scellee"/> hide the fog tile, every
 /// other state renders opaque carton placeholder. The five-level
 /// integer ladder Varn §1.1 locked stays stable across refactors so
 /// the persistence schema does not break when slice 2 lands.
@@ -22,7 +22,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// surfaces the regression at xUnit time.
 /// </para>
 /// </summary>
-public sealed class TileKnowledgeStateTests
+public sealed class TileKnowledgeLadderTests
 {
     [Fact]
     public void Enum_integer_values_are_pinned_for_persistence_compat()
@@ -31,18 +31,18 @@ public sealed class TileKnowledgeStateTests
         // integer cast of each state is the on-disk value. Renumbering
         // would silently corrupt save files. If this test fails,
         // someone reordered the enum.
-        Assert.Equal(0, (int)TileKnowledgeState.Inconnue);
-        Assert.Equal(1, (int)TileKnowledgeState.Pressentie);
-        Assert.Equal(2, (int)TileKnowledgeState.Esquissee);
-        Assert.Equal(3, (int)TileKnowledgeState.Levee);
-        Assert.Equal(4, (int)TileKnowledgeState.Scellee);
+        Assert.Equal(0, (int)TileKnowledgeLadder.Inconnue);
+        Assert.Equal(1, (int)TileKnowledgeLadder.Pressentie);
+        Assert.Equal(2, (int)TileKnowledgeLadder.Esquissee);
+        Assert.Equal(3, (int)TileKnowledgeLadder.Levee);
+        Assert.Equal(4, (int)TileKnowledgeLadder.Scellee);
     }
 
     [Fact]
     public void Inconnue_renders_opaque()
     {
-        Assert.True(TileKnowledgeStateHelpers.ShouldRenderOpaque(TileKnowledgeState.Inconnue));
-        Assert.False(TileKnowledgeStateHelpers.IsHidden(TileKnowledgeState.Inconnue));
+        Assert.True(TileKnowledgeLadderHelpers.ShouldRenderOpaque(TileKnowledgeLadder.Inconnue));
+        Assert.False(TileKnowledgeLadderHelpers.IsHidden(TileKnowledgeLadder.Inconnue));
     }
 
     [Fact]
@@ -52,20 +52,20 @@ public sealed class TileKnowledgeStateTests
         // until slice 2 introduces graduated alpha. If this assertion
         // changes, slice 2 has shipped — update the helper signature
         // and these tests in the same diff.
-        Assert.True(TileKnowledgeStateHelpers.ShouldRenderOpaque(TileKnowledgeState.Pressentie));
+        Assert.True(TileKnowledgeLadderHelpers.ShouldRenderOpaque(TileKnowledgeLadder.Pressentie));
     }
 
     [Fact]
     public void Esquissee_renders_opaque_in_slice_1_mvp()
     {
-        Assert.True(TileKnowledgeStateHelpers.ShouldRenderOpaque(TileKnowledgeState.Esquissee));
+        Assert.True(TileKnowledgeLadderHelpers.ShouldRenderOpaque(TileKnowledgeLadder.Esquissee));
     }
 
     [Fact]
     public void Levee_is_hidden()
     {
-        Assert.False(TileKnowledgeStateHelpers.ShouldRenderOpaque(TileKnowledgeState.Levee));
-        Assert.True(TileKnowledgeStateHelpers.IsHidden(TileKnowledgeState.Levee));
+        Assert.False(TileKnowledgeLadderHelpers.ShouldRenderOpaque(TileKnowledgeLadder.Levee));
+        Assert.True(TileKnowledgeLadderHelpers.IsHidden(TileKnowledgeLadder.Levee));
     }
 
     [Fact]
@@ -74,33 +74,33 @@ public sealed class TileKnowledgeStateTests
         // Varn §1.2 : Levée and Scellée are visually equivalent in the
         // fog-tile rendering — the sceau lands on the iso ground, not
         // on the carton. The helper does not distinguish them.
-        Assert.False(TileKnowledgeStateHelpers.ShouldRenderOpaque(TileKnowledgeState.Scellee));
-        Assert.True(TileKnowledgeStateHelpers.IsHidden(TileKnowledgeState.Scellee));
+        Assert.False(TileKnowledgeLadderHelpers.ShouldRenderOpaque(TileKnowledgeLadder.Scellee));
+        Assert.True(TileKnowledgeLadderHelpers.IsHidden(TileKnowledgeLadder.Scellee));
     }
 
     [Fact]
     public void Toggle_inconnue_to_levee()
     {
-        Assert.Equal(TileKnowledgeState.Levee, TileKnowledgeStateHelpers.Toggle(TileKnowledgeState.Inconnue));
+        Assert.Equal(TileKnowledgeLadder.Levee, TileKnowledgeLadderHelpers.Toggle(TileKnowledgeLadder.Inconnue));
     }
 
     [Fact]
     public void Toggle_levee_to_inconnue()
     {
-        Assert.Equal(TileKnowledgeState.Inconnue, TileKnowledgeStateHelpers.Toggle(TileKnowledgeState.Levee));
+        Assert.Equal(TileKnowledgeLadder.Inconnue, TileKnowledgeLadderHelpers.Toggle(TileKnowledgeLadder.Levee));
     }
 
     [Theory]
-    [InlineData(TileKnowledgeState.Pressentie)]
-    [InlineData(TileKnowledgeState.Esquissee)]
-    [InlineData(TileKnowledgeState.Scellee)]
-    public void Toggle_canonicalises_intermediate_states_to_levee(TileKnowledgeState start)
+    [InlineData(TileKnowledgeLadder.Pressentie)]
+    [InlineData(TileKnowledgeLadder.Esquissee)]
+    [InlineData(TileKnowledgeLadder.Scellee)]
+    public void Toggle_canonicalises_intermediate_states_to_levee(TileKnowledgeLadder start)
     {
         // Slice 1 MVP : the toggle treats anything-not-Levée as
         // Inconnue-equivalent and flips it to Levée. Intermediate
         // states should never be entered by the slice 1 debug
         // command, but if they are (e.g. a future feature seeds
         // Pressentie before slice 2 ships) the toggle stays predictable.
-        Assert.Equal(TileKnowledgeState.Levee, TileKnowledgeStateHelpers.Toggle(start));
+        Assert.Equal(TileKnowledgeLadder.Levee, TileKnowledgeLadderHelpers.Toggle(start));
     }
 }

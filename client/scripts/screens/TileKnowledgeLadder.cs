@@ -26,7 +26,7 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// systémique) is expressible as a max() over states.
 /// </para>
 /// </summary>
-public enum TileKnowledgeState
+public enum TileKnowledgeLadder
 {
     /// <summary>
     /// Niveau 0. La zone existe peut-être. Le Cadastre n'a aucune entrée.
@@ -67,7 +67,7 @@ public enum TileKnowledgeState
 }
 
 /// <summary>
-/// Pure-C# helpers around <see cref="TileKnowledgeState"/>. Godot-free so
+/// Pure-C# helpers around <see cref="TileKnowledgeLadder"/>. Godot-free so
 /// xUnit pins the contract. Mirrors the
 /// <see cref="LadderResolutionLogic"/> / <see cref="CameraPanLogic"/> /
 /// <see cref="MapPanInputLogic"/> seam pattern: small static surface,
@@ -103,14 +103,14 @@ public enum TileKnowledgeState
 /// </list>
 /// </para>
 /// </summary>
-public static class TileKnowledgeStateHelpers
+public static class TileKnowledgeLadderHelpers
 {
     // ---------------------------------------------------------------
     // CartonBack alpha table (the beige opaque "dos de carte")
     // ---------------------------------------------------------------
 
     /// <summary>
-    /// CartonBack alpha at <see cref="TileKnowledgeState.Inconnue"/> —
+    /// CartonBack alpha at <see cref="TileKnowledgeLadder.Inconnue"/> —
     /// fully opaque (the master case, Varn §1.2 "le carton bouche tout").
     /// At this alpha the back fully masks both the face below it and the
     /// world map sprite further below.
@@ -118,22 +118,22 @@ public static class TileKnowledgeStateHelpers
     public const float CartonBackAlphaInconnue = 1.0f;
 
     /// <summary>
-    /// CartonBack alpha at <see cref="TileKnowledgeState.Pressentie"/>.
+    /// CartonBack alpha at <see cref="TileKnowledgeLadder.Pressentie"/>.
     /// 70 % beige back + the face starts to peek through the residual 30 %.
     /// </summary>
     public const float CartonBackAlphaPressentie = 0.70f;
 
     /// <summary>
-    /// CartonBack alpha at <see cref="TileKnowledgeState.Esquissee"/>.
+    /// CartonBack alpha at <see cref="TileKnowledgeLadder.Esquissee"/>.
     /// 40 % beige back ; the face dominates. The contrast Pressentie 0.7 vs
     /// Esquissée 0.4 is what carries the "drill becomes legal" signal.
     /// </summary>
     public const float CartonBackAlphaEsquissee = 0.40f;
 
-    /// <summary>CartonBack alpha at <see cref="TileKnowledgeState.Levee"/> — invisible.</summary>
+    /// <summary>CartonBack alpha at <see cref="TileKnowledgeLadder.Levee"/> — invisible.</summary>
     public const float CartonBackAlphaLevee = 0.0f;
 
-    /// <summary>CartonBack alpha at <see cref="TileKnowledgeState.Scellee"/> — invisible.</summary>
+    /// <summary>CartonBack alpha at <see cref="TileKnowledgeLadder.Scellee"/> — invisible.</summary>
     public const float CartonBackAlphaScellee = 0.0f;
 
     // ---------------------------------------------------------------
@@ -141,7 +141,7 @@ public static class TileKnowledgeStateHelpers
     // ---------------------------------------------------------------
 
     /// <summary>
-    /// CartonFace alpha at <see cref="TileKnowledgeState.Inconnue"/> —
+    /// CartonFace alpha at <see cref="TileKnowledgeLadder.Inconnue"/> —
     /// fully hidden. The back is opaque so the face is invisible anyway,
     /// but we set face alpha to 0 explicitly so the ordering is correct
     /// during transitions and so we don't pay for a draw call at this
@@ -151,21 +151,21 @@ public static class TileKnowledgeStateHelpers
     public const float CartonFaceAlphaInconnue = 0.0f;
 
     /// <summary>
-    /// CartonFace alpha at <see cref="TileKnowledgeState.Pressentie"/>.
+    /// CartonFace alpha at <see cref="TileKnowledgeLadder.Pressentie"/>.
     /// 30 % visible face under a 70 % beige back ; the source-map slice
     /// starts to surface. This is the "rumeur, longue-vue" visual.
     /// </summary>
     public const float CartonFaceAlphaPressentie = 0.30f;
 
     /// <summary>
-    /// CartonFace alpha at <see cref="TileKnowledgeState.Esquissee"/>.
+    /// CartonFace alpha at <see cref="TileKnowledgeLadder.Esquissee"/>.
     /// 60 % visible face under a 40 % beige back ; the slice is now
     /// the dominant signal. "Lisible mais pas révélé."
     /// </summary>
     public const float CartonFaceAlphaEsquissee = 0.60f;
 
     /// <summary>
-    /// CartonFace alpha at <see cref="TileKnowledgeState.Levee"/> —
+    /// CartonFace alpha at <see cref="TileKnowledgeLadder.Levee"/> —
     /// invisible. At Levée the WorldMapSprite below shows the same pixels
     /// the face would show (UV in source coords); keeping the face hidden
     /// here avoids the duplicate draw and the seam between iso-clipped
@@ -174,7 +174,7 @@ public static class TileKnowledgeStateHelpers
     /// </summary>
     public const float CartonFaceAlphaLevee = 0.0f;
 
-    /// <summary>CartonFace alpha at <see cref="TileKnowledgeState.Scellee"/> — same as Levée.</summary>
+    /// <summary>CartonFace alpha at <see cref="TileKnowledgeLadder.Scellee"/> — same as Levée.</summary>
     public const float CartonFaceAlphaScellee = 0.0f;
 
     // ---------------------------------------------------------------
@@ -207,13 +207,13 @@ public static class TileKnowledgeStateHelpers
     /// sprite below it when the cell is Inconnue, and progressively
     /// fades as the player advances on the knowledge ladder.
     /// </summary>
-    public static float ResolveCartonBackAlpha(TileKnowledgeState state) => state switch
+    public static float ResolveCartonBackAlpha(TileKnowledgeLadder state) => state switch
     {
-        TileKnowledgeState.Inconnue   => CartonBackAlphaInconnue,
-        TileKnowledgeState.Pressentie => CartonBackAlphaPressentie,
-        TileKnowledgeState.Esquissee  => CartonBackAlphaEsquissee,
-        TileKnowledgeState.Levee      => CartonBackAlphaLevee,
-        TileKnowledgeState.Scellee    => CartonBackAlphaScellee,
+        TileKnowledgeLadder.Inconnue   => CartonBackAlphaInconnue,
+        TileKnowledgeLadder.Pressentie => CartonBackAlphaPressentie,
+        TileKnowledgeLadder.Esquissee  => CartonBackAlphaEsquissee,
+        TileKnowledgeLadder.Levee      => CartonBackAlphaLevee,
+        TileKnowledgeLadder.Scellee    => CartonBackAlphaScellee,
         _ => CartonBackAlphaInconnue,
     };
 
@@ -226,13 +226,13 @@ public static class TileKnowledgeStateHelpers
     /// Esquissée 0.60 so the player gets a real preview-of-the-map signal
     /// at the intermediate states.
     /// </summary>
-    public static float ResolveCartonFaceAlpha(TileKnowledgeState state) => state switch
+    public static float ResolveCartonFaceAlpha(TileKnowledgeLadder state) => state switch
     {
-        TileKnowledgeState.Inconnue   => CartonFaceAlphaInconnue,
-        TileKnowledgeState.Pressentie => CartonFaceAlphaPressentie,
-        TileKnowledgeState.Esquissee  => CartonFaceAlphaEsquissee,
-        TileKnowledgeState.Levee      => CartonFaceAlphaLevee,
-        TileKnowledgeState.Scellee    => CartonFaceAlphaScellee,
+        TileKnowledgeLadder.Inconnue   => CartonFaceAlphaInconnue,
+        TileKnowledgeLadder.Pressentie => CartonFaceAlphaPressentie,
+        TileKnowledgeLadder.Esquissee  => CartonFaceAlphaEsquissee,
+        TileKnowledgeLadder.Levee      => CartonFaceAlphaLevee,
+        TileKnowledgeLadder.Scellee    => CartonFaceAlphaScellee,
         _ => CartonFaceAlphaInconnue,
     };
 
@@ -244,7 +244,7 @@ public static class TileKnowledgeStateHelpers
     /// into back + face. The slice 2 xUnit suite pins these values
     /// (1.0 / 0.7 / 0.4 / 0.0 / 0.0).
     /// </summary>
-    public static float ResolveCartonAlpha(TileKnowledgeState state) =>
+    public static float ResolveCartonAlpha(TileKnowledgeLadder state) =>
         ResolveCartonBackAlpha(state);
 
     /// <summary>
@@ -254,25 +254,25 @@ public static class TileKnowledgeStateHelpers
     /// Equivalent to <c>ResolveCartonFaceAlpha(state) &gt; 0f</c>, named
     /// for the renderer's intent.
     /// </summary>
-    public static bool ShouldRenderCartonFace(TileKnowledgeState state) =>
+    public static bool ShouldRenderCartonFace(TileKnowledgeLadder state) =>
         ResolveCartonFaceAlpha(state) > 0f;
 
     /// <summary>
     /// Slice 3.6 design fix — visibility short-circuit for CartonBack.
     /// Same idiom as <see cref="ShouldRenderCartonFace"/>.
     /// </summary>
-    public static bool ShouldRenderCartonBack(TileKnowledgeState state) =>
+    public static bool ShouldRenderCartonBack(TileKnowledgeLadder state) =>
         ResolveCartonBackAlpha(state) > 0f;
 
     /// <summary>
     /// True iff a sceau de cire placeholder should be rendered over this
-    /// cell. Slice 2 contract : only <see cref="TileKnowledgeState.Scellee"/>
-    /// shows the sceau ; <see cref="TileKnowledgeState.Levee"/> and below
+    /// cell. Slice 2 contract : only <see cref="TileKnowledgeLadder.Scellee"/>
+    /// shows the sceau ; <see cref="TileKnowledgeLadder.Levee"/> and below
     /// hide it. Pinned by xUnit so a future "everything below Scellée
     /// hides the sceau" refactor stays explicit.
     /// </summary>
-    public static bool ShouldRenderSceau(TileKnowledgeState state) =>
-        state == TileKnowledgeState.Scellee;
+    public static bool ShouldRenderSceau(TileKnowledgeLadder state) =>
+        state == TileKnowledgeLadder.Scellee;
 
     /// <summary>
     /// True iff the palette swatch (3 teintes quantified colors) should
@@ -299,7 +299,7 @@ public static class TileKnowledgeStateHelpers
     /// is superseded by slice 3.6's two-polygon carton.
     /// </para>
     /// </summary>
-    public static bool ShouldRenderPaletteSwatch(TileKnowledgeState state) => false;
+    public static bool ShouldRenderPaletteSwatch(TileKnowledgeLadder state) => false;
 
     /// <summary>
     /// Slice 1 binary contract, retained for back-compat with the slice 1
@@ -308,7 +308,7 @@ public static class TileKnowledgeStateHelpers
     /// visible. Slice 2 callers prefer
     /// <see cref="ResolveCartonAlpha"/> directly.
     /// </summary>
-    public static bool ShouldRenderOpaque(TileKnowledgeState state) =>
+    public static bool ShouldRenderOpaque(TileKnowledgeLadder state) =>
         ResolveCartonAlpha(state) > 0f;
 
     /// <summary>
@@ -317,20 +317,20 @@ public static class TileKnowledgeStateHelpers
     /// keep using this ; slice 2 callers also have access to
     /// <see cref="ResolveCartonAlpha"/> for graduated alpha.
     /// </summary>
-    public static bool IsHidden(TileKnowledgeState state) =>
+    public static bool IsHidden(TileKnowledgeLadder state) =>
         !ShouldRenderOpaque(state);
 
     /// <summary>
     /// Slice 1 toggle helper, retained for back-compat. Cycles between
-    /// <see cref="TileKnowledgeState.Inconnue"/> and
-    /// <see cref="TileKnowledgeState.Levee"/>. Slice 2 debug surface
+    /// <see cref="TileKnowledgeLadder.Inconnue"/> and
+    /// <see cref="TileKnowledgeLadder.Levee"/>. Slice 2 debug surface
     /// uses <see cref="CycleNext"/> / <see cref="CyclePrevious"/> instead
     /// to walk the full ladder.
     /// </summary>
-    public static TileKnowledgeState Toggle(TileKnowledgeState current) =>
-        current == TileKnowledgeState.Levee
-            ? TileKnowledgeState.Inconnue
-            : TileKnowledgeState.Levee;
+    public static TileKnowledgeLadder Toggle(TileKnowledgeLadder current) =>
+        current == TileKnowledgeLadder.Levee
+            ? TileKnowledgeLadder.Inconnue
+            : TileKnowledgeLadder.Levee;
 
     /// <summary>
     /// Cycle one step forward through the ladder, wrapping
@@ -340,14 +340,14 @@ public static class TileKnowledgeStateHelpers
     /// observed without restarting the game (slice 2 livrable 2
     /// acceptance criterion).
     /// </summary>
-    public static TileKnowledgeState CycleNext(TileKnowledgeState current) => current switch
+    public static TileKnowledgeLadder CycleNext(TileKnowledgeLadder current) => current switch
     {
-        TileKnowledgeState.Inconnue   => TileKnowledgeState.Pressentie,
-        TileKnowledgeState.Pressentie => TileKnowledgeState.Esquissee,
-        TileKnowledgeState.Esquissee  => TileKnowledgeState.Levee,
-        TileKnowledgeState.Levee      => TileKnowledgeState.Scellee,
-        TileKnowledgeState.Scellee    => TileKnowledgeState.Inconnue,
-        _ => TileKnowledgeState.Inconnue,
+        TileKnowledgeLadder.Inconnue   => TileKnowledgeLadder.Pressentie,
+        TileKnowledgeLadder.Pressentie => TileKnowledgeLadder.Esquissee,
+        TileKnowledgeLadder.Esquissee  => TileKnowledgeLadder.Levee,
+        TileKnowledgeLadder.Levee      => TileKnowledgeLadder.Scellee,
+        TileKnowledgeLadder.Scellee    => TileKnowledgeLadder.Inconnue,
+        _ => TileKnowledgeLadder.Inconnue,
     };
 
     /// <summary>
@@ -356,13 +356,13 @@ public static class TileKnowledgeStateHelpers
     /// other direction, useful when the playtester overshoots and wants
     /// to step back one rung.
     /// </summary>
-    public static TileKnowledgeState CyclePrevious(TileKnowledgeState current) => current switch
+    public static TileKnowledgeLadder CyclePrevious(TileKnowledgeLadder current) => current switch
     {
-        TileKnowledgeState.Inconnue   => TileKnowledgeState.Scellee,
-        TileKnowledgeState.Pressentie => TileKnowledgeState.Inconnue,
-        TileKnowledgeState.Esquissee  => TileKnowledgeState.Pressentie,
-        TileKnowledgeState.Levee      => TileKnowledgeState.Esquissee,
-        TileKnowledgeState.Scellee    => TileKnowledgeState.Levee,
-        _ => TileKnowledgeState.Inconnue,
+        TileKnowledgeLadder.Inconnue   => TileKnowledgeLadder.Scellee,
+        TileKnowledgeLadder.Pressentie => TileKnowledgeLadder.Inconnue,
+        TileKnowledgeLadder.Esquissee  => TileKnowledgeLadder.Pressentie,
+        TileKnowledgeLadder.Levee      => TileKnowledgeLadder.Esquissee,
+        TileKnowledgeLadder.Scellee    => TileKnowledgeLadder.Levee,
+        _ => TileKnowledgeLadder.Inconnue,
     };
 }

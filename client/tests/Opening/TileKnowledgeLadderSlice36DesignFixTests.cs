@@ -3,7 +3,7 @@ using Wayfinders.Client.Scripts.Screens;
 namespace Wayfinders.Client.Tests.Opening;
 
 /// <summary>
-/// Slice 3.6 design fix tests for <see cref="TileKnowledgeStateHelpers"/>
+/// Slice 3.6 design fix tests for <see cref="TileKnowledgeLadderHelpers"/>
 /// (M3 / Phase 9 / 2026-05-08). Pins the two-polygon carton vocabulary
 /// introduced to fix the obscuration semantic broken by the slice 3.6
 /// hotfix <c>659b5e6</c>.
@@ -45,25 +45,25 @@ namespace Wayfinders.Client.Tests.Opening;
 /// here, not in a manual smoke test.
 /// </para>
 /// </summary>
-public sealed class TileKnowledgeStateSlice36DesignFixTests
+public sealed class TileKnowledgeLadderSlice36DesignFixTests
 {
     // -------------------------------------------------------------------
     // CartonBack alpha — the beige opaque dos de carte.
     // -------------------------------------------------------------------
 
     [Theory]
-    [InlineData(TileKnowledgeState.Inconnue,   1.0f)]
-    [InlineData(TileKnowledgeState.Pressentie, 0.70f)]
-    [InlineData(TileKnowledgeState.Esquissee,  0.40f)]
-    [InlineData(TileKnowledgeState.Levee,      0.0f)]
-    [InlineData(TileKnowledgeState.Scellee,    0.0f)]
+    [InlineData(TileKnowledgeLadder.Inconnue,   1.0f)]
+    [InlineData(TileKnowledgeLadder.Pressentie, 0.70f)]
+    [InlineData(TileKnowledgeLadder.Esquissee,  0.40f)]
+    [InlineData(TileKnowledgeLadder.Levee,      0.0f)]
+    [InlineData(TileKnowledgeLadder.Scellee,    0.0f)]
     public void Resolve_carton_back_alpha_pins_design_fix_table(
-        TileKnowledgeState state, float expected)
+        TileKnowledgeLadder state, float expected)
     {
         // CartonBack is the beige opaque blocker — same numeric values as
         // the slice 2 single-carton table (back-compat with the slice 2
         // F-key debug expectations and ResolveCartonAlpha alias).
-        Assert.Equal(expected, TileKnowledgeStateHelpers.ResolveCartonBackAlpha(state), precision: 3);
+        Assert.Equal(expected, TileKnowledgeLadderHelpers.ResolveCartonBackAlpha(state), precision: 3);
     }
 
     [Fact]
@@ -72,10 +72,10 @@ public sealed class TileKnowledgeStateSlice36DesignFixTests
         // Monotonicity invariant — the back must hide LESS as the player
         // advances. A swap of Pressentie / Esquissée would flip the
         // legibility ladder ; this test catches it.
-        var inc = TileKnowledgeStateHelpers.ResolveCartonBackAlpha(TileKnowledgeState.Inconnue);
-        var pre = TileKnowledgeStateHelpers.ResolveCartonBackAlpha(TileKnowledgeState.Pressentie);
-        var esq = TileKnowledgeStateHelpers.ResolveCartonBackAlpha(TileKnowledgeState.Esquissee);
-        var lev = TileKnowledgeStateHelpers.ResolveCartonBackAlpha(TileKnowledgeState.Levee);
+        var inc = TileKnowledgeLadderHelpers.ResolveCartonBackAlpha(TileKnowledgeLadder.Inconnue);
+        var pre = TileKnowledgeLadderHelpers.ResolveCartonBackAlpha(TileKnowledgeLadder.Pressentie);
+        var esq = TileKnowledgeLadderHelpers.ResolveCartonBackAlpha(TileKnowledgeLadder.Esquissee);
+        var lev = TileKnowledgeLadderHelpers.ResolveCartonBackAlpha(TileKnowledgeLadder.Levee);
 
         Assert.True(inc > pre, $"Inconnue back alpha {inc} should be > Pressentie {pre}");
         Assert.True(pre > esq, $"Pressentie back alpha {pre} should be > Esquissée {esq}");
@@ -87,20 +87,20 @@ public sealed class TileKnowledgeStateSlice36DesignFixTests
     // -------------------------------------------------------------------
 
     [Theory]
-    [InlineData(TileKnowledgeState.Inconnue,   0.0f)]
-    [InlineData(TileKnowledgeState.Pressentie, 0.30f)]
-    [InlineData(TileKnowledgeState.Esquissee,  0.60f)]
-    [InlineData(TileKnowledgeState.Levee,      0.0f)]
-    [InlineData(TileKnowledgeState.Scellee,    0.0f)]
+    [InlineData(TileKnowledgeLadder.Inconnue,   0.0f)]
+    [InlineData(TileKnowledgeLadder.Pressentie, 0.30f)]
+    [InlineData(TileKnowledgeLadder.Esquissee,  0.60f)]
+    [InlineData(TileKnowledgeLadder.Levee,      0.0f)]
+    [InlineData(TileKnowledgeLadder.Scellee,    0.0f)]
     public void Resolve_carton_face_alpha_pins_design_fix_table(
-        TileKnowledgeState state, float expected)
+        TileKnowledgeLadder state, float expected)
     {
         // CartonFace is the textured source-map slice. Hidden at
         // Inconnue (back is fully opaque so face would be invisible
         // anyway, and we save a draw call). Hidden at Levée+ (the
         // WorldMapSprite carries the visual). Surfaces progressively
         // at Pressentie 0.30 / Esquissée 0.60.
-        Assert.Equal(expected, TileKnowledgeStateHelpers.ResolveCartonFaceAlpha(state), precision: 3);
+        Assert.Equal(expected, TileKnowledgeLadderHelpers.ResolveCartonFaceAlpha(state), precision: 3);
     }
 
     [Fact]
@@ -110,9 +110,9 @@ public sealed class TileKnowledgeStateSlice36DesignFixTests
         // player advances from Inconnue to Esquissée. The opposite of
         // the back's monotonicity ; together they encode the "carton
         // hides → carte revealed" progression.
-        var inc = TileKnowledgeStateHelpers.ResolveCartonFaceAlpha(TileKnowledgeState.Inconnue);
-        var pre = TileKnowledgeStateHelpers.ResolveCartonFaceAlpha(TileKnowledgeState.Pressentie);
-        var esq = TileKnowledgeStateHelpers.ResolveCartonFaceAlpha(TileKnowledgeState.Esquissee);
+        var inc = TileKnowledgeLadderHelpers.ResolveCartonFaceAlpha(TileKnowledgeLadder.Inconnue);
+        var pre = TileKnowledgeLadderHelpers.ResolveCartonFaceAlpha(TileKnowledgeLadder.Pressentie);
+        var esq = TileKnowledgeLadderHelpers.ResolveCartonFaceAlpha(TileKnowledgeLadder.Esquissee);
 
         Assert.True(inc < pre, $"Inconnue face alpha {inc} should be < Pressentie {pre}");
         Assert.True(pre < esq, $"Pressentie face alpha {pre} should be < Esquissée {esq}");
@@ -124,28 +124,28 @@ public sealed class TileKnowledgeStateSlice36DesignFixTests
     // -------------------------------------------------------------------
 
     [Theory]
-    [InlineData(TileKnowledgeState.Inconnue)]
-    [InlineData(TileKnowledgeState.Pressentie)]
-    [InlineData(TileKnowledgeState.Esquissee)]
-    [InlineData(TileKnowledgeState.Levee)]
-    [InlineData(TileKnowledgeState.Scellee)]
-    public void Back_alpha_is_always_in_unit_interval(TileKnowledgeState state)
+    [InlineData(TileKnowledgeLadder.Inconnue)]
+    [InlineData(TileKnowledgeLadder.Pressentie)]
+    [InlineData(TileKnowledgeLadder.Esquissee)]
+    [InlineData(TileKnowledgeLadder.Levee)]
+    [InlineData(TileKnowledgeLadder.Scellee)]
+    public void Back_alpha_is_always_in_unit_interval(TileKnowledgeLadder state)
     {
         // No alpha can ever escape [0, 1]. Catches a future "set to 1.5
         // for emphasis" bug.
-        var alpha = TileKnowledgeStateHelpers.ResolveCartonBackAlpha(state);
+        var alpha = TileKnowledgeLadderHelpers.ResolveCartonBackAlpha(state);
         Assert.InRange(alpha, 0f, 1f);
     }
 
     [Theory]
-    [InlineData(TileKnowledgeState.Inconnue)]
-    [InlineData(TileKnowledgeState.Pressentie)]
-    [InlineData(TileKnowledgeState.Esquissee)]
-    [InlineData(TileKnowledgeState.Levee)]
-    [InlineData(TileKnowledgeState.Scellee)]
-    public void Face_alpha_is_always_in_unit_interval(TileKnowledgeState state)
+    [InlineData(TileKnowledgeLadder.Inconnue)]
+    [InlineData(TileKnowledgeLadder.Pressentie)]
+    [InlineData(TileKnowledgeLadder.Esquissee)]
+    [InlineData(TileKnowledgeLadder.Levee)]
+    [InlineData(TileKnowledgeLadder.Scellee)]
+    public void Face_alpha_is_always_in_unit_interval(TileKnowledgeLadder state)
     {
-        var alpha = TileKnowledgeStateHelpers.ResolveCartonFaceAlpha(state);
+        var alpha = TileKnowledgeLadderHelpers.ResolveCartonFaceAlpha(state);
         Assert.InRange(alpha, 0f, 1f);
     }
 
@@ -157,8 +157,8 @@ public sealed class TileKnowledgeStateSlice36DesignFixTests
         // hotfix violated (it had the source-map face fully opaque,
         // beige-tinted, with no separate back). If a future refactor
         // collapses the two resolvers, this test fails.
-        var back = TileKnowledgeStateHelpers.ResolveCartonBackAlpha(TileKnowledgeState.Inconnue);
-        var face = TileKnowledgeStateHelpers.ResolveCartonFaceAlpha(TileKnowledgeState.Inconnue);
+        var back = TileKnowledgeLadderHelpers.ResolveCartonBackAlpha(TileKnowledgeLadder.Inconnue);
+        var face = TileKnowledgeLadderHelpers.ResolveCartonFaceAlpha(TileKnowledgeLadder.Inconnue);
 
         Assert.Equal(1.0f, back, precision: 3);
         Assert.Equal(0.0f, face, precision: 3);
@@ -171,10 +171,10 @@ public sealed class TileKnowledgeStateSlice36DesignFixTests
         // (the WorldMapSprite below carries the visual). A non-zero
         // alpha here would draw a redundant clipped slice over the
         // unclipped sprite, producing a faint seam at the diamond edge.
-        foreach (var state in new[] { TileKnowledgeState.Levee, TileKnowledgeState.Scellee })
+        foreach (var state in new[] { TileKnowledgeLadder.Levee, TileKnowledgeLadder.Scellee })
         {
-            Assert.Equal(0.0f, TileKnowledgeStateHelpers.ResolveCartonBackAlpha(state), precision: 3);
-            Assert.Equal(0.0f, TileKnowledgeStateHelpers.ResolveCartonFaceAlpha(state), precision: 3);
+            Assert.Equal(0.0f, TileKnowledgeLadderHelpers.ResolveCartonBackAlpha(state), precision: 3);
+            Assert.Equal(0.0f, TileKnowledgeLadderHelpers.ResolveCartonFaceAlpha(state), precision: 3);
         }
     }
 
@@ -186,15 +186,15 @@ public sealed class TileKnowledgeStateSlice36DesignFixTests
         // through the sceau (Scellée only — the WorldMapSprite carries
         // Levée). Catches a regression where someone zeros all four
         // resolvers for a state and the cell becomes invisible.
-        foreach (TileKnowledgeState state in System.Enum.GetValues(typeof(TileKnowledgeState)))
+        foreach (TileKnowledgeLadder state in System.Enum.GetValues(typeof(TileKnowledgeLadder)))
         {
-            var back = TileKnowledgeStateHelpers.ResolveCartonBackAlpha(state);
-            var face = TileKnowledgeStateHelpers.ResolveCartonFaceAlpha(state);
-            var sceau = TileKnowledgeStateHelpers.ShouldRenderSceau(state);
+            var back = TileKnowledgeLadderHelpers.ResolveCartonBackAlpha(state);
+            var face = TileKnowledgeLadderHelpers.ResolveCartonFaceAlpha(state);
+            var sceau = TileKnowledgeLadderHelpers.ShouldRenderSceau(state);
             // Levée is intentionally invisible — the world map sprite
             // below shows. So we only check that the FogTileLayer-owned
             // visuals are present at every state EXCEPT Levée.
-            if (state == TileKnowledgeState.Levee) continue;
+            if (state == TileKnowledgeLadder.Levee) continue;
             Assert.True(back > 0f || face > 0f || sceau,
                 $"State {state} has no visible carton + no sceau — would render invisible.");
         }
@@ -208,13 +208,13 @@ public sealed class TileKnowledgeStateSlice36DesignFixTests
         // They must agree exactly with "alpha > 0", otherwise the runtime
         // may draw transparent polygons (cheap but wasteful) or skip
         // visible ones (bug).
-        foreach (TileKnowledgeState state in System.Enum.GetValues(typeof(TileKnowledgeState)))
+        foreach (TileKnowledgeLadder state in System.Enum.GetValues(typeof(TileKnowledgeLadder)))
         {
-            var backAlpha = TileKnowledgeStateHelpers.ResolveCartonBackAlpha(state);
-            var faceAlpha = TileKnowledgeStateHelpers.ResolveCartonFaceAlpha(state);
+            var backAlpha = TileKnowledgeLadderHelpers.ResolveCartonBackAlpha(state);
+            var faceAlpha = TileKnowledgeLadderHelpers.ResolveCartonFaceAlpha(state);
 
-            Assert.Equal(backAlpha > 0f, TileKnowledgeStateHelpers.ShouldRenderCartonBack(state));
-            Assert.Equal(faceAlpha > 0f, TileKnowledgeStateHelpers.ShouldRenderCartonFace(state));
+            Assert.Equal(backAlpha > 0f, TileKnowledgeLadderHelpers.ShouldRenderCartonBack(state));
+            Assert.Equal(faceAlpha > 0f, TileKnowledgeLadderHelpers.ShouldRenderCartonFace(state));
         }
     }
 
@@ -226,11 +226,11 @@ public sealed class TileKnowledgeStateSlice36DesignFixTests
         // ResolveCartonAlpha point at face (or worse, at face + back
         // combined), the slice 2 xUnit suite breaks and so does this
         // explicit alias check.
-        foreach (TileKnowledgeState state in System.Enum.GetValues(typeof(TileKnowledgeState)))
+        foreach (TileKnowledgeLadder state in System.Enum.GetValues(typeof(TileKnowledgeLadder)))
         {
             Assert.Equal(
-                TileKnowledgeStateHelpers.ResolveCartonBackAlpha(state),
-                TileKnowledgeStateHelpers.ResolveCartonAlpha(state),
+                TileKnowledgeLadderHelpers.ResolveCartonBackAlpha(state),
+                TileKnowledgeLadderHelpers.ResolveCartonAlpha(state),
                 precision: 3);
         }
     }
@@ -244,12 +244,12 @@ public sealed class TileKnowledgeStateSlice36DesignFixTests
         // be unique per state — if any two states collapse into the
         // same signature, the F-key cycle starts looking like skipping.
         var signatures = new System.Collections.Generic.HashSet<(float, float, bool)>();
-        foreach (TileKnowledgeState state in System.Enum.GetValues(typeof(TileKnowledgeState)))
+        foreach (TileKnowledgeLadder state in System.Enum.GetValues(typeof(TileKnowledgeLadder)))
         {
             var sig = (
-                TileKnowledgeStateHelpers.ResolveCartonBackAlpha(state),
-                TileKnowledgeStateHelpers.ResolveCartonFaceAlpha(state),
-                TileKnowledgeStateHelpers.ShouldRenderSceau(state));
+                TileKnowledgeLadderHelpers.ResolveCartonBackAlpha(state),
+                TileKnowledgeLadderHelpers.ResolveCartonFaceAlpha(state),
+                TileKnowledgeLadderHelpers.ShouldRenderSceau(state));
             Assert.True(signatures.Add(sig),
                 $"State {state} has the same (back, face, sceau) signature as a prior state — visually indistinguishable.");
         }

@@ -132,7 +132,7 @@
        validated through manual integration (debug F-key toggle for the
        store, editor "Run Bake Now" toggle for the tool). -->
   <ItemGroup>
-    <Compile Include="..\scripts\screens\TileKnowledgeState.cs" Link="src\TileKnowledgeState.cs" />
+    <Compile Include="..\scripts\screens\TileKnowledgeLadder.cs" Link="src\TileKnowledgeLadder.cs" />
     <Compile Include="..\scripts\screens\FogTileGridLogic.cs" Link="src\FogTileGridLogic.cs" />
   </ItemGroup>
 

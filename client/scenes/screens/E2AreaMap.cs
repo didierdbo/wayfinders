@@ -66,7 +66,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///   <item><b>Always-true drill resolver (Didier lock α).</b> The slice
 ///         5 brief explicitly trades fog tiles for "drill libre" : at L2
 ///         we install a resolver that returns a constant
-///         (<see cref="GridCoord"/>, <see cref="TileKnowledgeState.Levee"/>)
+///         (<see cref="GridCoord"/>, <see cref="TileKnowledgeLadder.Levee"/>)
 ///         pair so <see cref="ZoomNavLogic"/> always classifies the
 ///         cap-Push as <see cref="ZoomNavAction.DrillCandidate"/>. The
 ///         coord itself is a sentinel ((0,0)) and is NOT used by the
@@ -792,7 +792,7 @@ public partial class E2AreaMap : Control, IScreen
     /// Slice 5 -- always-true drill resolver. Decision α (Didier locked
     /// 2026-05-08) : at L2 there is no fog gate -- ANY cap-Push triggers
     /// a drill into E5. We feed <see cref="ZoomNavLogic.EvaluateWheelInput"/>
-    /// a constant (GridCoord(0,0), TileKnowledgeState.Levee) pair so the
+    /// a constant (GridCoord(0,0), TileKnowledgeLadder.Levee) pair so the
     /// drill candidacy gate (state &gt;= Esquissee) always passes. The
     /// coord (0,0) is a sentinel ; <see cref="OnDrillRequested"/>
     /// ignores it and captures the actual cursor world-space position
@@ -815,10 +815,10 @@ public partial class E2AreaMap : Control, IScreen
     /// <returns>Always a non-null pair with state &gt;= Esquissee,
     /// guaranteeing <see cref="ZoomNavLogic.EvaluateWheelInput"/>
     /// returns <see cref="ZoomNavAction.DrillCandidate"/> at the cap.</returns>
-    private static (GridCoord coord, TileKnowledgeState state)? AlwaysTrueDrillResolver(
+    private static (GridCoord coord, TileKnowledgeLadder state)? AlwaysTrueDrillResolver(
         Vector2 cursorWorldPosition)
     {
-        return (new GridCoord(0, 0), TileKnowledgeState.Levee);
+        return (new GridCoord(0, 0), TileKnowledgeLadder.Levee);
     }
 
     private async void OnPoiPressed(string poiId)

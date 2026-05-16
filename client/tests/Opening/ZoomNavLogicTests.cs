@@ -52,7 +52,7 @@ public sealed class ZoomNavLogicTests
         var outcome = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 1.0f,
             gesture: WheelGesture.Push,
-            tileKnowledgeAtCursor: TileKnowledgeState.Inconnue,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Inconnue,
             lastTransitionTimeMs: 0,
             currentTimeMs: 1000,
             thresholds: DefaultThresholds);
@@ -71,7 +71,7 @@ public sealed class ZoomNavLogicTests
         var outcome = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 1.95f,
             gesture: WheelGesture.Push,
-            tileKnowledgeAtCursor: TileKnowledgeState.Esquissee,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Esquissee,
             lastTransitionTimeMs: 0,
             currentTimeMs: 1000,
             thresholds: DefaultThresholds);
@@ -88,7 +88,7 @@ public sealed class ZoomNavLogicTests
         var outcome = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 2.0f,
             gesture: WheelGesture.Push,
-            tileKnowledgeAtCursor: TileKnowledgeState.Esquissee,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Esquissee,
             lastTransitionTimeMs: 0,
             currentTimeMs: 1000,
             thresholds: DefaultThresholds);
@@ -104,7 +104,7 @@ public sealed class ZoomNavLogicTests
         var outcome = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 2.0f,
             gesture: WheelGesture.Push,
-            tileKnowledgeAtCursor: TileKnowledgeState.Levee,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Levee,
             lastTransitionTimeMs: 0,
             currentTimeMs: 1000,
             thresholds: DefaultThresholds);
@@ -121,7 +121,7 @@ public sealed class ZoomNavLogicTests
         var outcome = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 2.0f,
             gesture: WheelGesture.Push,
-            tileKnowledgeAtCursor: TileKnowledgeState.Inconnue,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Inconnue,
             lastTransitionTimeMs: 0,
             currentTimeMs: 1000,
             thresholds: DefaultThresholds);
@@ -139,7 +139,7 @@ public sealed class ZoomNavLogicTests
         var outcome = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 2.0f,
             gesture: WheelGesture.Push,
-            tileKnowledgeAtCursor: TileKnowledgeState.Pressentie,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Pressentie,
             lastTransitionTimeMs: 0,
             currentTimeMs: 1000,
             thresholds: DefaultThresholds);
@@ -155,7 +155,7 @@ public sealed class ZoomNavLogicTests
         var outcome = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 0.8f,
             gesture: WheelGesture.Pull,
-            tileKnowledgeAtCursor: TileKnowledgeState.Inconnue,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Inconnue,
             lastTransitionTimeMs: 0,
             currentTimeMs: 1000,
             thresholds: DefaultThresholds);
@@ -173,7 +173,7 @@ public sealed class ZoomNavLogicTests
         var outcome = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 0.5f,
             gesture: WheelGesture.Pull,
-            tileKnowledgeAtCursor: TileKnowledgeState.Inconnue,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Inconnue,
             lastTransitionTimeMs: 0,
             currentTimeMs: 1000,
             thresholds: DefaultThresholds);
@@ -191,7 +191,7 @@ public sealed class ZoomNavLogicTests
         var outcome = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 0.55f,
             gesture: WheelGesture.Pull,
-            tileKnowledgeAtCursor: TileKnowledgeState.Inconnue,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Inconnue,
             lastTransitionTimeMs: 0,
             currentTimeMs: 1000,
             thresholds: DefaultThresholds);
@@ -208,7 +208,7 @@ public sealed class ZoomNavLogicTests
         var outcome = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 2.0f - 1e-5f,
             gesture: WheelGesture.Push,
-            tileKnowledgeAtCursor: TileKnowledgeState.Esquissee,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Esquissee,
             lastTransitionTimeMs: 0,
             currentTimeMs: 1000,
             thresholds: DefaultThresholds);
@@ -222,7 +222,7 @@ public sealed class ZoomNavLogicTests
         var outcome = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 0.5f + 1e-5f,
             gesture: WheelGesture.Pull,
-            tileKnowledgeAtCursor: TileKnowledgeState.Inconnue,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Inconnue,
             lastTransitionTimeMs: 0,
             currentTimeMs: 1000,
             thresholds: DefaultThresholds);
@@ -239,7 +239,7 @@ public sealed class ZoomNavLogicTests
         var outcome = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 2.0f,
             gesture: WheelGesture.Push,
-            tileKnowledgeAtCursor: TileKnowledgeState.Esquissee,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Esquissee,
             lastTransitionTimeMs: 1000,
             currentTimeMs: 1100,
             thresholds: DefaultThresholds);
@@ -256,7 +256,7 @@ public sealed class ZoomNavLogicTests
         var outcome = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 1.0f,
             gesture: WheelGesture.Push,
-            tileKnowledgeAtCursor: TileKnowledgeState.Inconnue,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Inconnue,
             lastTransitionTimeMs: 1000,
             currentTimeMs: 1250,
             thresholds: DefaultThresholds);
@@ -275,7 +275,7 @@ public sealed class ZoomNavLogicTests
         var outcome = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 1.0f,
             gesture: WheelGesture.Push,
-            tileKnowledgeAtCursor: TileKnowledgeState.Inconnue,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Inconnue,
             lastTransitionTimeMs: 0,
             currentTimeMs: 50,
             thresholds: DefaultThresholds);
@@ -292,7 +292,7 @@ public sealed class ZoomNavLogicTests
         var outcome = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 0.5f,
             gesture: WheelGesture.Pull,
-            tileKnowledgeAtCursor: TileKnowledgeState.Inconnue,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Inconnue,
             lastTransitionTimeMs: 1000,
             currentTimeMs: 1100,
             thresholds: DefaultThresholds);
@@ -301,13 +301,13 @@ public sealed class ZoomNavLogicTests
     }
 
     [Theory]
-    [InlineData(TileKnowledgeState.Inconnue,   ZoomNavAction.DrillBlocked)]
-    [InlineData(TileKnowledgeState.Pressentie, ZoomNavAction.DrillBlocked)]
-    [InlineData(TileKnowledgeState.Esquissee,  ZoomNavAction.DrillCandidate)]
-    [InlineData(TileKnowledgeState.Levee,      ZoomNavAction.DrillCandidate)]
-    [InlineData(TileKnowledgeState.Scellee,    ZoomNavAction.DrillCandidate)]
+    [InlineData(TileKnowledgeLadder.Inconnue,   ZoomNavAction.DrillBlocked)]
+    [InlineData(TileKnowledgeLadder.Pressentie, ZoomNavAction.DrillBlocked)]
+    [InlineData(TileKnowledgeLadder.Esquissee,  ZoomNavAction.DrillCandidate)]
+    [InlineData(TileKnowledgeLadder.Levee,      ZoomNavAction.DrillCandidate)]
+    [InlineData(TileKnowledgeLadder.Scellee,    ZoomNavAction.DrillCandidate)]
     public void Drill_gate_fires_only_for_states_at_or_above_esquissee(
-        TileKnowledgeState state,
+        TileKnowledgeLadder state,
         ZoomNavAction expectedAction)
     {
         // Pinned ladder : Inconnue (0), Pressentie (1), Esquissée (2),
@@ -342,7 +342,7 @@ public sealed class ZoomNavLogicTests
         var atCustomMax = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 1.5f,
             gesture: WheelGesture.Push,
-            tileKnowledgeAtCursor: TileKnowledgeState.Esquissee,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Esquissee,
             lastTransitionTimeMs: 0,
             currentTimeMs: 1000,
             thresholds: custom);
@@ -350,7 +350,7 @@ public sealed class ZoomNavLogicTests
         var belowCustomMax = ZoomNavLogic.EvaluateWheelInput(
             currentZoom: 1.49f,
             gesture: WheelGesture.Push,
-            tileKnowledgeAtCursor: TileKnowledgeState.Esquissee,
+            tileKnowledgeAtCursor: TileKnowledgeLadder.Esquissee,
             lastTransitionTimeMs: 0,
             currentTimeMs: 1000,
             thresholds: custom);

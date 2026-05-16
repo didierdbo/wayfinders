@@ -3,7 +3,7 @@ using Wayfinders.Client.Scripts.Screens;
 namespace Wayfinders.Client.Tests.Opening;
 
 /// <summary>
-/// Slice 2 tests for <see cref="TileKnowledgeStateHelpers"/> additions
+/// Slice 2 tests for <see cref="TileKnowledgeLadderHelpers"/> additions
 /// (M3 / L1 World fondations / 2026-05-08). Pins the per-state carton
 /// alpha resolver, the swatch + sceau visibility predicates, and the
 /// cycle-next / cycle-previous ladder walkers used by the slice 2
@@ -11,13 +11,13 @@ namespace Wayfinders.Client.Tests.Opening;
 ///
 /// <para>
 /// <b>Slice 3.6 design fix touch-up.</b> The single-carton vocabulary
-/// pinned by this fixture (<see cref="TileKnowledgeStateHelpers.ResolveCartonAlpha"/>)
+/// pinned by this fixture (<see cref="TileKnowledgeLadderHelpers.ResolveCartonAlpha"/>)
 /// is preserved as a back-compat alias for the BACK alpha (since "the
 /// carton" originally meant the opaque blocker). The PaletteSwatch
 /// predicate is updated to reflect the retirement of the swatch — see
 /// <see cref="Should_render_palette_swatch_is_retired"/>. The new back/face
 /// resolvers are pinned in the dedicated slice 3.6 design-fix fixture
-/// <c>TileKnowledgeStateSlice36DesignFixTests</c>.
+/// <c>TileKnowledgeLadderSlice36DesignFixTests</c>.
 /// </para>
 ///
 /// <para>
@@ -29,21 +29,21 @@ namespace Wayfinders.Client.Tests.Opening;
 /// observables visuellement" fails silently.
 /// </para>
 /// </summary>
-public sealed class TileKnowledgeStateSlice2Tests
+public sealed class TileKnowledgeLadderSlice2Tests
 {
     [Theory]
-    [InlineData(TileKnowledgeState.Inconnue,   1.0f)]
-    [InlineData(TileKnowledgeState.Pressentie, 0.70f)]
-    [InlineData(TileKnowledgeState.Esquissee,  0.40f)]
-    [InlineData(TileKnowledgeState.Levee,      0.0f)]
-    [InlineData(TileKnowledgeState.Scellee,    0.0f)]
-    public void Resolve_carton_alpha_pins_slice_2_table(TileKnowledgeState state, float expected)
+    [InlineData(TileKnowledgeLadder.Inconnue,   1.0f)]
+    [InlineData(TileKnowledgeLadder.Pressentie, 0.70f)]
+    [InlineData(TileKnowledgeLadder.Esquissee,  0.40f)]
+    [InlineData(TileKnowledgeLadder.Levee,      0.0f)]
+    [InlineData(TileKnowledgeLadder.Scellee,    0.0f)]
+    public void Resolve_carton_alpha_pins_slice_2_table(TileKnowledgeLadder state, float expected)
     {
         // Slice 2 visual contract — preserved as a back-compat alias for
         // the slice 3.6 design fix CartonBack alpha. "The carton" meant
         // the opaque blocker before the back/face split, and the back is
         // the opaque blocker now.
-        Assert.Equal(expected, TileKnowledgeStateHelpers.ResolveCartonAlpha(state), precision: 3);
+        Assert.Equal(expected, TileKnowledgeLadderHelpers.ResolveCartonAlpha(state), precision: 3);
     }
 
     [Fact]
@@ -53,10 +53,10 @@ public sealed class TileKnowledgeStateSlice2Tests
         // Esquissée must show progressively less back. Locks the order
         // at the test layer so a swap of two values fails here, not in
         // a manual smoke test.
-        var inc = TileKnowledgeStateHelpers.ResolveCartonAlpha(TileKnowledgeState.Inconnue);
-        var pre = TileKnowledgeStateHelpers.ResolveCartonAlpha(TileKnowledgeState.Pressentie);
-        var esq = TileKnowledgeStateHelpers.ResolveCartonAlpha(TileKnowledgeState.Esquissee);
-        var lev = TileKnowledgeStateHelpers.ResolveCartonAlpha(TileKnowledgeState.Levee);
+        var inc = TileKnowledgeLadderHelpers.ResolveCartonAlpha(TileKnowledgeLadder.Inconnue);
+        var pre = TileKnowledgeLadderHelpers.ResolveCartonAlpha(TileKnowledgeLadder.Pressentie);
+        var esq = TileKnowledgeLadderHelpers.ResolveCartonAlpha(TileKnowledgeLadder.Esquissee);
+        var lev = TileKnowledgeLadderHelpers.ResolveCartonAlpha(TileKnowledgeLadder.Levee);
 
         Assert.True(inc > pre, $"Inconnue alpha {inc} should be > Pressentie {pre}");
         Assert.True(pre > esq, $"Pressentie alpha {pre} should be > Esquissée {esq}");
@@ -64,13 +64,13 @@ public sealed class TileKnowledgeStateSlice2Tests
     }
 
     [Theory]
-    [InlineData(TileKnowledgeState.Inconnue,   false)]
-    [InlineData(TileKnowledgeState.Pressentie, false)]
-    [InlineData(TileKnowledgeState.Esquissee,  false)]
-    [InlineData(TileKnowledgeState.Levee,      false)]
-    [InlineData(TileKnowledgeState.Scellee,    false)]
+    [InlineData(TileKnowledgeLadder.Inconnue,   false)]
+    [InlineData(TileKnowledgeLadder.Pressentie, false)]
+    [InlineData(TileKnowledgeLadder.Esquissee,  false)]
+    [InlineData(TileKnowledgeLadder.Levee,      false)]
+    [InlineData(TileKnowledgeLadder.Scellee,    false)]
     public void Should_render_palette_swatch_is_retired(
-        TileKnowledgeState state, bool expected)
+        TileKnowledgeLadder state, bool expected)
     {
         // Slice 3.6 design fix — the PaletteSwatch is retired. The
         // CartonFace polygon now carries the diegetic "hint of palette"
@@ -80,51 +80,51 @@ public sealed class TileKnowledgeStateSlice2Tests
         // never shown. If a future slice wants the swatch back (e.g.
         // for a stylised parchemin overlay), it can flip this predicate
         // in one place.
-        Assert.Equal(expected, TileKnowledgeStateHelpers.ShouldRenderPaletteSwatch(state));
+        Assert.Equal(expected, TileKnowledgeLadderHelpers.ShouldRenderPaletteSwatch(state));
     }
 
     [Theory]
-    [InlineData(TileKnowledgeState.Inconnue,   false)]
-    [InlineData(TileKnowledgeState.Pressentie, false)]
-    [InlineData(TileKnowledgeState.Esquissee,  false)]
-    [InlineData(TileKnowledgeState.Levee,      false)]
-    [InlineData(TileKnowledgeState.Scellee,    true)]
+    [InlineData(TileKnowledgeLadder.Inconnue,   false)]
+    [InlineData(TileKnowledgeLadder.Pressentie, false)]
+    [InlineData(TileKnowledgeLadder.Esquissee,  false)]
+    [InlineData(TileKnowledgeLadder.Levee,      false)]
+    [InlineData(TileKnowledgeLadder.Scellee,    true)]
     public void Should_render_sceau_only_at_scellee(
-        TileKnowledgeState state, bool expected)
+        TileKnowledgeLadder state, bool expected)
     {
         // Sceau de cire is the only visual distinction between Levée
         // and Scellée at slice 2 (Varn §1.2). Brief slice 2 livrable 2 :
         // "Scellée = comme Levée plus sceau placeholder".
-        Assert.Equal(expected, TileKnowledgeStateHelpers.ShouldRenderSceau(state));
+        Assert.Equal(expected, TileKnowledgeLadderHelpers.ShouldRenderSceau(state));
     }
 
     [Theory]
-    [InlineData(TileKnowledgeState.Inconnue,   TileKnowledgeState.Pressentie)]
-    [InlineData(TileKnowledgeState.Pressentie, TileKnowledgeState.Esquissee)]
-    [InlineData(TileKnowledgeState.Esquissee,  TileKnowledgeState.Levee)]
-    [InlineData(TileKnowledgeState.Levee,      TileKnowledgeState.Scellee)]
-    [InlineData(TileKnowledgeState.Scellee,    TileKnowledgeState.Inconnue)]
+    [InlineData(TileKnowledgeLadder.Inconnue,   TileKnowledgeLadder.Pressentie)]
+    [InlineData(TileKnowledgeLadder.Pressentie, TileKnowledgeLadder.Esquissee)]
+    [InlineData(TileKnowledgeLadder.Esquissee,  TileKnowledgeLadder.Levee)]
+    [InlineData(TileKnowledgeLadder.Levee,      TileKnowledgeLadder.Scellee)]
+    [InlineData(TileKnowledgeLadder.Scellee,    TileKnowledgeLadder.Inconnue)]
     public void Cycle_next_walks_the_ladder_with_wrap(
-        TileKnowledgeState start, TileKnowledgeState expected)
+        TileKnowledgeLadder start, TileKnowledgeLadder expected)
     {
         // Slice 2 livrable 4 F-key contract : Inconnue → Pressentie →
         // Esquissée → Levée → Scellée → Inconnue. The wrap matters
         // for the "tous les niveaux observables" criterion : a single
         // F repeated 5 times returns to the starting state.
-        Assert.Equal(expected, TileKnowledgeStateHelpers.CycleNext(start));
+        Assert.Equal(expected, TileKnowledgeLadderHelpers.CycleNext(start));
     }
 
     [Theory]
-    [InlineData(TileKnowledgeState.Inconnue,   TileKnowledgeState.Scellee)]
-    [InlineData(TileKnowledgeState.Pressentie, TileKnowledgeState.Inconnue)]
-    [InlineData(TileKnowledgeState.Esquissee,  TileKnowledgeState.Pressentie)]
-    [InlineData(TileKnowledgeState.Levee,      TileKnowledgeState.Esquissee)]
-    [InlineData(TileKnowledgeState.Scellee,    TileKnowledgeState.Levee)]
+    [InlineData(TileKnowledgeLadder.Inconnue,   TileKnowledgeLadder.Scellee)]
+    [InlineData(TileKnowledgeLadder.Pressentie, TileKnowledgeLadder.Inconnue)]
+    [InlineData(TileKnowledgeLadder.Esquissee,  TileKnowledgeLadder.Pressentie)]
+    [InlineData(TileKnowledgeLadder.Levee,      TileKnowledgeLadder.Esquissee)]
+    [InlineData(TileKnowledgeLadder.Scellee,    TileKnowledgeLadder.Levee)]
     public void Cycle_previous_walks_the_ladder_backwards_with_wrap(
-        TileKnowledgeState start, TileKnowledgeState expected)
+        TileKnowledgeLadder start, TileKnowledgeLadder expected)
     {
         // Shift+F dual of CycleNext.
-        Assert.Equal(expected, TileKnowledgeStateHelpers.CyclePrevious(start));
+        Assert.Equal(expected, TileKnowledgeLadderHelpers.CyclePrevious(start));
     }
 
     [Fact]
@@ -133,10 +133,10 @@ public sealed class TileKnowledgeStateSlice2Tests
         // Inverse property — composing the two should be identity for
         // every state. Catches an accidental asymmetry (e.g. a
         // CycleNext that skips Esquissée when CyclePrevious doesn't).
-        foreach (TileKnowledgeState start in System.Enum.GetValues(typeof(TileKnowledgeState)))
+        foreach (TileKnowledgeLadder start in System.Enum.GetValues(typeof(TileKnowledgeLadder)))
         {
-            var roundTrip = TileKnowledgeStateHelpers.CyclePrevious(
-                TileKnowledgeStateHelpers.CycleNext(start));
+            var roundTrip = TileKnowledgeLadderHelpers.CyclePrevious(
+                TileKnowledgeLadderHelpers.CycleNext(start));
             Assert.Equal(start, roundTrip);
         }
     }
@@ -146,12 +146,12 @@ public sealed class TileKnowledgeStateSlice2Tests
     {
         // Five-step closure : five next-clicks returns to start.
         // Enforces the wrap convention.
-        foreach (TileKnowledgeState start in System.Enum.GetValues(typeof(TileKnowledgeState)))
+        foreach (TileKnowledgeLadder start in System.Enum.GetValues(typeof(TileKnowledgeLadder)))
         {
             var s = start;
             for (int i = 0; i < 5; i++)
             {
-                s = TileKnowledgeStateHelpers.CycleNext(s);
+                s = TileKnowledgeLadderHelpers.CycleNext(s);
             }
             Assert.Equal(start, s);
         }
