@@ -65,16 +65,18 @@ void fragment() {
     vec4 base = texture(TEXTURE, UV);
 
     // Defensive alpha discard. If the source pixel is transparent (a
-    // corner of the iso losange bitmap), short-circuit the blend and
-    // write a fully-transparent output. Keeps the iso losange shape
-    // visible even if a future bitmap has dirty alpha corners ; for
-    // wf_e1_tile_neutral.png (alpha=0 at corners) this is a strict
-    // no-op vs. the previous arithmetic path but makes the contract
-    // explicit -- a reader can see "transparent stays transparent" at
-    // a glance instead of tracing the alpha math.
+    // corner of the iso losange bitmap), skip the pixel entirely so it
+    // contributes nothing to the framebuffer. Keeps the iso losange
+    // shape visible even if a future bitmap has dirty alpha corners.
+    //
+    // GLSL/Godot trap : `return;` is NOT valid inside a fragment()
+    // function -- the shader compiler rejects it ("E ->" in the Output
+    // log) and the material silently becomes a no-op (attached, uniforms
+    // updated, but no pixel customization). The GLSL-standard way to
+    // short-circuit a fragment is `discard;` -- it tells the rasterizer
+    // to drop this pixel without writing to COLOR at all.
     if (base.a < ALPHA_DISCARD_THRESHOLD) {
-        COLOR = vec4(0.0, 0.0, 0.0, 0.0);
-        return;
+        discard;
     }
 
     // Compute the overlay weight : peaks at parchment_alpha == 0.55 (the
