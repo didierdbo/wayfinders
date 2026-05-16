@@ -89,6 +89,9 @@ web/pnpm-debug.log*
 #     paths plus the imported binary blobs. They must never be committed.
 #   - IGNORE bin/, obj/, *.user, *.suo: standard .NET / IDE local state.
 #   - IGNORE exports/, builds/, *.pck, *.translation: build outputs.
+#   - IGNORE *.lscache: Rider/ReSharper local solution cache. Per-machine
+#     C# language-service state, never useful to commit (formalised 2026-05-16
+#     after 3 stray *.csproj.lscache files surfaced as untracked noise).
 client/.godot/
 client/.import/
 client/bin/
@@ -101,6 +104,7 @@ client/exports/
 client/builds/
 client/*.pck
 client/*.translation
+*.lscache
 
 # Visual exploration sandbox -- not shipped, not versioned.
 # Mira drops candidate variants under any _concept/ subfolder ; AssetResolver
