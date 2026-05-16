@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 using Wayfinders.Client.Scripts.Screens;
 using Wayfinders.Client.Services;
@@ -150,7 +151,7 @@ public partial class E2AreaMap
     /// silently from a stale compile.
     /// </para>
     /// </summary>
-    private static readonly string ScopeMode = "E2.1b";
+    private static readonly string ScopeMode = "E2.1c";
 
     // -- Iso placement constants (mirror IsoMapE1Probe, see partial XML
     //    doc §"Iso placement"). The E1 tile bitmap is 256 wide x 132
@@ -280,6 +281,27 @@ public partial class E2AreaMap
     private Node2D? _npcPortraitLayer;
 
     /// <summary>
+    /// E2-layer POI markers, one per active <see cref="HalfgateE2Mission"/>.
+    /// Spawned by <c>SpawnE2MissionPoiMarkers</c> at E2.1c+ ; each marker
+    /// sits at the iso-screen position of its target district's centroid
+    /// (resolved via <see cref="AreaGridLogic.DistrictCentroid"/>). The
+    /// list is kept so <see cref="TearDownAreaGrid"/> can clear refs
+    /// without enumerating the AreaGridLayer children -- the layer
+    /// QueueFree cascade already frees the sprites, but the list lets us
+    /// log the count + nullify the captured refs in one pass.
+    ///
+    /// <para>
+    /// <b>Why a List, not a Dictionary by mission_id.</b> The E2.1c
+    /// renderer never looks markers up by id (no hover, no click, no
+    /// tooltip ; the brief is strict on lecture-only). When E2.2 wires
+    /// hover dispatch this becomes a Dictionary keyed by mission_id or
+    /// by district. For now the list mirrors the static authoring order
+    /// from <see cref="HalfgateE2MissionAuthoring.All"/>.
+    /// </para>
+    /// </summary>
+    private readonly List<Sprite2D> _e2PoiMarkers = new();
+
+    /// <summary>
     /// Per-cell base-tile Sprite2D, keyed by grid coord. At E2.1a the
     /// ShaderMaterial slot is empty (no parchment overlay) ; from E2.1b
     /// onward each sprite carries its per-cell ShaderMaterial with the
@@ -354,11 +376,14 @@ public partial class E2AreaMap
         _areaGridLayer.AddChild(_tileBaseLayer);
 
         // 3. Hit-test layer + fog overlay layer.
-        // Deferred until E2.1c (district tooltips + per-district tile bitmaps).
-        // At E2.1b the parchment overlay shader on each base sprite carries
-        // the partial-state visual entirely -- no separate fog veil needed,
-        // no hover hit-test (tooltips arrive E2.1c).
-        if (ScopeMode != "E2.1a" && ScopeMode != "E2.1b")
+        // Deferred until E2.2 (district hover + click + tooltips). Brief
+        // 2026-05-16 explicitly locks "pas de hover, pas de tooltip, pas
+        // d'interactivité" at E2.1c -- the per-mission POI markers added
+        // at E2.1c are lecture-only Sprite2D, no Area2D attached. The
+        // parchment overlay shader on each base sprite carries the
+        // partial-state visual at E2.1b + E2.1c entirely -- no separate
+        // fog veil needed either.
+        if (ScopeMode != "E2.1a" && ScopeMode != "E2.1b" && ScopeMode != "E2.1c")
         {
             _tileFogLayer = new Node2D { Name = "TileFogLayer", ZIndex = 1 };
             _tileHitTestLayer = new Node2D { Name = "TileHitTestLayer", ZIndex = 2 };
@@ -367,14 +392,13 @@ public partial class E2AreaMap
         }
 
         var assetResolver = GetNode<AssetResolver>("/root/AssetResolver");
-        // At E2.1a we use the E1 tile bitmap for all 64 cells (Didier
-        // brief : "même bitmap que E1"). Past E2.1a we pre-load the E2
-        // fog veil for the dégelé fog overlay layer.
-        // At E2.1a + E2.1b we don't render a separate fog overlay (the
-        // base sprite + parchment shader carry every visible state).
-        // The variable is kept for future degelé but resolves to the E1
-        // tile bitmap as a defensive default.
-        var fogTexture = (ScopeMode == "E2.1a" || ScopeMode == "E2.1b")
+        // At E2.1a / E2.1b / E2.1c we use the E1 tile bitmap for all
+        // 64 cells (Didier brief : "même bitmap que E1") and we do not
+        // render a separate fog veil (the base sprite + parchment shader
+        // carry every visible state). The fogTexture variable is kept
+        // for future degelé at E2.2 ; it resolves to the E1 bitmap until
+        // then as a defensive default.
+        var fogTexture = (ScopeMode == "E2.1a" || ScopeMode == "E2.1b" || ScopeMode == "E2.1c")
             ? assetResolver.Resolve(AreaGridTileFogAssetKey)
             : assetResolver.Resolve(AreaGridFogAssetKey);
         var tileE1Texture = assetResolver.Resolve(AreaGridTileFogAssetKey);
@@ -385,11 +409,13 @@ public partial class E2AreaMap
             SpawnTile(coord, assetResolver, fogTexture, tileE1Texture);
         }
 
-        // 5. POI marker -- deferred to E2.1c (Didier brief 2026-05-16 :
-        //    "Pas de POI marker quartier" at E2.1b). The marker stays
-        //    hidden at E2.1a + E2.1b ; the field remains null and any
-        //    code path that touches it (PopEffectPoiVisible flip) no-ops.
-        if (ScopeMode != "E2.1a" && ScopeMode != "E2.1b")
+        // 5. Legacy single-POI-marker -- the field is kept for the
+        //    future "central tuto POI" that flips visible on a specific
+        //    success event. NOT touched at E2.1c -- the E2.1c brief
+        //    explicitly delivers per-district markers via the loop in
+        //    step 5-bis, not a single central marker. Gated to E2.2+ for
+        //    the eventual end-of-tuto reveal moment.
+        if (ScopeMode != "E2.1a" && ScopeMode != "E2.1b" && ScopeMode != "E2.1c")
         {
             _poiMarker = new Sprite2D
             {
@@ -403,10 +429,25 @@ public partial class E2AreaMap
             _areaGridLayer.AddChild(_poiMarker);
         }
 
-        // 6. NPC portraits -- gated past E2.1b (land in E2.2 with the
-        //    Recruit + Company panel flow). Didier brief 2026-05-16 :
-        //    "Pas de portraits PNJ" at E2.1b.
+        // 5-bis. Per-district POI markers, one per active E2 mission --
+        //    THE E2.1c deliverable (Didier brief 2026-05-16). Reads the
+        //    mock authoring in HalfgateE2MissionAuthoring.All, resolves
+        //    each mission's TargetDistrict to a centroid anchor via
+        //    AreaGridLogic.DistrictCentroid, and spawns one Sprite2D per
+        //    mission at the iso-screen position of that centroid. No
+        //    hover, no click, no tooltip -- lecture only at E2.1c
+        //    (interactivity lands at E2.2+).
         if (ScopeMode != "E2.1a" && ScopeMode != "E2.1b")
+        {
+            SpawnE2MissionPoiMarkers(assetResolver);
+        }
+
+        // 6. NPC portraits -- gated past E2.1c (land in E2.2 with the
+        //    Recruit + Company panel flow). Didier brief 2026-05-16 :
+        //    "Pas de portraits PNJ" at E2.1b AND E2.1c (the latter
+        //    delivers per-district markers only, lecture-only -- the
+        //    recruit flow that needs the portraits arrives at E2.2).
+        if (ScopeMode != "E2.1a" && ScopeMode != "E2.1b" && ScopeMode != "E2.1c")
         {
             _npcPortraitLayer = new Node2D { Name = "NpcPortraitLayer", ZIndex = 6 };
             _areaGridLayer.AddChild(_npcPortraitLayer);
@@ -438,6 +479,7 @@ public partial class E2AreaMap
             $"hit_test_cells={_tileHitAreas.Count}, " +
             $"shader_loaded={_areaGridTileShader is not null}, " +
             $"poi_marker={_poiMarker is not null}, " +
+            $"e2_poi_markers={_e2PoiMarkers.Count}, " +
             $"render_controller={_areaGridRevealController is not null}");
     }
 
@@ -455,6 +497,114 @@ public partial class E2AreaMap
     }
 
     /// <summary>
+    /// Iso-translate a FRACTIONAL grid position (e.g. a district centroid
+    /// like (3.5, 3.5) for Intramuros) into the same iso-placed
+    /// world-space the integer cell centres live in. Same formula as
+    /// <see cref="IsoCellCentre"/> ; the only difference is the input
+    /// type. Used by <see cref="SpawnE2MissionPoiMarkers"/> to land a
+    /// POI marker BETWEEN cells when the district centroid is fractional.
+    ///
+    /// <para>
+    /// <b>Why a second method and not a single overload.</b> Keeping
+    /// <see cref="IsoCellCentre"/> on <see cref="GridCoord"/> protects
+    /// the integer-cell call sites from accidental fractional drift (the
+    /// E2 cell-spawn loop in <see cref="SpawnTile"/> calls IsoCellCentre
+    /// 64 times -- any silent (float, float) cast there would shift every
+    /// tile by sub-pixel rounding and the iso losanges would never align
+    /// edge-to-edge again). The two-method seam is the explicit signal
+    /// "this caller intentionally uses a fractional anchor".
+    /// </para>
+    /// </summary>
+    private static Vector2 IsoFractionalCentre(float col, float row)
+    {
+        float screenX = (col - row) * IsoWStride + IsoOriginOffsetX;
+        float screenY = (col + row) * IsoHStride + IsoOriginOffsetY;
+        return new Vector2(screenX, screenY);
+    }
+
+    /// <summary>
+    /// Spawn one POI marker per active E2-layer mission (E2.1c
+    /// deliverable, Didier brief 2026-05-16). Reads the mock authoring
+    /// in <see cref="HalfgateE2MissionAuthoring.All"/>, resolves each
+    /// mission's <see cref="HalfgateE2Mission.TargetDistrict"/> to a
+    /// fractional centroid via <see cref="AreaGridLogic.DistrictCentroid"/>,
+    /// translates the centroid into iso-screen space via
+    /// <see cref="IsoFractionalCentre"/>, and instantiates one
+    /// <see cref="Sprite2D"/> per mission under
+    /// <see cref="_areaGridLayer"/>.
+    ///
+    /// <para>
+    /// <b>Scope strict at E2.1c.</b> The brief locks lecture-only :
+    /// </para>
+    /// <list type="bullet">
+    ///   <item>No hover -- no Area2D hit-test attached.</item>
+    ///   <item>No click -- no input handler.</item>
+    ///   <item>No tooltip -- the narrative_hook is authored but not
+    ///         surfaced.</item>
+    /// </list>
+    ///
+    /// <para>
+    /// Each of these dégèle at E2.2 or later via the same kind of
+    /// scope-mode flip that opened E2.1c (a one-liner
+    /// <c>if (ScopeMode != ...)</c> in this method).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>ZIndex discipline.</b> ZIndex = 5 puts the markers above the
+    /// tile base layer (ZIndex 0 on _tileBaseLayer) and above the
+    /// reveal-controller's overlay tweens. The legacy single
+    /// <see cref="_poiMarker"/> uses ZIndex = 5 too ; that field is null
+    /// at E2.1c so they do not coexist, and when both are visible at
+    /// E2.2+ the per-mission markers iso-Y-sort against the central one
+    /// naturally.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Marker texture.</b> Resolved via the existing
+    /// <see cref="AreaGridPoiMarkerAssetKey"/> (= "e2.area_grid.poi_marker"
+    /// = wf_e2_grid_poi_marker_192x192.png, an RGBA terracotta circle
+    /// with transparent corners). Same key the legacy single marker
+    /// uses ; sharing the asset is intentional at E2.1c -- when E2.2
+    /// dégèle a per-mission badge state (active vs suspended), the key
+    /// dispatches per <see cref="HalfgateE2Mission"/> state.
+    /// </para>
+    /// </summary>
+    private void SpawnE2MissionPoiMarkers(AssetResolver assetResolver)
+    {
+        var markerTexture = assetResolver.Resolve(AreaGridPoiMarkerAssetKey);
+
+        foreach (var mission in HalfgateE2MissionAuthoring.All)
+        {
+            var centroid = AreaGridLogic.DistrictCentroid(mission.TargetDistrict);
+            var screenCentre = IsoFractionalCentre(centroid.Col, centroid.Row);
+
+            var marker = new Sprite2D
+            {
+                // Name encodes mission_id so the remote scene inspector
+                // makes the marker easy to find. Stable across runs.
+                Name = $"E2PoiMarker_{mission.MissionId}",
+                Texture = markerTexture,
+                Centered = true,
+                ZIndex = 5,
+                Position = screenCentre,
+                // LinearWithMipmaps matches the tile rendering : at the
+                // default zoom the marker's ring edge reads cleaner than
+                // Nearest. The 192x192 source bitmap is over-sampled at
+                // the rendered ~48 px so mipmaps win on the downscale.
+                TextureFilter = CanvasItem.TextureFilterEnum.LinearWithMipmaps,
+                Visible = true,
+            };
+            _areaGridLayer!.AddChild(marker);
+            _e2PoiMarkers.Add(marker);
+        }
+
+        GD.Print(
+            $"[E2AreaMap] SpawnE2MissionPoiMarkers : spawned " +
+            $"{_e2PoiMarkers.Count} marker(s) for active E2 missions " +
+            $"({string.Join(", ", HalfgateE2MissionAuthoring.All.Select(m => m.MissionId))}).");
+    }
+
+    /// <summary>
     /// Spawn one cell's tile sprite at its iso-placed world centre. At
     /// E2.1a the sprite is a plain Sprite2D with the E1 fog bitmap and
     /// no ShaderMaterial. Past E2.1a, the sprite carries a per-cell
@@ -467,19 +617,22 @@ public partial class E2AreaMap
         Texture2D fogTexture,
         Texture2D tileE1Texture)
     {
-        // -- Base tile sprite. At E2.1a + E2.1b, all 64 cells use the
-        //    E1 bitmap (Didier lock 2026-05-16, E2.1b smoke fix). The
-        //    per-district placeholder bitmaps are 256x256 fully-opaque
-        //    coloured squares with the district name stamped on them ;
-        //    routing E2.1b to them produced visible "Hinterland / Gateway /
-        //    Littoral / Land Agri" rectangles around the grid pourtour
-        //    AND made every cell render as a brique rectangulaire (no
-        //    losange shape) because those PNGs have no transparent corners.
-        //    The E1 neutral bitmap (256x132 RGBA, transparent corners) is
-        //    the correct fog-state visual for both E2.1a and E2.1b ; the
-        //    per-district bitmaps re-enter the picture at E2.1c with the
-        //    district tooltip + per-district visual treatment dégelé.
-        var baseTexture = (ScopeMode == "E2.1a" || ScopeMode == "E2.1b")
+        // -- Base tile sprite. At E2.1a + E2.1b + E2.1c, all 64 cells
+        //    use the E1 bitmap (Didier lock 2026-05-16, E2.1b smoke fix +
+        //    Rune extension at E2.1c : the Option C district_tint shader
+        //    path delivers the 6 visually-distinct district zones from
+        //    the single neutral bitmap, so the per-district placeholder
+        //    bitmaps stay untouched until proper Mira-painted iso losange
+        //    versions land at E2.2+). The per-district placeholder bitmaps
+        //    are 256x256 fully-opaque coloured squares with the district
+        //    name stamped on them ; routing here to them produced visible
+        //    "Hinterland / Gateway / Littoral / Land Agri" rectangles
+        //    around the grid pourtour AND made every cell render as a
+        //    brique rectangulaire (no losange shape) because those PNGs
+        //    have no transparent corners. The E1 neutral bitmap (256x132
+        //    RGBA, transparent corners) is the correct base for the
+        //    district_tint shader multiplication path.
+        var baseTexture = (ScopeMode == "E2.1a" || ScopeMode == "E2.1b" || ScopeMode == "E2.1c")
             ? tileE1Texture
             : assetResolver.Resolve(
                 $"e2.area_grid.tile.{DistrictTypeHelpers.AssetKeySuffix(AreaGridLogic.ResolveDistrictType(coord))}");
@@ -522,10 +675,12 @@ public partial class E2AreaMap
         _tileBaseLayer!.AddChild(baseSprite);
         _tileBaseSprites[coord] = baseSprite;
 
-        // -- Fog overlay + hit-test deferred until E2.1c. At E2.1a + E2.1b
-        //    the base sprite alone carries the visible state ; the fog veil
-        //    + hover hit-test land alongside the district tooltip dégelé.
-        if (ScopeMode == "E2.1a" || ScopeMode == "E2.1b") return;
+        // -- Fog overlay + hit-test deferred until E2.2 (brief
+        //    2026-05-16 locks "no hover, no tooltip, no interactivity"
+        //    at E2.1c). At E2.1a + E2.1b + E2.1c the base sprite alone
+        //    carries the visible state ; the fog veil + hover hit-test
+        //    land alongside the recruit + tooltip dégelé.
+        if (ScopeMode == "E2.1a" || ScopeMode == "E2.1b" || ScopeMode == "E2.1c") return;
 
         var fogSprite = new Sprite2D
         {
@@ -923,6 +1078,10 @@ public partial class E2AreaMap
         _tileHitTestLayer = null;
         _npcPortraitLayer = null;
         _poiMarker = null;
+        // E2.1c per-mission marker refs : the _areaGridLayer QueueFree
+        // above already disposes the Sprite2D nodes ; clearing the list
+        // drops the captured refs so a re-Configure starts fresh.
+        _e2PoiMarkers.Clear();
         _areaGridRevealController = null;
         _areaGridTileShader = null;
 

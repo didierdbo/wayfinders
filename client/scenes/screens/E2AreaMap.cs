@@ -448,19 +448,21 @@ public partial class E2AreaMap : Control, IScreen
         _drillRequestedHandler = OnDrillRequested;
         _panComponent.DrillRequested += _drillRequestedHandler;
 
-        // -- E2.1a + E2.1b strict scope (2026-05-16, Didier lock).
-        // -- The iso 8x8 grid is the ONLY thing the player should see at
-        // -- E2.1a (all-fog) and E2.1b (all-partial via A4.7 projection).
-        // -- Hide the two chrome CanvasLayers (DecorationLayer = banner +
-        // -- sub-banner + Compagnie panel + Contrats panel + bottom
-        // -- Journal panel + LayerIndicatorLabel ; ChromeLayer = "Quitter
-        // -- la cité" BackButton + BlockedIndicator) by setting their
-        // -- Visible to false. CanvasLayer.Visible propagates to every
-        // -- descendant, so we do not have to enumerate the inner
+        // -- E2.1a + E2.1b + E2.1c strict scope (2026-05-16, Didier
+        // -- lock + Rune extension at E2.1c per the E2.1c brief : "Chrome
+        // -- toujours caché"). The iso 8x8 grid + (at E2.1b) the wash
+        // -- with district tints + (at E2.1c) the per-mission POI markers
+        // -- are the ONLY things the player should see at this jalon
+        // -- ladder. Hide the two chrome CanvasLayers (DecorationLayer =
+        // -- banner + sub-banner + Compagnie panel + Contrats panel +
+        // -- bottom Journal panel + LayerIndicatorLabel ; ChromeLayer =
+        // -- "Quitter la cité" BackButton + BlockedIndicator) by setting
+        // -- their Visible to false. CanvasLayer.Visible propagates to
+        // -- every descendant, so we do not have to enumerate the inner
         // -- Controls. Hide (not QueueFree) so flipping ScopeMode to
-        // -- "E2.1c" / "E2.2" dégèle the chrome progressively without
-        // -- re-binding any field reference -- _Ready already bound the
-        // -- labels and the back button to fields above.
+        // -- "E2.2" dégèle the chrome progressively without re-binding
+        // -- any field reference -- _Ready already bound the labels and
+        // -- the back button to fields above.
         // --
         // -- ESC ladder-up is NOT affected : SceneManager._UnhandledInput
         // -- maps ui_cancel to NavigateBack at the autoload layer (see
@@ -469,7 +471,7 @@ public partial class E2AreaMap : Control, IScreen
         // -- keyboard shortcut keeps working because the Control root
         // -- has mouse_filter = Ignore and no _Input handler on this
         // -- screen claims ui_cancel.
-        if (CurrentScopeMode == "E2.1a" || CurrentScopeMode == "E2.1b")
+        if (CurrentScopeMode == "E2.1a" || CurrentScopeMode == "E2.1b" || CurrentScopeMode == "E2.1c")
         {
             var decorationLayer = GetNode<CanvasLayer>("DecorationLayer");
             var chromeLayer = GetNode<CanvasLayer>("ChromeLayer");
