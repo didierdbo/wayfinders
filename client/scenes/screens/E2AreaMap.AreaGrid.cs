@@ -79,12 +79,18 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// </para>
 ///
 /// <para>
-/// <b>Tile texture (E2.1a).</b> All 64 tiles use the E1 neutral fog
-/// bitmap (<c>e1.tile_neutral</c> = <c>wf_e1_tile_neutral.png</c>,
-/// 256x132). The fog veil and per-district tile bitmaps are E2.1b/c
-/// concerns ; at E2.1a the entire grid is the same fog texture. This
-/// matches Didier's brief : "RIEN d'autre visible -- toutes les tuiles
-/// restent fog, le shader area_grid_tile_overlay n'a rien à rendre".
+/// <b>Tile texture (E2.1a + E2.1b).</b> All 64 tiles use the E1 neutral
+/// fog bitmap (<c>e1.tile_neutral</c> = <c>wf_e1_tile_neutral.png</c>,
+/// 256x132 RGBA with transparent corners). E2.1a renders the grid in
+/// pure Fog state (no shader). E2.1b adds the parchment overlay shader
+/// + the A4.7 tuto pop projection ; the base bitmap stays the same E1
+/// neutral so the iso losange shape is preserved (the per-district
+/// 256x256 placeholder bitmaps have no transparency at their corners,
+/// so routing E2.1b to them would render every cell as a brique
+/// rectangulaire labelled with the district name -- exactly the
+/// regression Didier flagged in the E2.1b smoke). The per-district
+/// bitmaps re-enter the picture at E2.1c when the per-district visual
+/// treatment dégelés.
 /// </para>
 ///
 /// <para>
@@ -461,10 +467,19 @@ public partial class E2AreaMap
         Texture2D fogTexture,
         Texture2D tileE1Texture)
     {
-        // -- Base tile sprite. At E2.1a, all 64 cells use the E1 bitmap.
-        //    Past E2.1a, the base sprite uses the per-district tile
-        //    bitmap (resolved from AreaGridLogic.ResolveDistrictType).
-        var baseTexture = ScopeMode == "E2.1a"
+        // -- Base tile sprite. At E2.1a + E2.1b, all 64 cells use the
+        //    E1 bitmap (Didier lock 2026-05-16, E2.1b smoke fix). The
+        //    per-district placeholder bitmaps are 256x256 fully-opaque
+        //    coloured squares with the district name stamped on them ;
+        //    routing E2.1b to them produced visible "Hinterland / Gateway /
+        //    Littoral / Land Agri" rectangles around the grid pourtour
+        //    AND made every cell render as a brique rectangulaire (no
+        //    losange shape) because those PNGs have no transparent corners.
+        //    The E1 neutral bitmap (256x132 RGBA, transparent corners) is
+        //    the correct fog-state visual for both E2.1a and E2.1b ; the
+        //    per-district bitmaps re-enter the picture at E2.1c with the
+        //    district tooltip + per-district visual treatment dégelé.
+        var baseTexture = (ScopeMode == "E2.1a" || ScopeMode == "E2.1b")
             ? tileE1Texture
             : assetResolver.Resolve(
                 $"e2.area_grid.tile.{DistrictTypeHelpers.AssetKeySuffix(AreaGridLogic.ResolveDistrictType(coord))}");
