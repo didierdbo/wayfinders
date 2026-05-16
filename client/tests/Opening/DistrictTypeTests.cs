@@ -60,4 +60,43 @@ public sealed class DistrictTypeTests
         // the texture lookup silently (placeholder fallback fires).
         Assert.Equal(expected, DistrictTypeHelpers.AssetKeySuffix(d));
     }
+
+    /// <summary>
+    /// Pin the Varn-locked per-district tint palette (Rune lock
+    /// 2026-05-16, Option C). The 6 sRGB triplets feed the
+    /// <c>district_tint</c> uniform of
+    /// <c>area_grid_tile_overlay.gdshader</c> ; drifting any value here
+    /// is a silent visual regression (a cell would render in a different
+    /// hue at runtime), so we pin all 24 floats to surface the change
+    /// as a red xUnit step.
+    /// </summary>
+    [Theory]
+    [InlineData(DistrictType.Intramuros,     0.945f, 0.910f, 0.808f)]
+    [InlineData(DistrictType.Wall,           0.620f, 0.600f, 0.565f)]
+    [InlineData(DistrictType.Gateway,        0.835f, 0.510f, 0.376f)]
+    [InlineData(DistrictType.Outskirts,      0.815f, 0.733f, 0.580f)]
+    [InlineData(DistrictType.HinterlandAgri, 0.580f, 0.620f, 0.396f)]
+    [InlineData(DistrictType.Littoral,       0.560f, 0.640f, 0.682f)]
+    public void TintRgba_locks_the_per_district_palette(
+        DistrictType d, float expectedR, float expectedG, float expectedB)
+    {
+        var tint = DistrictTypeHelpers.TintRgba(d);
+        Assert.Equal(expectedR, tint.R);
+        Assert.Equal(expectedG, tint.G);
+        Assert.Equal(expectedB, tint.B);
+        Assert.Equal(1.0f, tint.A);
+    }
+
+    [Fact]
+    public void TintRgba_returns_identity_white_for_unknown_value()
+    {
+        // Defensive : the helper stays total. An unknown enum value
+        // (cast from a stale persisted int) renders as identity-white
+        // = the bare bitmap, not a black hole.
+        var tint = DistrictTypeHelpers.TintRgba((DistrictType)42);
+        Assert.Equal(1.0f, tint.R);
+        Assert.Equal(1.0f, tint.G);
+        Assert.Equal(1.0f, tint.B);
+        Assert.Equal(1.0f, tint.A);
+    }
 }

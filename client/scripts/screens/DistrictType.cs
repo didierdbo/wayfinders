@@ -100,4 +100,66 @@ public static class DistrictTypeHelpers
         DistrictType.Littoral       => "littoral",
         _ => "outskirts",
     };
+
+    /// <summary>
+    /// Resolve the per-district sRGB tint used by
+    /// <c>area_grid_tile_overlay.gdshader</c>'s <c>district_tint</c>
+    /// uniform (Rune-locked 2026-05-16, Option C).
+    ///
+    /// <para>
+    /// <b>Why a tuple and not a Godot.Color.</b> This helper lives in the
+    /// pure-C# layer beside <see cref="TileRevealStateHelpers"/> -- the
+    /// Godot-free, xUnit-pinned seam. Returning a <c>Godot.Color</c>
+    /// would pull <c>Godot</c> into a unit-test surface that intentionally
+    /// stays engine-free. The consumer scene
+    /// (<c>E2AreaMap.AreaGrid.cs</c>) wraps the tuple in
+    /// <c>new Color(r,g,b,a)</c> at the spawn site -- one line, zero
+    /// coupling cost.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Palette anchors (Wayfinders visual DNA, warm-earth axis,
+    /// Bourgeon + Bonner reference).</b> The 6 tints sit on the locked
+    /// terracotta-ochre + parchment-cream + umber axis. Saturation is
+    /// intentionally low : the shader multiplies these against the
+    /// painted base bitmap (E1 neutral today, per-district Mira pass
+    /// later), so a saturated tint would clobber the brush-stroke
+    /// readability. Each value was picked to read as a recognisable
+    /// district hue WITHOUT screaming "pop colour".
+    /// </para>
+    ///
+    /// <list type="bullet">
+    ///   <item><b>Intramuros</b> -- parchment cream (945, 910, 808) : the
+    ///         centre reads "civic / authored / canonical map colour".</item>
+    ///   <item><b>Wall</b> -- stone grey (620, 600, 565) : neutral
+    ///         desaturated, reads "defensive masonry".</item>
+    ///   <item><b>Gateway</b> -- terracotta (835, 510, 376) : warm chaud,
+    ///         signals "main road / customs / traffic".</item>
+    ///   <item><b>Outskirts</b> -- sand beige (815, 733, 580) : the
+    ///         pierced earth between wall and fields, faubourg dust.</item>
+    ///   <item><b>HinterlandAgri</b> -- olive (580, 620, 396) : muted
+    ///         green-yellow, reads "champs / sheepfolds" without going
+    ///         saturated-grass.</item>
+    ///   <item><b>Littoral</b> -- grey-blue (560, 640, 682) : the only
+    ///         cool tint, signals "brackish / quay / damp".</item>
+    /// </list>
+    ///
+    /// <para>
+    /// <b>Lock discipline.</b> Mira may dial these values during the
+    /// per-district bitmap pass post-E2.1c, but the seam (the 6-entry
+    /// closed lookup, the (R, G, B, A) tuple shape, the source_color
+    /// expectation) stays put. Tests pin the values so a silent edit
+    /// surfaces as a red xUnit step, not as a drift at runtime.
+    /// </para>
+    /// </summary>
+    public static (float R, float G, float B, float A) TintRgba(DistrictType district) => district switch
+    {
+        DistrictType.Intramuros     => (0.945f, 0.910f, 0.808f, 1.0f),
+        DistrictType.Wall           => (0.620f, 0.600f, 0.565f, 1.0f),
+        DistrictType.Gateway        => (0.835f, 0.510f, 0.376f, 1.0f),
+        DistrictType.Outskirts      => (0.815f, 0.733f, 0.580f, 1.0f),
+        DistrictType.HinterlandAgri => (0.580f, 0.620f, 0.396f, 1.0f),
+        DistrictType.Littoral       => (0.560f, 0.640f, 0.682f, 1.0f),
+        _                            => (1.000f, 1.000f, 1.000f, 1.0f),
+    };
 }

@@ -508,6 +508,15 @@ public partial class E2AreaMap
         {
             var material = new ShaderMaterial { Shader = _areaGridTileShader };
             material.SetShaderParameter("parchment_alpha", 0.0f);
+            // Per-cell district tint (Rune lock 2026-05-16, Option C).
+            // Set once at spawn ; the shader multiplies the base bitmap
+            // by this colour so all 64 cells share the E1 iso losange
+            // bitmap yet render as 6 visually-distinct district zones.
+            // The pure-C# TintRgba lives in DistrictTypeHelpers and stays
+            // Godot-free ; we wrap into Godot.Color at the seam here.
+            var district = AreaGridLogic.ResolveDistrictType(coord);
+            var tint = DistrictTypeHelpers.TintRgba(district);
+            material.SetShaderParameter("district_tint", new Color(tint.R, tint.G, tint.B, tint.A));
             baseSprite.Material = material;
         }
         _tileBaseLayer!.AddChild(baseSprite);

@@ -6,6 +6,17 @@
 // with a warm-cream parchment veil (terracotta umber tint, ~35-45 %
 // alpha modulation by the `parchment_alpha` uniform).
 //
+// E2.1c addendum (2026-05-16, Option C — Rune-authored district tint).
+// On top of the parchment wash, the shader now multiplies the base
+// bitmap by a per-cell `district_tint` color. This lets us keep the
+// single E1 iso losange bitmap for all 64 cells (alpha-corner discipline
+// preserved -- the losange shape stays clean) while still rendering 6
+// visually-distinct district zones. Mira will later replace this with
+// proper per-district iso losange bitmaps ; at that point `district_tint`
+// either stays as a subtle hue lift on top of the painted bitmap or is
+// dialled to white (= identity) by the spawn site. The shader surface
+// does not change either way.
+//
 // Wiring contract :
 // - The shader is bound to a Sprite2D / TextureRect sitting ON TOP of
 //   the base district tile (one Material per cell).
@@ -14,6 +25,10 @@
 //   transition (the controller pushes the alpha value through the
 //   OnRevealLevelChanged callback to the owner scene, which writes it
 //   into this uniform).
+// - The `district_tint` uniform is set ONCE at spawn time by
+//   E2AreaMap.SpawnTile from the Varn-locked palette in
+//   DistrictTypeHelpers.TintRgba. It stays constant for the lifetime of
+//   the tile.
 // - When parchment_alpha = 0.0, the cell shows nothing -- the base tile
 //   is fully covered by fog (fog veil texture handled separately).
 // - When parchment_alpha = 0.55 (the Varn-locked "partial" value), the
@@ -21,15 +36,26 @@
 // - When parchment_alpha = 1.0 (the "revealed" value), the wash falls
 //   off to nothing and the base tile is fully visible.
 //
+// Fog-state semantic (Option C) :
+// At Fog (parchment_alpha = 0.0) the consumer scene is expected to set
+// district_tint = vec4(1.0) (identity) so the cell renders as the bare
+// E1 bitmap -- the cadastral veil "rien deviné" reading. The tint only
+// kicks in once the cell reaches Partial / Revealed. Today the spawn
+// site sets district_tint per cell unconditionally and the fog state is
+// carried by parchment_alpha == 0 + the upstream fog veil ; if E2.1c
+// later wants strict cadastral neutrality at fog, swap the tint to white
+// in the Fog branch of OnRevealLevelTweenStep.
+//
 // Note: this is a Rune-authored MVP shader, flagged for Mira audit
 // post-Didier-validation of the placeholder render. Per the brief,
 // Mira will refine the look (grain, edge feather, hue adjustments) ;
-// the parametric surface (`parchment_alpha`, the tint constants) stays
-// stable so the audit is purely visual.
+// the parametric surface (`parchment_alpha`, `district_tint`, the tint
+// constants) stays stable so the audit is purely visual.
 //
 // References:
 //   - Varn reconciliation 2026-05-16 §3.3 (300 ms Tween + derived float).
 //   - TileRevealStateHelpers.ResolveRevealLevel (Fog=0.0 / Partial=0.55 / Revealed=1.0).
+//   - DistrictTypeHelpers.TintRgba (Varn-locked palette, 6 entries).
 //   - Wayfinders visual DNA : warm earth axis (terracotta + parchment + umber).
 
 shader_type canvas_item;
@@ -44,6 +70,18 @@ shader_type canvas_item;
 // "show face B" alpha. Here, parchment_alpha == 0 OR == 1 means
 // "no overlay", and the peak of the overlay sits at the partial value.
 uniform float parchment_alpha : hint_range(0.0, 1.0) = 0.0;
+
+// Per-cell district tint, set ONCE at spawn time by E2AreaMap.SpawnTile.
+// Default white = identity (= "no tint" -- the bare bitmap). Multiplied
+// against the base RGB BEFORE the parchment wash, so the wash colour
+// (terracotta umber) reads consistently across all districts. Alpha
+// component is ignored -- the source bitmap's alpha is the source of
+// truth for the iso losange shape.
+//
+// Values authored in DistrictTypeHelpers.TintRgba per the Varn-locked
+// 6-district palette (intramuros / wall / gateway / outskirts /
+// hinterland_agri / littoral). Locked 2026-05-16, Option C Rune-pass.
+uniform vec4 district_tint : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 
 // Tint constants. The overlay color is umber-warm so cells in partial
 // state read as "fogged but with a hint of legibility". Tweakable via
@@ -79,6 +117,16 @@ void fragment() {
         discard;
     }
 
+    // -- District tint pass (Option C, E2.1c Rune addendum).
+    // Multiply the base RGB by the per-cell district tint. Identity
+    // (district_tint = vec4(1.0)) leaves the bitmap untouched, which is
+    // the default and the fog-state expectation. Multiplication preserves
+    // the bitmap's tonal variations -- a darker brush stroke stays darker
+    // relative to a lighter one within the same district. This is the
+    // cheap-and-correct way to "colourise" a neutral bitmap without
+    // flattening it.
+    vec3 tinted_rgb = base.rgb * district_tint.rgb;
+
     // Compute the overlay weight : peaks at parchment_alpha == 0.55 (the
     // Varn-locked Partial value) and tapers to zero at both ends. The
     // formula is a triangular function centred on 0.55 with full reach
@@ -99,10 +147,15 @@ void fragment() {
     // leaves at least 60% of the tile color visible at peak.
     float overlay_opacity = weight * 0.40;
 
-    // Blend : overlay tint over the base tile color. Mix takes the
-    // base's RGB toward the parchment tint by overlay_opacity, then we
-    // keep the base alpha (sprite alpha is the source of truth for
-    // shape, not the overlay).
+    // Blend : overlay tint over the TINTED tile color. Mix takes the
+    // (district-tinted) base toward the parchment tint by overlay_opacity,
+    // then we keep the base alpha (sprite alpha is the source of truth
+    // for shape, not the overlay).
+    //
+    // Order matters : district_tint multiplies first (changes the hue
+    // of the bitmap), then the wash mixes toward terracotta over that.
+    // Swapping the order would tint the wash itself by the district,
+    // which fights the "fog reading" intent.
     //
     // d3d12 trap note (mirrors tile_reveal.gdshader header). canvas_item
     // fragment contract in Godot 4 : at function entry COLOR =
@@ -114,7 +167,7 @@ void fragment() {
     // squaring branch entirely. Keeping the multiplication preserves
     // the parent Modulate.a (fog edge cohabitation pattern, same as
     // tile_reveal.gdshader).
-    vec3 blended_rgb = mix(base.rgb, parchment_tint.rgb, overlay_opacity);
+    vec3 blended_rgb = mix(tinted_rgb, parchment_tint.rgb, overlay_opacity);
 
     COLOR = vec4(blended_rgb, base.a * COLOR.a);
 }
