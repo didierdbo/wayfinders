@@ -7,12 +7,16 @@ namespace Wayfinders.Client.Tests.Opening;
 /// Pin the 8×8 grid contract and the Halfgate coord-to-district mapping.
 ///
 /// <para>
-/// <b>E2.1c refonte (2026-05-16, Didier lock).</b> The grid is now modelled
-/// as 6 disjoint 2×2 district blocks (24 cells total) ; the remaining 40
-/// cells are unattributed and fall through the defensive
-/// <see cref="AreaGridLogic.ResolveDistrictType"/> path which returns
-/// <see cref="DistrictType.Outskirts"/>. The tests pin the 6 blocks and
-/// the fallback contract -- the legacy cardinal-symmetric ring is gone.
+/// <b>E2.1c profond refonte (2026-05-16, Didier lock).</b> The grid is
+/// now modelled as 6 districts with Varn-locked irregular cell lists
+/// (Intramuros 11, Wall 8, Gateway 4, Outskirts 6, HinterlandAgri 4,
+/// Littoral 6 = 39 attributed cells). The remaining 25 cells are
+/// unattributed neutral cells that fall through the defensive
+/// <see cref="AreaGridLogic.ResolveDistrictType"/> path and surface as
+/// <see cref="DistrictType.Outskirts"/> (so CellsOfDistrict(Outskirts)
+/// returns 31 cells = 6 authored + 25 fallback). The tests pin the
+/// per-district cell lists, the 39/25 split, and the new 16-zone POI
+/// centroid contract.
 /// </para>
 /// </summary>
 public sealed class AreaGridLogicTests
@@ -24,6 +28,18 @@ public sealed class AreaGridLogicTests
         // tile asset set + the reveal-shader grid_size uniform would need
         // to be re-validated.
         Assert.Equal(8, AreaGridLogic.GridSize);
+    }
+
+    [Fact]
+    public void Zone_partition_is_locked_at_four_by_four()
+    {
+        // E2.1c profond refonte : the 8×8 grid is partitioned into 4×4
+        // zones of 2×2 cells each, giving 16 zone-centres available to
+        // the DistrictCentroid lookup. Any drift here changes the
+        // centroid math (CentroidCol = 2*zCol+1.0) and shifts every POI
+        // marker visually.
+        Assert.Equal(2, AreaGridLogic.ZoneSize);
+        Assert.Equal(4, AreaGridLogic.ZonesPerAxis);
     }
 
     [Fact]
@@ -50,9 +66,8 @@ public sealed class AreaGridLogicTests
     [Fact]
     public void Centre_is_at_four_four()
     {
-        // Canonical anchor cell for the central POI footprint. At E2.1c
-        // the Intramuros 2×2 block is anchored at (3,3) and covers
-        // (3,3)(4,3)(3,4)(4,4) -- (4,4) is the SE corner of that block.
+        // Canonical anchor cell for the central POI footprint. (4,4) sits
+        // inside the Intramuros 11-cell body at E2.1c profond refonte.
         Assert.Equal(new GridCoord(4, 4), AreaGridLogic.Centre);
     }
 
@@ -71,8 +86,9 @@ public sealed class AreaGridLogicTests
     public void Central_footprint_cells_resolve_to_intramuros()
     {
         // A4.2 lock : the mission tuto pop_effect.tiles_to_partial must
-        // land on Intramuros cells (= the Intramuros 2×2 block at E2.1c).
-        // Drift here silently changes the EC6 tooltip text.
+        // land on Intramuros cells (= the Intramuros 11-cell body at
+        // E2.1c profond refonte). Drift here silently changes the EC6
+        // tooltip text.
         foreach (var cell in AreaGridLogic.CentralPoiFootprint())
         {
             Assert.Equal(DistrictType.Intramuros, AreaGridLogic.ResolveDistrictType(cell));
@@ -80,42 +96,47 @@ public sealed class AreaGridLogicTests
     }
 
     [Theory]
-    // The 4 cells of each of the 6 district 2×2 blocks (E2.1c refonte).
-    // Intramuros block (3,3)(4,3)(3,4)(4,4) -- centre of grid.
-    [InlineData(3, 3, DistrictType.Intramuros)]
-    [InlineData(4, 3, DistrictType.Intramuros)]
-    [InlineData(3, 4, DistrictType.Intramuros)]
-    [InlineData(4, 4, DistrictType.Intramuros)]
-    // Wall block (3,5)(4,5)(3,6)(4,6) -- south of Intramuros.
-    [InlineData(3, 5, DistrictType.Wall)]
-    [InlineData(4, 6, DistrictType.Wall)]
-    // Gateway block (3,0)(4,0)(3,1)(4,1) -- north strip.
+    // Sample cells per district from the Varn-locked authoring
+    // (see AreaGridLogic.DistrictCellsTable). Each district contributes
+    // 2 sample cells : one NW-corner anchor + one extremity.
+    //
+    // Intramuros (11 cells) -- 3×3 core cols 2-4 rows 2-4 + bulge (3,5)(4,5).
+    [InlineData(2, 2, DistrictType.Intramuros)]
+    [InlineData(4, 5, DistrictType.Intramuros)]
+    // Wall (8 cells) -- L-shaped ring east + south.
+    [InlineData(5, 3, DistrictType.Wall)]
+    [InlineData(5, 6, DistrictType.Wall)]
+    // Gateway (4 cells) -- north strip.
     [InlineData(3, 0, DistrictType.Gateway)]
     [InlineData(4, 1, DistrictType.Gateway)]
-    // Outskirts block (1,5)(2,5)(1,6)(2,6) -- SW faubourg.
+    // Outskirts (6 cells) -- SW faubourg cols 1-2 rows 5-7.
     [InlineData(1, 5, DistrictType.Outskirts)]
-    [InlineData(2, 6, DistrictType.Outskirts)]
-    // HinterlandAgri block (5,1)(6,1)(5,2)(6,2) -- NE fields.
+    [InlineData(2, 7, DistrictType.Outskirts)]
+    // HinterlandAgri (4 cells) -- NE field cluster.
     [InlineData(5, 1, DistrictType.HinterlandAgri)]
     [InlineData(6, 2, DistrictType.HinterlandAgri)]
-    // Littoral block (0,3)(1,3)(0,4)(1,4) -- west coast.
-    [InlineData(0, 3, DistrictType.Littoral)]
+    // Littoral (6 cells) -- west coast strip + midriff bulge.
+    [InlineData(0, 2, DistrictType.Littoral)]
     [InlineData(1, 4, DistrictType.Littoral)]
-    public void ResolveDistrictType_pins_each_block_cell(int col, int row, DistrictType expected)
+    public void ResolveDistrictType_pins_each_district_cell(int col, int row, DistrictType expected)
     {
         Assert.Equal(expected, AreaGridLogic.ResolveDistrictType(new GridCoord(col, row)));
     }
 
     [Theory]
-    // Unattributed cells (40 of the 64) fall through to the Outskirts
-    // defensive default per the E2.1c refonte contract. A handful of
-    // anchor coords to pin the "space between quartiers" semantics.
+    // Sample "space-between-quartiers" cells (the 25 unattributed). The
+    // critical case is (5, 0) : it sits outside every district list but
+    // ResolveDistrictType returns Outskirts as its defensive fallback,
+    // which would collide with the legit Outskirts cells if a caller
+    // relied on the enum alone. IsInDistrict must return false here.
     [InlineData(0, 0)]
     [InlineData(7, 0)]
     [InlineData(0, 7)]
     [InlineData(7, 7)]
-    [InlineData(5, 5)]
-    [InlineData(2, 2)]
+    [InlineData(7, 4)]
+    [InlineData(5, 0)]
+    [InlineData(1, 1)]
+    [InlineData(0, 6)]
     public void ResolveDistrictType_falls_back_to_outskirts_for_unattributed_cells(int col, int row)
     {
         Assert.Equal(DistrictType.Outskirts, AreaGridLogic.ResolveDistrictType(new GridCoord(col, row)));
@@ -135,8 +156,8 @@ public sealed class AreaGridLogicTests
     {
         // E2.1 acceptance criterion : the 8×8 grid exercises every
         // value of the closed lookup so hover on any cell can return
-        // every possible tooltip district label. At E2.1c each of the
-        // 6 districts owns a 2×2 block, so all 6 values are present.
+        // every possible tooltip district label. At E2.1c profond refonte
+        // each of the 6 districts owns ≥ 4 explicit cells.
         var districts = AreaGridLogic.AllCells()
             .Select(AreaGridLogic.ResolveDistrictType)
             .ToHashSet();
@@ -144,78 +165,128 @@ public sealed class AreaGridLogicTests
     }
 
     /// <summary>
-    /// E2.1c patch (2026-05-16, Didier lock). The
-    /// <see cref="AreaGridLogic.IsInDistrictBlock"/> helper is the explicit
-    /// seam the E2AreaMap tile spawn loop uses to discriminate the 24
-    /// district cells (which render per-district iso bitmaps) from the 40
-    /// unattributed cells (which continue to render the E1 fog bitmap).
-    /// Pinning the helper here surfaces a silent drift in the
-    /// <c>DistrictBlocks</c> table as a red xUnit step, BEFORE the visual
+    /// E2.1c profond refonte (2026-05-16, Didier lock). The
+    /// <see cref="AreaGridLogic.IsInDistrict"/> helper is the explicit
+    /// seam the E2AreaMap tile spawn loop uses to discriminate the 39
+    /// district cells (which render per-district iso bitmaps) from the 25
+    /// unattributed cells (which render the new dedicated neutral
+    /// bitmap). Pinning the helper here surfaces a silent drift in the
+    /// <c>DistrictCellsTable</c> as a red xUnit step, BEFORE the visual
     /// smoke test catches it via a misrendered cell.
     /// </summary>
     [Theory]
-    // One cell per district 2×2 block (the 6 NW corners).
-    [InlineData(3, 3)]  // Intramuros block NW
-    [InlineData(3, 5)]  // Wall block NW
-    [InlineData(3, 0)]  // Gateway block NW
-    [InlineData(1, 5)]  // Outskirts block NW
-    [InlineData(5, 1)]  // HinterlandAgri block NW
-    [InlineData(0, 3)]  // Littoral block NW
-    // One cell per district 2×2 block (the 6 SE corners).
-    [InlineData(4, 4)]  // Intramuros block SE
-    [InlineData(4, 6)]  // Wall block SE
-    [InlineData(4, 1)]  // Gateway block SE
-    [InlineData(2, 6)]  // Outskirts block SE
-    [InlineData(6, 2)]  // HinterlandAgri block SE
-    [InlineData(1, 4)]  // Littoral block SE
-    public void IsInDistrictBlock_returns_true_for_every_block_cell(int col, int row)
+    // One cell per district (covers all 6 districts).
+    [InlineData(3, 3)]  // Intramuros core
+    [InlineData(5, 3)]  // Wall east flank
+    [InlineData(3, 0)]  // Gateway
+    [InlineData(1, 5)]  // Outskirts NW corner
+    [InlineData(5, 1)]  // HinterlandAgri NW corner
+    [InlineData(0, 3)]  // Littoral west strip
+    // Tip cells of each district (extremities).
+    [InlineData(4, 5)]  // Intramuros south bulge
+    [InlineData(3, 6)]  // Wall south flank
+    [InlineData(4, 0)]  // Gateway NE corner
+    [InlineData(2, 7)]  // Outskirts SE corner
+    [InlineData(6, 2)]  // HinterlandAgri SE corner
+    [InlineData(1, 4)]  // Littoral midriff bulge
+    public void IsInDistrict_returns_true_for_every_district_cell(int col, int row)
     {
-        Assert.True(AreaGridLogic.IsInDistrictBlock(new GridCoord(col, row)));
+        Assert.True(AreaGridLogic.IsInDistrict(new GridCoord(col, row)));
     }
 
     [Theory]
-    // Sample "space between quartiers" cells (the 40 unattributed). The
-    // critical case is (5, 5) : it sits outside every block but
+    // Sample "space between quartiers" cells (the 25 unattributed). The
+    // critical case is (5, 0) : it sits outside every district list but
     // ResolveDistrictType returns Outskirts as its defensive fallback,
     // which would collide with the legit Outskirts cells if a caller
-    // relied on the enum alone. IsInDistrictBlock must return false here.
+    // relied on the enum alone. IsInDistrict must return false here.
     [InlineData(0, 0)]
     [InlineData(7, 0)]
     [InlineData(0, 7)]
     [InlineData(7, 7)]
-    [InlineData(5, 5)]
-    [InlineData(2, 2)]
-    [InlineData(2, 0)]
+    [InlineData(7, 4)]
     [InlineData(5, 0)]
-    public void IsInDistrictBlock_returns_false_for_unattributed_cells(int col, int row)
+    [InlineData(1, 1)]
+    [InlineData(0, 6)]
+    public void IsInDistrict_returns_false_for_unattributed_cells(int col, int row)
     {
-        Assert.False(AreaGridLogic.IsInDistrictBlock(new GridCoord(col, row)));
+        Assert.False(AreaGridLogic.IsInDistrict(new GridCoord(col, row)));
     }
 
     [Fact]
-    public void IsInDistrictBlock_returns_false_for_out_of_bounds()
+    public void IsInDistrict_returns_false_for_out_of_bounds()
     {
         // Defensive contract : like ResolveDistrictType, the helper is
         // total at the grid edge. Out-of-bounds returns false (= "do not
         // route to a district bitmap"), matching the spawn-loop semantics
         // (out-of-bounds cells don't get spawned in the first place, but
         // the helper has to stay total so the seam survives lazy callers).
-        Assert.False(AreaGridLogic.IsInDistrictBlock(new GridCoord(-1, 0)));
-        Assert.False(AreaGridLogic.IsInDistrictBlock(new GridCoord(0, -1)));
-        Assert.False(AreaGridLogic.IsInDistrictBlock(new GridCoord(8, 0)));
-        Assert.False(AreaGridLogic.IsInDistrictBlock(new GridCoord(0, 8)));
-        Assert.False(AreaGridLogic.IsInDistrictBlock(new GridCoord(8, 8)));
+        Assert.False(AreaGridLogic.IsInDistrict(new GridCoord(-1, 0)));
+        Assert.False(AreaGridLogic.IsInDistrict(new GridCoord(0, -1)));
+        Assert.False(AreaGridLogic.IsInDistrict(new GridCoord(8, 0)));
+        Assert.False(AreaGridLogic.IsInDistrict(new GridCoord(0, 8)));
+        Assert.False(AreaGridLogic.IsInDistrict(new GridCoord(8, 8)));
     }
 
     [Fact]
-    public void IsInDistrictBlock_covers_exactly_twenty_four_cells()
+    public void IsInDistrict_covers_exactly_thirty_nine_cells()
     {
-        // The 6 disjoint 2×2 blocks = 24 cells. If a block bumps to 2×4
-        // or 3×3, this count changes : the spawn loop's "24 district
-        // cells + 40 fog cells" comment becomes stale, and the visual
-        // ratio Didier locked at E2.1c drifts. Pin the total.
+        // E2.1c profond refonte authoring : Intramuros 11 + Wall 8 +
+        // Gateway 4 + Outskirts 6 + HinterlandAgri 4 + Littoral 6 = 39.
+        // The 25 unattributed cells = 64 - 39. If a district's cell list
+        // changes the total, this test catches it before the visual ratio
+        // Didier locked drifts at runtime.
         var count = AreaGridLogic.AllCells()
-            .Count(AreaGridLogic.IsInDistrictBlock);
-        Assert.Equal(24, count);
+            .Count(AreaGridLogic.IsInDistrict);
+        Assert.Equal(39, count);
+    }
+
+    [Fact]
+    public void Unattributed_neutral_cells_total_twenty_five()
+    {
+        // Direct counterpart of IsInDistrict_covers_exactly_thirty_nine_cells.
+        // The render layer routes these 25 cells to the new neutral iso
+        // bitmap (wf_e2_grid_neutral_256x132.png), distinct from BOTH the
+        // 6 per-district iso bitmaps AND the E1 fog bitmap.
+        var count = AreaGridLogic.AllCells()
+            .Count(c => !AreaGridLogic.IsInDistrict(c));
+        Assert.Equal(25, count);
+    }
+
+    [Fact]
+    public void Cells_of_zone_returns_the_four_cells_of_the_zone()
+    {
+        // Zone (0,0) covers (0,0)(1,0)(0,1)(1,1).
+        var zone00 = AreaGridLogic.CellsOfZone(0, 0).ToList();
+        Assert.Equal(4, zone00.Count);
+        Assert.Contains(new GridCoord(0, 0), zone00);
+        Assert.Contains(new GridCoord(1, 0), zone00);
+        Assert.Contains(new GridCoord(0, 1), zone00);
+        Assert.Contains(new GridCoord(1, 1), zone00);
+
+        // Zone (3,3) covers (6,6)(7,6)(6,7)(7,7).
+        var zone33 = AreaGridLogic.CellsOfZone(3, 3).ToList();
+        Assert.Equal(4, zone33.Count);
+        Assert.Contains(new GridCoord(6, 6), zone33);
+        Assert.Contains(new GridCoord(7, 7), zone33);
+
+        // Zone (1,1) covers (2,2)(3,2)(2,3)(3,3) -- all Intramuros at
+        // E2.1c profond refonte, exercising the centroid-zone-eligibility
+        // invariant from the other test class.
+        var zone11 = AreaGridLogic.CellsOfZone(1, 1).ToList();
+        Assert.Equal(4, zone11.Count);
+        Assert.Contains(new GridCoord(2, 2), zone11);
+        Assert.Contains(new GridCoord(3, 3), zone11);
+    }
+
+    [Fact]
+    public void Cells_of_zone_returns_empty_for_out_of_range_zone()
+    {
+        // Defensive contract : zCol / zRow outside [0..3] yields an
+        // empty enumeration so the caller can be lazy about bounds.
+        Assert.Empty(AreaGridLogic.CellsOfZone(-1, 0));
+        Assert.Empty(AreaGridLogic.CellsOfZone(0, -1));
+        Assert.Empty(AreaGridLogic.CellsOfZone(4, 0));
+        Assert.Empty(AreaGridLogic.CellsOfZone(0, 4));
     }
 }

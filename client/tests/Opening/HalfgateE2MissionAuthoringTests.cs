@@ -10,14 +10,13 @@ namespace Wayfinders.Client.Tests.Opening;
 /// as a red xUnit step.
 ///
 /// <para>
-/// <b>E2.1c refonte (2026-05-16, Didier lock).</b> The grid layout switched
-/// from cardinal-symmetric ring to 6 disjoint 2×2 district blocks. The
-/// centroid anchors are now the CORNER INTERSECTION of each 2×2 block
-/// (= block top-left + (1.0, 1.0)). The cell counts per district drop
-/// from heterogeneous (8, 12, 16, 20) to a uniform 4 for the 5 blocks
-/// that are NOT Outskirts, plus 44 for Outskirts (4 from its own block +
-/// 40 unattributed cells defaulting to Outskirts via the total
-/// ResolveDistrictType helper).
+/// <b>E2.1c profond refonte (2026-05-16, Didier lock).</b> The grid
+/// dropped the 2×2 block constraint and switched to per-district
+/// irregular cell lists (39 attributed + 25 neutral). The centroid
+/// anchors moved from "corner intersection of the 2×2 block" to "one of
+/// 16 axis-aligned zone-centres" (= <c>(2*zCol + 1.0, 2*zRow + 1.0)</c>
+/// for some integer zCol, zRow in [0, 3]). The picked zone is guaranteed
+/// to contain at least one cell of the target district.
 /// </para>
 /// </summary>
 public sealed class HalfgateE2MissionAuthoringTests
@@ -103,9 +102,8 @@ public sealed class HalfgateE2MissionAuthoringTests
     {
         // Sanity guard : a mission cannot target a district that has no
         // cells in the grid (the marker would land at the defensive
-        // fallback). The grid layout is Varn-locked too, so this test
-        // also pins the contract "every E2 mission's target_district has
-        // at least one cell".
+        // fallback). At E2.1c profond refonte every district has ≥ 4
+        // authored cells.
         foreach (var m in HalfgateE2MissionAuthoring.All)
         {
             var cells = AreaGridLogic.CellsOfDistrict(m.TargetDistrict).ToList();
@@ -132,14 +130,18 @@ public sealed class HalfgateE2MissionAuthoringTests
     public void Cells_of_district_partition_the_grid_into_sixty_four()
     {
         // The 6 district enumerations must together cover all 64 cells
-        // with no duplicates. At E2.1c the partition splits as :
-        //   - 5 districts × 4 cells each (2×2 blocks)     = 20 cells
-        //   - Outskirts (4 cells in block + 40 fallback)  = 44 cells
-        //   - total                                       = 64 cells
-        // A drift in DistrictBlocks (a misplaced anchor) would shift cells
-        // from Outskirts (fallback) into another district and the sum
-        // would still be 64 -- but the per-district counts below catch
-        // that.
+        // with no duplicates. At E2.1c profond refonte the partition is :
+        //   - Intramuros     = 11
+        //   - Wall           =  8
+        //   - Gateway        =  4
+        //   - HinterlandAgri =  4
+        //   - Littoral       =  6
+        //   - Outskirts      =  6 authored + 25 fallback = 31
+        //   - total          = 11 + 8 + 4 + 4 + 6 + 31    = 64
+        // A drift in the DistrictCellsTable (a misplaced cell) would
+        // shift cells from Outskirts (fallback) into another district
+        // and the sum would still be 64 -- but the per-district counts
+        // below catch that.
         int total = 0;
         foreach (var d in System.Enum.GetValues<DistrictType>())
         {
@@ -149,57 +151,55 @@ public sealed class HalfgateE2MissionAuthoringTests
     }
 
     [Theory]
-    // E2.1c refonte counts : each district owns a single 2×2 block = 4
-    // cells, EXCEPT Outskirts which also absorbs the 40 unattributed
-    // cells via the total ResolveDistrictType fallback (= 4 + 40 = 44).
-    [InlineData(DistrictType.Intramuros,      4)]
-    [InlineData(DistrictType.Wall,            4)]
+    // E2.1c profond refonte counts.
+    // Outskirts is 31 = 6 authored cells + 25 unattributed cells that
+    // fall through ResolveDistrictType's defensive Outskirts default.
+    [InlineData(DistrictType.Intramuros,     11)]
+    [InlineData(DistrictType.Wall,            8)]
     [InlineData(DistrictType.Gateway,         4)]
-    [InlineData(DistrictType.Outskirts,      44)]
+    [InlineData(DistrictType.Outskirts,      31)]
     [InlineData(DistrictType.HinterlandAgri,  4)]
-    [InlineData(DistrictType.Littoral,        4)]
+    [InlineData(DistrictType.Littoral,        6)]
     public void Cells_of_district_counts_match_the_authoring(DistrictType d, int expectedCount)
     {
         Assert.Equal(expectedCount, AreaGridLogic.CellsOfDistrict(d).Count());
     }
 
     [Theory]
-    // E2.1c refonte centroids : corner intersection of each 2×2 block =
-    // (blockCol + 1.0, blockRow + 1.0).
-    //   Intramuros block (3,3) -> (4.0, 4.0)
-    //   Wall block       (3,5) -> (4.0, 6.0)
-    //   Gateway block    (3,0) -> (4.0, 1.0)
-    //   Outskirts block  (1,5) -> (2.0, 6.0)
-    //   Hinterland block (5,1) -> (6.0, 2.0)
-    //   Littoral block   (0,3) -> (1.0, 4.0)
-    [InlineData(DistrictType.Intramuros,     4.0f, 4.0f)]
-    [InlineData(DistrictType.Wall,           4.0f, 6.0f)]
-    [InlineData(DistrictType.Gateway,        4.0f, 1.0f)]
-    [InlineData(DistrictType.Outskirts,      2.0f, 6.0f)]
-    [InlineData(DistrictType.HinterlandAgri, 6.0f, 2.0f)]
-    [InlineData(DistrictType.Littoral,       1.0f, 4.0f)]
+    // E2.1c profond refonte zone-centre centroids :
+    //   Intramuros     -> zone (1,1) -> (3.0, 3.0)   the centre of the centre
+    //   Wall           -> zone (2,2) -> (5.0, 5.0)   SE corner of the ring
+    //   Gateway        -> zone (1,0) -> (3.0, 1.0)   N strip
+    //   Outskirts      -> zone (0,2) -> (1.0, 5.0)   NW corner of the SW faubourg
+    //   HinterlandAgri -> zone (2,0) -> (5.0, 1.0)   NE field cluster
+    //   Littoral       -> zone (0,1) -> (1.0, 3.0)   densest Littoral zone
+    [InlineData(DistrictType.Intramuros,     3.0f, 3.0f)]
+    [InlineData(DistrictType.Wall,           5.0f, 5.0f)]
+    [InlineData(DistrictType.Gateway,        3.0f, 1.0f)]
+    [InlineData(DistrictType.Outskirts,      1.0f, 5.0f)]
+    [InlineData(DistrictType.HinterlandAgri, 5.0f, 1.0f)]
+    [InlineData(DistrictType.Littoral,       1.0f, 3.0f)]
     public void District_centroid_anchors_are_locked(
         DistrictType d, float expectedCol, float expectedRow)
     {
-        // E2.1c Didier lock : these 6 fractional anchors drive where the
-        // POI markers spawn (corner intersection of each 2×2 block). A
-        // silent edit shifts a marker visually.
+        // E2.1c profond refonte Didier lock : these 6 fractional anchors
+        // drive where the POI markers spawn (zone-centre on the 4×4
+        // lattice). A silent edit shifts a marker visually.
         var centroid = AreaGridLogic.DistrictCentroid(d);
         Assert.Equal(expectedCol, centroid.Col, 3);
         Assert.Equal(expectedRow, centroid.Row, 3);
     }
 
     [Fact]
-    public void District_centroid_is_total_returns_grid_centre_for_unknown_value()
+    public void District_centroid_is_total_returns_zone_one_one_for_unknown_value()
     {
-        // Defensive : a stale persisted int returns the grid centre
-        // (4.0, 4.0) -- the corner of the Intramuros block, the most
-        // central position on the grid -- so the marker still spawns at
-        // a visible position (least surprising fallback) while a higher
-        // layer logs the typo.
+        // Defensive : a stale persisted int returns zone (1,1)'s centroid
+        // (3.0, 3.0) -- the most central position on the 16-slot lattice
+        // -- so the marker still spawns at a visible position (least
+        // surprising fallback) while a higher layer logs the typo.
         var centroid = AreaGridLogic.DistrictCentroid((DistrictType)42);
-        Assert.Equal(4.0f, centroid.Col);
-        Assert.Equal(4.0f, centroid.Row);
+        Assert.Equal(3.0f, centroid.Col);
+        Assert.Equal(3.0f, centroid.Row);
     }
 
     [Theory]
@@ -219,9 +219,75 @@ public sealed class HalfgateE2MissionAuthoringTests
         Assert.InRange(centroid.Row, 0.0f, 7.0f);
     }
 
+    [Theory]
+    [InlineData(DistrictType.Intramuros)]
+    [InlineData(DistrictType.Wall)]
+    [InlineData(DistrictType.Gateway)]
+    [InlineData(DistrictType.Outskirts)]
+    [InlineData(DistrictType.HinterlandAgri)]
+    [InlineData(DistrictType.Littoral)]
+    public void District_centroid_lands_on_a_zone_centre(DistrictType d)
+    {
+        // E2.1c profond refonte invariant : the centroid is GUARANTEED
+        // to sit on one of the 16 zone-centres. Decompose centroid into
+        // (zCol, zRow) integers and verify it lines up with
+        // (2*zCol + 1, 2*zRow + 1).
+        var centroid = AreaGridLogic.DistrictCentroid(d);
+        // Subtract 1 then divide by ZoneSize. If the result is not an
+        // integer in [0, ZonesPerAxis), the centroid is off-lattice.
+        var rawZCol = (centroid.Col - 1.0f) / AreaGridLogic.ZoneSize;
+        var rawZRow = (centroid.Row - 1.0f) / AreaGridLogic.ZoneSize;
+        // Integer check : the float should be very close to its int cast.
+        Assert.Equal(rawZCol, (int)rawZCol, 3);
+        Assert.Equal(rawZRow, (int)rawZRow, 3);
+        Assert.InRange((int)rawZCol, 0, AreaGridLogic.ZonesPerAxis - 1);
+        Assert.InRange((int)rawZRow, 0, AreaGridLogic.ZonesPerAxis - 1);
+    }
+
+    [Theory]
+    [InlineData(DistrictType.Intramuros)]
+    [InlineData(DistrictType.Wall)]
+    [InlineData(DistrictType.Gateway)]
+    [InlineData(DistrictType.Outskirts)]
+    [InlineData(DistrictType.HinterlandAgri)]
+    [InlineData(DistrictType.Littoral)]
+    public void District_centroid_zone_contains_at_least_one_cell_of_district(DistrictType d)
+    {
+        // E2.1c profond refonte invariant (Didier brief 2026-05-16) :
+        // the zone picked by DistrictCentroid must contain AT LEAST ONE
+        // cell of the target district. A bad pick (no district cells in
+        // the zone) would land the POI marker on cells of a different
+        // district, breaking the narrative anchor.
+        var centroid = AreaGridLogic.DistrictCentroid(d);
+        var zCol = (int)((centroid.Col - 1.0f) / AreaGridLogic.ZoneSize);
+        var zRow = (int)((centroid.Row - 1.0f) / AreaGridLogic.ZoneSize);
+
+        var zoneCells = AreaGridLogic.CellsOfZone(zCol, zRow).ToList();
+        Assert.Equal(4, zoneCells.Count);
+
+        // Use IsInDistrict to avoid the Outskirts fallback collision :
+        // the zone may contain a neutral cell that ResolveDistrictType
+        // returns as Outskirts, which would spuriously satisfy the
+        // contract for the Outskirts district.
+        bool found = false;
+        foreach (var c in zoneCells)
+        {
+            if (AreaGridLogic.IsInDistrict(c)
+                && AreaGridLogic.ResolveDistrictType(c) == d)
+            {
+                found = true;
+                break;
+            }
+        }
+        Assert.True(found,
+            $"Zone ({zCol},{zRow}) chosen for district {d} contains no " +
+            $"authored cells of that district -- the marker would land " +
+            $"visually adrift from the district body.");
+    }
+
     // The scope-mode flip itself (E2AreaMap.ScopeMode == "E2.1c") is
     // engine-coupled (lives on a Godot Node partial) and not reachable
     // from this Godot-free xUnit host. It is validated via the F5 smoke
     // checklist + the boot log line emitted by BuildAreaGrid
-    // ("scope=E2.1c, ..., e2_poi_markers=3").
+    // ("scope=E2.1c, tiles=64 (district=39, neutral=25), ..., e2_poi_markers=3").
 }
