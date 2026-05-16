@@ -284,33 +284,33 @@ public partial class E3DistrictMap : Control, IScreen
         _panComponent.Configure(districtTexture, initialCenter);
 
         // Strings -- single point of swap when Varn revises the .tres.
-        _bannerTitleLabel.Text = _strings.E5Title;
-        _bannerSubtitleLabel.Text = _strings.E5Subtitle;
-        _visibilityLabel.Text = _strings.E5VisibilityLabel;
-        _menaceLabel.Text = _strings.E5MenaceLabel;
+        _bannerTitleLabel.Text = _strings.E3DistrictMapTitle;
+        _bannerSubtitleLabel.Text = _strings.E3DistrictMapSubtitle;
+        _visibilityLabel.Text = _strings.E3DistrictMapVisibilityLabel;
+        _menaceLabel.Text = _strings.E3DistrictMapMenaceLabel;
 
         // 3 panels reuse identical to E3 (D-J5-08): same titles + same
         // bodies + same TabContainer wiring. The drill-down sentiment
         // comes from the title bandeau + layer indicator, not different
         // panels per quartier. Per-quartier panel content lands post-MVP.
-        _panelLeftTitleLabel.Text = _strings.E3PanelLeftTitle;
-        _panelLeftBodyLabel.Text = _strings.E3PanelLeftBody;
-        _panelRightTitleLabel.Text = _strings.E3PanelRightTitle;
-        _routineStubLabel.Text = _strings.E3TabRoutineStub;
-        _mandateStubLabel.Text = _strings.E3TabMandateStub;
-        _panelBottomTitleLabel.Text = _strings.E3PanelBottomTitle;
-        _panelBottomBodyLabel.Text = _strings.E3PanelBottomBody;
+        _panelLeftTitleLabel.Text = _strings.E2AreaMapPanelLeftTitle;
+        _panelLeftBodyLabel.Text = _strings.E2AreaMapPanelLeftBody;
+        _panelRightTitleLabel.Text = _strings.E2AreaMapPanelRightTitle;
+        _routineStubLabel.Text = _strings.E2AreaMapTabRoutineStub;
+        _mandateStubLabel.Text = _strings.E2AreaMapTabMandateStub;
+        _panelBottomTitleLabel.Text = _strings.E2AreaMapPanelBottomTitle;
+        _panelBottomBodyLabel.Text = _strings.E2AreaMapPanelBottomBody;
 
-        _layerIndicatorLabel.Text = _strings.E5LayerIndicator;
-        _backButton.Text = _strings.E5BackButton;
+        _layerIndicatorLabel.Text = _strings.E3DistrictMapLayerIndicator;
+        _backButton.Text = _strings.E3DistrictMapBackButton;
 
         // Same Godot quirk as E3: TabContainer reads each child Node's
         // Name as the tab label. Rename children to the Varn-locked
         // libellés.
         var routineTab = _contractsTabContainer.GetNode<Control>("Routine");
         var mandateTab = _contractsTabContainer.GetNode<Control>("MandatsDesArpenteurs");
-        routineTab.Name = _strings.E3TabRoutine;
-        mandateTab.Name = _strings.E3TabMandate;
+        routineTab.Name = _strings.E2AreaMapTabRoutine;
+        mandateTab.Name = _strings.E2AreaMapTabMandate;
 
         _backButton.Pressed += OnBackPressed;
 
@@ -560,8 +560,8 @@ public partial class E3DistrictMap : Control, IScreen
     /// <summary>
     /// Resolve the tooltip text for a POI based on its
     /// <see cref="PoiDefinition.TooltipKey"/>. J5 surfaces 2 keys:
-    /// <c>E5AmbientHommeTooltip</c> (voix D Marges, première instance UI)
-    /// and <c>E3PoiCandidateTooltip</c> (reuse, kira cross-scene).
+    /// <c>E3DistrictMapAmbientLoiteringManTooltip</c> (voix D Marges, première instance UI)
+    /// and <c>E2AreaMapPoiCandidateTooltip</c> (reuse, kira cross-scene).
     /// </summary>
     private string ResolveTooltipText(PoiDefinition poi)
     {
@@ -570,10 +570,10 @@ public partial class E3DistrictMap : Control, IScreen
 
         return poi.TooltipKey switch
         {
-            "E5AmbientHommeTooltip" => _strings.E5AmbientHommeTooltip,
-            "E3PoiCandidateTooltip" => _strings.E3PoiCandidateTooltip,
-            "E3PoiDistrictTooltipTemplate" =>
-                _strings.E3PoiDistrictTooltipTemplate.Replace("[nom]", poi.DisplayName),
+            "E3DistrictMapAmbientLoiteringManTooltip" => _strings.E3DistrictMapAmbientLoiteringManTooltip,
+            "E2AreaMapPoiCandidateTooltip" => _strings.E2AreaMapPoiCandidateTooltip,
+            "E2AreaMapPoiDistrictTooltipTemplate" =>
+                _strings.E2AreaMapPoiDistrictTooltipTemplate.Replace("[nom]", poi.DisplayName),
             _ => string.Empty,
         };
     }
@@ -584,9 +584,9 @@ public partial class E3DistrictMap : Control, IScreen
 
         var text = indicatorTextKey switch
         {
-            "E2PoiBlockedIndicator" => _strings.E2PoiBlockedIndicator,
-            "E3KeyBuildingBlockedIndicator" => _strings.E3KeyBuildingBlockedIndicator,
-            _ => _strings.E2PoiBlockedIndicator,
+            "E1WorldMapPoiBlockedIndicator" => _strings.E1WorldMapPoiBlockedIndicator,
+            "E2AreaMapKeyBuildingBlockedIndicator" => _strings.E2AreaMapKeyBuildingBlockedIndicator,
+            _ => _strings.E1WorldMapPoiBlockedIndicator,
         };
         _blockedIndicatorLabel.Text = text;
 

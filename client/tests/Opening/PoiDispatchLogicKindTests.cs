@@ -42,7 +42,7 @@ public sealed class PoiDispatchLogicKindTests
             PoiId: "halfgate",
             IsClickable: true,
             TargetScreenId: "E2_AREA",
-            TooltipKey: "E2PoiHalfgateTooltip");
+            TooltipKey: "E1WorldMapPoiCityPatentedTooltipTemplate");
 
         var result = PoiDispatchLogic.Dispatch(poi);
 
@@ -59,7 +59,7 @@ public sealed class PoiDispatchLogicKindTests
             PoiId: "halfgate.marche",
             IsClickable: true,
             TargetScreenId: "E3_DISTRICT",
-            TooltipKey: "E3PoiDistrictTooltipTemplate",
+            TooltipKey: "E2AreaMapPoiDistrictTooltipTemplate",
             Kind: PoiKind.District);
 
         var result = PoiDispatchLogic.Dispatch(poi);
@@ -97,7 +97,7 @@ public sealed class PoiDispatchLogicKindTests
             PoiId: "kira",
             IsClickable: true,
             TargetScreenId: "",
-            TooltipKey: "E3PoiCandidateTooltip",
+            TooltipKey: "E2AreaMapPoiCandidateTooltip",
             Kind: PoiKind.NpcCandidate);
 
         var result = PoiDispatchLogic.Dispatch(poi);
@@ -136,21 +136,21 @@ public sealed class PoiDispatchLogicKindTests
     {
         // Varn §3.3.3 + Rune J4 pre-brief D-J4-09: the QG (and any
         // other KeyBuilding) is hover-only in J4 ; click flashes the
-        // E3KeyBuildingBlockedIndicator stub. Real opening of the
+        // E2AreaMapKeyBuildingBlockedIndicator stub. Real opening of the
         // contracts panel for QG, real interior for other KeyBuildings,
         // both land post-MVP via the P2 layer "bâtiment".
         var poi = new PoiDefinitionDto(
             PoiId: "halfgate.qg",
             IsClickable: true,
             TargetScreenId: "",
-            TooltipKey: "E3PoiKeyBuildingHqTooltip",
+            TooltipKey: "E2AreaMapPoiKeyBuildingHqTooltip",
             Kind: PoiKind.KeyBuilding);
 
         var result = PoiDispatchLogic.Dispatch(poi);
 
         Assert.Equal(PoiDispatchOutcome.ShowBlockedIndicator, result.Outcome);
         Assert.Equal(PoiDispatchLogic.KeyBuildingBlockedIndicatorTextKey, result.IndicatorTextKey);
-        Assert.Equal("E3KeyBuildingBlockedIndicator", result.IndicatorTextKey);
+        Assert.Equal("E2AreaMapKeyBuildingBlockedIndicator", result.IndicatorTextKey);
         Assert.Null(result.TargetScreenId);
         Assert.Null(result.ModalId);
     }

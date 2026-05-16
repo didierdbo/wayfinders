@@ -16,7 +16,7 @@ namespace Wayfinders.Client.Tests.Opening;
 ///   <item>NpcCandidate POI click -&gt; OpenModal("E4_CHARACTER_SHEET")
 ///         with the npc id threaded through the payload bag</item>
 ///   <item>KeyBuilding POI click -&gt; ShowBlockedIndicator
-///         (E3KeyBuildingBlockedIndicator), no navigate, no modal</item>
+///         (E2AreaMapKeyBuildingBlockedIndicator), no navigate, no modal</item>
 /// </list>
 ///
 /// <para>
@@ -100,21 +100,21 @@ public sealed class E2AreaMapNavigationContractTests
         PoiId: "halfgate.marche",
         IsClickable: true,
         TargetScreenId: "E3_DISTRICT",
-        TooltipKey: "E3PoiDistrictTooltipTemplate",
+        TooltipKey: "E2AreaMapPoiDistrictTooltipTemplate",
         Kind: PoiKind.District);
 
     private static PoiDefinitionDto Kira() => new(
         PoiId: "kira",
         IsClickable: true,
         TargetScreenId: "",
-        TooltipKey: "E3PoiCandidateTooltip",
+        TooltipKey: "E2AreaMapPoiCandidateTooltip",
         Kind: PoiKind.NpcCandidate);
 
     private static PoiDefinitionDto Qg() => new(
         PoiId: "halfgate.qg",
         IsClickable: true,
         TargetScreenId: "",
-        TooltipKey: "E3PoiKeyBuildingHqTooltip",
+        TooltipKey: "E2AreaMapPoiKeyBuildingHqTooltip",
         Kind: PoiKind.KeyBuilding);
 
     [Fact]
@@ -183,7 +183,7 @@ public sealed class E2AreaMapNavigationContractTests
     public async Task E2AreaMap_key_building_poi_click_shows_blocked_does_not_navigate()
     {
         // Varn §3.3.3 + D-J4-09: KeyBuilding QG is hover-only J4 ;
-        // click stub-flashes the E3KeyBuildingBlockedIndicator. No
+        // click stub-flashes the E2AreaMapKeyBuildingBlockedIndicator. No
         // navigation, no modal -- the click intent surfaces strictly
         // as the bottom-center flash. Real opening of the contracts
         // panel ships post-MVP.
@@ -192,7 +192,7 @@ public sealed class E2AreaMapNavigationContractTests
         await FakeOnPoiPressed(nav, Qg());
 
         Assert.Single(nav.BlockedIndicatorRequests);
-        Assert.Equal("E3KeyBuildingBlockedIndicator", nav.BlockedIndicatorRequests[0]);
+        Assert.Equal("E2AreaMapKeyBuildingBlockedIndicator", nav.BlockedIndicatorRequests[0]);
         Assert.Empty(nav.NavigateToCalls);
         Assert.Empty(nav.OpenModalCalls);
     }

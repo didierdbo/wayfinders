@@ -56,13 +56,13 @@ public static class PoiDispatchLogic
     /// blocked-flash bottom-center label for City-kind POIs (J3 verrouillé:
     /// "Cadastre suspendu — accès non encore patenté.").
     /// </summary>
-    public const string BlockedIndicatorTextKey = "E2PoiBlockedIndicator";
+    public const string BlockedIndicatorTextKey = "E1WorldMapPoiBlockedIndicator";
 
     /// <summary>
     /// <see cref="OpeningStrings"/> key consumed by E3 for the KeyBuilding
     /// stub J4 click flash ("Bâtiment non encore patenté.").
     /// </summary>
-    public const string KeyBuildingBlockedIndicatorTextKey = "E3KeyBuildingBlockedIndicator";
+    public const string KeyBuildingBlockedIndicatorTextKey = "E2AreaMapKeyBuildingBlockedIndicator";
 
     /// <summary>
     /// <see cref="OpeningStrings"/> key consumed by E3/E5 for the
@@ -71,7 +71,7 @@ public static class PoiDispatchLogic
     /// flash without a missing-key warning ; a dedicated key can be
     /// authored in J5+ when those POI types ship.
     /// </summary>
-    public const string GenericBlockedIndicatorTextKey = "E2PoiBlockedIndicator";
+    public const string GenericBlockedIndicatorTextKey = "E1WorldMapPoiBlockedIndicator";
 
     /// <summary>
     /// <see cref="Wayfinders.Client.Services.SceneManager"/> modal id for

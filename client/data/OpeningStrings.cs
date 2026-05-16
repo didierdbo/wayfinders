@@ -185,14 +185,14 @@ public partial class OpeningStrings : Resource
     // Source: Varn §3.1 table E2 (added 2026-05-07 J3).
 
     /// <summary>E2.A -- titre écran (bandeau supérieur, cartouche). Locked Varn §3.1.</summary>
-    [Export] public string E2Title { get; set; } = "Feuillet I — Carte des marges connues.";
+    [Export] public string E1WorldMapTitle { get; set; } = "Feuillet I — Carte des marges connues.";
 
     /// <summary>
     /// E2.B -- légende de section sous le titre (1 ligne, micro-texte).
     /// Default Varn §3.1: <c>Établi par l'Ordre des Arpenteurs. Tenu à jour selon les juridictions.</c>
     /// Variant Varn §3.1: <c>Établi par l'Ordre. Mis à jour partiellement.</c>
     /// </summary>
-    [Export] public string E2Subtitle { get; set; } =
+    [Export] public string E1WorldMapSubtitle { get; set; } =
         "Établi par l'Ordre des Arpenteurs. Tenu à jour selon les juridictions.";
 
     /// <summary>
@@ -200,17 +200,17 @@ public partial class OpeningStrings : Resource
     /// Default Varn §3.1: <c>La compagnie</c>.
     /// Variant Varn §3.1: <c>Registre de la compagnie</c>.
     /// </summary>
-    [Export] public string E2PanelLeftTitle { get; set; } = "La compagnie";
+    [Export] public string E1WorldMapPanelLeftTitle { get; set; } = "La compagnie";
 
     /// <summary>E2.D -- onglet panneau droit. Locked Varn §3.1 + §10.7 vision n°5.</summary>
-    [Export] public string E2PanelRightTitle { get; set; } = "Marges du Codex";
+    [Export] public string E1WorldMapPanelRightTitle { get; set; } = "Marges du Codex";
 
     /// <summary>
     /// E2.PanelLeftBody -- corps panneau gauche (état stub J3, voix A).
     /// Default Varn §3.1 (drafted 2026-05-07): <c>Aucune compagnie déclarée à ce feuillet. Le registre attend signature.</c>
     /// Variant Varn §3.1: <c>Aucune inscription. Le registre est ouvert mais vierge.</c>
     /// </summary>
-    [Export] public string E2PanelLeftBody { get; set; } =
+    [Export] public string E1WorldMapPanelLeftBody { get; set; } =
         "Aucune compagnie déclarée à ce feuillet. Le registre attend signature.";
 
     /// <summary>
@@ -221,7 +221,7 @@ public partial class OpeningStrings : Resource
     /// Pratchett-warm filter ; the default's <c>Pour l'instant.</c> is the
     /// signed-off voice, the alt is documented here for fast swap.
     /// </summary>
-    [Export] public string E2PanelRightBody { get; set; } =
+    [Export] public string E1WorldMapPanelRightBody { get; set; } =
         "Les marges sont propres. Pour l'instant.";
 
     /// <summary>
@@ -229,7 +229,7 @@ public partial class OpeningStrings : Resource
     /// Default Varn §3.1: <c>Refermer le feuillet</c>.
     /// Variant Varn §3.1: <c>Quitter la carte</c> (voix S).
     /// </summary>
-    [Export] public string E2BackButton { get; set; } = "Refermer le feuillet";
+    [Export] public string E1WorldMapBackButton { get; set; } = "Refermer le feuillet";
 
     /// <summary>
     /// E2.F instantiated for Halfgate -- the unique clickable POI in MVP
@@ -238,7 +238,7 @@ public partial class OpeningStrings : Resource
     /// — Halfgate is the patented city Cadastre is up-to-date on, so:
     /// <c>Halfgate. Cité patentée. Cadastre tenu à jour.</c>
     /// </summary>
-    [Export] public string E2PoiHalfgateTooltip { get; set; } =
+    [Export] public string E1WorldMapPoiCityPatentedTooltipTemplate { get; set; } =
         "Halfgate. Cité patentée. Cadastre tenu à jour.";
 
     /// <summary>
@@ -246,7 +246,7 @@ public partial class OpeningStrings : Resource
     /// Contains the <c>[Nom]</c> placeholder which E1WorldMap substitutes
     /// at runtime with <see cref="PoiDefinition.DisplayName"/>. Voix A.
     /// </summary>
-    [Export] public string E2PoiCitySuspendedTooltipTemplate { get; set; } =
+    [Export] public string E1WorldMapPoiCitySuspendedTooltipTemplate { get; set; } =
         "[Nom]. Cadastre suspendu — accès non encore patenté.";
 
     /// <summary>
@@ -254,7 +254,7 @@ public partial class OpeningStrings : Resource
     /// after a click on a grisée POI. Same wording, no <c>[Nom]</c>
     /// because the click context is generic. Voix A.
     /// </summary>
-    [Export] public string E2PoiBlockedIndicator { get; set; } =
+    [Export] public string E1WorldMapPoiBlockedIndicator { get; set; } =
         "Cadastre suspendu — accès non encore patenté.";
 
     /// <summary>
@@ -262,7 +262,7 @@ public partial class OpeningStrings : Resource
     /// (D-J3-03). Becomes dynamic when the molette layer-pile mechanic
     /// ships post-MVP. Voix A.
     /// </summary>
-    [Export] public string E2LayerIndicator { get; set; } = "Pile cadastrale : monde.";
+    [Export] public string E1WorldMapLayerIndicator { get; set; } = "Pile cadastrale : monde.";
 
     // -------------------- Écran 3 (Plan de cité) --------------------
     // Source: Varn §4.1 table E3 (added 2026-05-07 J4).
@@ -273,10 +273,10 @@ public partial class OpeningStrings : Resource
     /// <c>[Nom de la cité]</c> template — when post-MVP unlocks more
     /// cités, this becomes a template and the screen interpolates.
     /// </summary>
-    [Export] public string E3Title { get; set; } = "Halfgate. Feuillet II — plan cadastral.";
+    [Export] public string E2AreaMapTitle { get; set; } = "Halfgate. Feuillet II — plan cadastral.";
 
     /// <summary>E3.B -- légende de section sous le titre. Locked Varn §4.1.</summary>
-    [Export] public string E3Subtitle { get; set; } =
+    [Export] public string E2AreaMapSubtitle { get; set; } =
         "Cadastre tenu par le bureau local des Arpenteurs.";
 
     /// <summary>
@@ -285,17 +285,17 @@ public partial class OpeningStrings : Resource
     /// + <c>NMChanged</c> signal lands post-MVP. Locked §11.6 vision.
     /// Voix A.
     /// </summary>
-    [Export] public string E3VisibilityLabel { get; set; } = "Visibilité 0/10.";
+    [Export] public string E2AreaMapVisibilityLabel { get; set; } = "Visibilité 0/10.";
 
     /// <summary>
     /// E3.C (2/2) -- jauge Méfiance, sous-bandeau NM. Stub static J4
-    /// (D-J4-04). See <see cref="E3VisibilityLabel"/> for the post-MVP
+    /// (D-J4-04). See <see cref="E2AreaMapVisibilityLabel"/> for the post-MVP
     /// hook. Voix A.
     /// </summary>
-    [Export] public string E3MenaceLabel { get; set; } = "Méfiance 0/10.";
+    [Export] public string E2AreaMapMenaceLabel { get; set; } = "Méfiance 0/10.";
 
     /// <summary>E3.D -- onglet panneau gauche. Locked Varn §4.1.</summary>
-    [Export] public string E3PanelLeftTitle { get; set; } = "La compagnie";
+    [Export] public string E2AreaMapPanelLeftTitle { get; set; } = "La compagnie";
 
     /// <summary>
     /// Panneau gauche corps -- état stub J4 (party vide post-E1
@@ -303,38 +303,38 @@ public partial class OpeningStrings : Resource
     /// for cohérence with E2.PanelLeftBody pattern. Variant flagged for
     /// Varn ratification at tests if grinçant.
     /// </summary>
-    [Export] public string E3PanelLeftBody { get; set; } =
+    [Export] public string E2AreaMapPanelLeftBody { get; set; } =
         "Aucun compagnon présent à Halfgate.";
 
     /// <summary>E3.E -- onglet panneau droit. Locked Varn §4.1.</summary>
-    [Export] public string E3PanelRightTitle { get; set; } = "Tableau des contrats";
+    [Export] public string E2AreaMapPanelRightTitle { get; set; } = "Tableau des contrats";
 
     /// <summary>E3.F -- sous-onglet contrats colonne 1. Locked Varn §4.1.</summary>
-    [Export] public string E3TabRoutine { get; set; } = "Routine";
+    [Export] public string E2AreaMapTabRoutine { get; set; } = "Routine";
 
     /// <summary>E3.G -- sous-onglet contrats colonne 2. Locked Varn §4.1.</summary>
-    [Export] public string E3TabMandate { get; set; } = "Mandats des Arpenteurs";
+    [Export] public string E2AreaMapTabMandate { get; set; } = "Mandats des Arpenteurs";
 
     /// <summary>
     /// Stub corps onglet Routine (J4). Voix A neutre. Real contracts
     /// system lands post-MVP. Drafted by Rune cohérent E2 panneau gauche
     /// stub pattern.
     /// </summary>
-    [Export] public string E3TabRoutineStub { get; set; } = "Aucun contrat enregistré.";
+    [Export] public string E2AreaMapTabRoutineStub { get; set; } = "Aucun contrat enregistré.";
 
     /// <summary>
     /// Stub corps onglet Mandats (J4). Voix A neutre. Real mandates
     /// system lands post-MVP.
     /// </summary>
-    [Export] public string E3TabMandateStub { get; set; } = "Aucun mandat émis.";
+    [Export] public string E2AreaMapTabMandateStub { get; set; } = "Aucun mandat émis.";
 
     /// <summary>
     /// E3.H -- titre panneau bas Journal compagnie. Locked Varn §4.1
     /// titre voix A (le contenu en voix C lui est réservé post-MVP,
     /// D-J4-06). J4 ships a voix A neutre stub body — see
-    /// <see cref="E3PanelBottomBody"/>.
+    /// <see cref="E2AreaMapPanelBottomBody"/>.
     /// </summary>
-    [Export] public string E3PanelBottomTitle { get; set; } = "Journal de la compagnie";
+    [Export] public string E2AreaMapPanelBottomTitle { get; set; } = "Journal de la compagnie";
 
     /// <summary>
     /// Panneau bas Journal corps -- stub voix A NEUTRE (D-J4-06). Voix
@@ -342,7 +342,7 @@ public partial class OpeningStrings : Resource
     /// formulation suit le pattern voix A neutre cohérent E2 panneau
     /// gauche. Variant flagged si grinçant aux tests.
     /// </summary>
-    [Export] public string E3PanelBottomBody { get; set; } =
+    [Export] public string E2AreaMapPanelBottomBody { get; set; } =
         "Aucune entrée journal pour l'instant.";
 
     /// <summary>
@@ -350,10 +350,10 @@ public partial class OpeningStrings : Resource
     /// Default Varn §4.1: <c>Quitter la cité</c>.
     /// Variant Varn §4.1: <c>Refermer le feuillet</c>.
     /// </summary>
-    [Export] public string E3BackButton { get; set; } = "Quitter la cité";
+    [Export] public string E2AreaMapBackButton { get; set; } = "Quitter la cité";
 
     /// <summary>E3.S -- indicateur layer P2 (coin bas-droite). Locked Varn §4.1. Voix A.</summary>
-    [Export] public string E3LayerIndicator { get; set; } = "Pile cadastrale : cité.";
+    [Export] public string E2AreaMapLayerIndicator { get; set; } = "Pile cadastrale : cité.";
 
     /// <summary>
     /// E3.J -- tooltip template POI Quartier. Contains <c>[nom]</c>
@@ -361,7 +361,7 @@ public partial class OpeningStrings : Resource
     /// Locked Varn §4.1 (NM jauges static 0/10 in J4 per E3.C lock).
     /// Voix A.
     /// </summary>
-    [Export] public string E3PoiDistrictTooltipTemplate { get; set; } =
+    [Export] public string E2AreaMapPoiDistrictTooltipTemplate { get; set; } =
         "Quartier de [nom]. Visibilité 0/10. Méfiance 0/10.";
 
     /// <summary>
@@ -369,7 +369,7 @@ public partial class OpeningStrings : Resource
     /// J4 stub: click flashes blocked indicator (real opening of the
     /// contracts panel lands post-MVP).
     /// </summary>
-    [Export] public string E3PoiKeyBuildingHqTooltip { get; set; } =
+    [Export] public string E2AreaMapPoiKeyBuildingHqTooltip { get; set; } =
         "Siège de la compagnie. Tableau des contrats consultable.";
 
     /// <summary>
@@ -377,7 +377,7 @@ public partial class OpeningStrings : Resource
     /// Varn §4.1 + §3.3.3 Scénario d'ouverture. Voix A glissant vers
     /// "presque humaine" (élément tonal critique à préserver, Varn §4.2).
     /// </summary>
-    [Export] public string E3PoiCandidateTooltip { get; set; } =
+    [Export] public string E2AreaMapPoiCandidateTooltip { get; set; } =
         "Quelqu'un qui pourrait vouloir vous suivre.";
 
     /// <summary>
@@ -386,7 +386,7 @@ public partial class OpeningStrings : Resource
     /// at tests if le wording demande ajustement par rapport à
     /// "Cadastre suspendu" (E2 voix A pattern).
     /// </summary>
-    [Export] public string E3KeyBuildingBlockedIndicator { get; set; } =
+    [Export] public string E2AreaMapKeyBuildingBlockedIndicator { get; set; } =
         "Bâtiment non encore patenté.";
 
     // -------------------- Écran 4 (Fiche perso modal) --------------------
@@ -537,13 +537,13 @@ public partial class OpeningStrings : Resource
     /// more quartiers, this becomes a template and the screen interpolates.
     /// Voix A.
     /// </summary>
-    [Export] public string E5Title { get; set; } =
+    [Export] public string E3DistrictMapTitle { get; set; } =
         "Halfgate — Quartier du marché. Feuillet II.b — plan détaillé.";
 
     /// <summary>
     /// E5.B -- légende de section sous le titre. Locked Varn §6 E5.B. Voix A.
     /// </summary>
-    [Export] public string E5Subtitle { get; set; } =
+    [Export] public string E3DistrictMapSubtitle { get; set; } =
         "Bureau local des Arpenteurs — relevé détaillé.";
 
     /// <summary>
@@ -552,19 +552,19 @@ public partial class OpeningStrings : Resource
     /// <c>RegionalThreatLevel</c> resource lands post-MVP (Phase 8+).
     /// Voix A.
     /// </summary>
-    [Export] public string E5VisibilityLabel { get; set; } = "Visibilité 0/10.";
+    [Export] public string E3DistrictMapVisibilityLabel { get; set; } = "Visibilité 0/10.";
 
     /// <summary>
     /// E5.C (2/2) -- jauge Méfiance, sous-bandeau NM local quartier. Stub
     /// static J5. Voix A.
     /// </summary>
-    [Export] public string E5MenaceLabel { get; set; } = "Méfiance 0/10.";
+    [Export] public string E3DistrictMapMenaceLabel { get; set; } = "Méfiance 0/10.";
 
     /// <summary>
     /// E5.C bis -- bouton retour (bas-gauche).
     /// Default Varn §6 E5.C: <c>Revenir à la cité</c>.
     /// </summary>
-    [Export] public string E5BackButton { get; set; } = "Revenir à la cité";
+    [Export] public string E3DistrictMapBackButton { get; set; } = "Revenir à la cité";
 
     /// <summary>
     /// E5.S -- indicateur layer P2 (coin bas-droite). Locked Varn §7.5
@@ -575,13 +575,13 @@ public partial class OpeningStrings : Resource
     /// <c>Pile cadastrale : cité (zoom quartier).</c>
     /// </para>
     /// </summary>
-    [Export] public string E5LayerIndicator { get; set; } = "Pile cadastrale : quartier.";
+    [Export] public string E3DistrictMapLayerIndicator { get; set; } = "Pile cadastrale : quartier.";
 
     /// <summary>
     /// E5.I -- tooltip POI PNJ ambient "homme qui semble très occupé à ne rien faire".
     /// Locked verbatim Varn §6 E5.I. Voix D Marges (première instance voix D
     /// en UI persistante MVP — pré-brief §11 cohérence locks).
     /// </summary>
-    [Export] public string E5AmbientHommeTooltip { get; set; } =
+    [Export] public string E3DistrictMapAmbientLoiteringManTooltip { get; set; } =
         "Un homme qui semble très occupé à ne rien faire.";
 }

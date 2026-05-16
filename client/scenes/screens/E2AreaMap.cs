@@ -162,7 +162,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///         <see cref="PoiDispatchOutcome.OpenModal"/> with the npc id
 ///         threaded through <c>ScreenContext.Payload["E4.NpcId"]</c></item>
 ///   <item>KeyBuilding -&gt; <see cref="PoiDispatchOutcome.ShowBlockedIndicator"/>
-///         with the J4 stub key <c>E3KeyBuildingBlockedIndicator</c></item>
+///         with the J4 stub key <c>E2AreaMapKeyBuildingBlockedIndicator</c></item>
 ///   <item>AmbientNpc / Interactable -&gt; defense-in-depth blocked</item>
 /// </list>
 /// </para>
@@ -396,24 +396,24 @@ public partial class E2AreaMap : Control, IScreen
         // per-area title is set inside Configure() so a multi-area
         // future can swap the banner subtitle per cité if Varn revises
         // the spec.
-        _panelLeftTitleLabel.Text = _strings.E3PanelLeftTitle;
-        _panelLeftBodyLabel.Text = _strings.E3PanelLeftBody;
-        _panelRightTitleLabel.Text = _strings.E3PanelRightTitle;
-        _routineStubLabel.Text = _strings.E3TabRoutineStub;
-        _mandateStubLabel.Text = _strings.E3TabMandateStub;
-        _panelBottomTitleLabel.Text = _strings.E3PanelBottomTitle;
-        _panelBottomBodyLabel.Text = _strings.E3PanelBottomBody;
-        _layerIndicatorLabel.Text = _strings.E3LayerIndicator;
-        _backButton.Text = _strings.E3BackButton;
-        _blockedIndicatorLabel.Text = _strings.E3KeyBuildingBlockedIndicator;
+        _panelLeftTitleLabel.Text = _strings.E2AreaMapPanelLeftTitle;
+        _panelLeftBodyLabel.Text = _strings.E2AreaMapPanelLeftBody;
+        _panelRightTitleLabel.Text = _strings.E2AreaMapPanelRightTitle;
+        _routineStubLabel.Text = _strings.E2AreaMapTabRoutineStub;
+        _mandateStubLabel.Text = _strings.E2AreaMapTabMandateStub;
+        _panelBottomTitleLabel.Text = _strings.E2AreaMapPanelBottomTitle;
+        _panelBottomBodyLabel.Text = _strings.E2AreaMapPanelBottomBody;
+        _layerIndicatorLabel.Text = _strings.E2AreaMapLayerIndicator;
+        _backButton.Text = _strings.E2AreaMapBackButton;
+        _blockedIndicatorLabel.Text = _strings.E2AreaMapKeyBuildingBlockedIndicator;
 
         // Godot quirk: TabContainer reads each child Node's Name as the
         // tab label. Rename children to the Varn-locked libellés so the
         // .tscn stays readable. J4 D-J4-05 + Rune J4 pre-brief §11.2.
         var routineTab = _contractsTabContainer.GetNode<Control>("Routine");
         var mandateTab = _contractsTabContainer.GetNode<Control>("MandatsDesArpenteurs");
-        routineTab.Name = _strings.E3TabRoutine;
-        mandateTab.Name = _strings.E3TabMandate;
+        routineTab.Name = _strings.E2AreaMapTabRoutine;
+        mandateTab.Name = _strings.E2AreaMapTabMandate;
 
         _backButton.Pressed += OnBackPressed;
 
@@ -504,10 +504,10 @@ public partial class E2AreaMap : Control, IScreen
         // future would resolve these from a per-area OpeningStrings
         // slice or a separate AreaStrings resource. Out of scope for
         // Phase B (flagged for Varn reconciliation pass).
-        _bannerTitleLabel.Text = _strings.E3Title;
-        _bannerSubtitleLabel.Text = _strings.E3Subtitle;
-        _visibilityLabel.Text = _strings.E3VisibilityLabel;
-        _menaceLabel.Text = _strings.E3MenaceLabel;
+        _bannerTitleLabel.Text = _strings.E2AreaMapTitle;
+        _bannerSubtitleLabel.Text = _strings.E2AreaMapSubtitle;
+        _visibilityLabel.Text = _strings.E2AreaMapVisibilityLabel;
+        _menaceLabel.Text = _strings.E2AreaMapMenaceLabel;
 
         // Tear down any pre-existing POI hotspots from a prior Configure
         // call. Disconnect handlers FIRST (Risk #1 captured-reference
@@ -895,12 +895,12 @@ public partial class E2AreaMap : Control, IScreen
 
         return poi.TooltipKey switch
         {
-            "E3PoiDistrictTooltipTemplate" =>
-                _strings.E3PoiDistrictTooltipTemplate.Replace("[nom]", poi.DisplayName),
-            "E3PoiKeyBuildingHqTooltip" =>
-                _strings.E3PoiKeyBuildingHqTooltip,
-            "E3PoiCandidateTooltip" =>
-                _strings.E3PoiCandidateTooltip,
+            "E2AreaMapPoiDistrictTooltipTemplate" =>
+                _strings.E2AreaMapPoiDistrictTooltipTemplate.Replace("[nom]", poi.DisplayName),
+            "E2AreaMapPoiKeyBuildingHqTooltip" =>
+                _strings.E2AreaMapPoiKeyBuildingHqTooltip,
+            "E2AreaMapPoiCandidateTooltip" =>
+                _strings.E2AreaMapPoiCandidateTooltip,
             _ => string.Empty,
         };
     }
@@ -916,9 +916,9 @@ public partial class E2AreaMap : Control, IScreen
         // to the J4 stub text on null/unknown key.
         var text = indicatorTextKey switch
         {
-            "E3KeyBuildingBlockedIndicator" => _strings.E3KeyBuildingBlockedIndicator,
-            "E2PoiBlockedIndicator" => _strings.E2PoiBlockedIndicator,
-            _ => _strings.E3KeyBuildingBlockedIndicator,
+            "E2AreaMapKeyBuildingBlockedIndicator" => _strings.E2AreaMapKeyBuildingBlockedIndicator,
+            "E1WorldMapPoiBlockedIndicator" => _strings.E1WorldMapPoiBlockedIndicator,
+            _ => _strings.E2AreaMapKeyBuildingBlockedIndicator,
         };
         _blockedIndicatorLabel.Text = text;
 

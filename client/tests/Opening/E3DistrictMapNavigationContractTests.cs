@@ -100,14 +100,14 @@ public sealed class E3DistrictMapNavigationContractTests
         PoiId: "kira",
         IsClickable: true,
         TargetScreenId: "",
-        TooltipKey: "E3PoiCandidateTooltip",
+        TooltipKey: "E2AreaMapPoiCandidateTooltip",
         Kind: PoiKind.NpcCandidate);
 
     private static PoiDefinitionDto AmbientHomme() => new(
         PoiId: "halfgate.marche.ambient_homme",
         IsClickable: false,
         TargetScreenId: "",
-        TooltipKey: "E5AmbientHommeTooltip",
+        TooltipKey: "E3DistrictMapAmbientLoiteringManTooltip",
         Kind: PoiKind.AmbientNpc);
 
     [Fact]

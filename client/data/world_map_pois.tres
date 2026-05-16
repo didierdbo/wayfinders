@@ -11,7 +11,7 @@ Position = Vector2(1820, 980)
 Size = Vector2(120, 120)
 IsClickable = true
 TargetScreenId = "E2_AREA"
-TooltipKey = "E2PoiHalfgateTooltip"
+TooltipKey = "E1WorldMapPoiCityPatentedTooltipTemplate"
 AssetKey = "e1.poi_marker.active"
 
 [sub_resource type="Resource" id="Resource_veylant"]

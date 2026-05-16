@@ -73,7 +73,7 @@ public sealed class E1WorldMapNavigationContractTests
         PoiId: "halfgate",
         IsClickable: true,
         TargetScreenId: "E2_AREA",
-        TooltipKey: "E2PoiHalfgateTooltip");
+        TooltipKey: "E1WorldMapPoiCityPatentedTooltipTemplate");
 
     private static PoiDefinitionDto Veylant() => new(
         PoiId: "veylant",
@@ -124,7 +124,7 @@ public sealed class E1WorldMapNavigationContractTests
         await FakeOnPoiPressed(nav, Veylant());
 
         Assert.Single(nav.BlockedIndicatorRequests);
-        Assert.Equal("E2PoiBlockedIndicator", nav.BlockedIndicatorRequests[0]);
+        Assert.Equal("E1WorldMapPoiBlockedIndicator", nav.BlockedIndicatorRequests[0]);
     }
 
     [Fact]
@@ -144,7 +144,7 @@ public sealed class E1WorldMapNavigationContractTests
 
         Assert.Equal(3, nav.BlockedIndicatorRequests.Count);
         Assert.All(nav.BlockedIndicatorRequests,
-            k => Assert.Equal("E2PoiBlockedIndicator", k));
+            k => Assert.Equal("E1WorldMapPoiBlockedIndicator", k));
         Assert.Empty(nav.NavigateToCalls);
     }
 

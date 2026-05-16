@@ -25,7 +25,7 @@ public sealed class PoiDispatchLogicTests
             PoiId: "halfgate",
             IsClickable: true,
             TargetScreenId: "E2_AREA",
-            TooltipKey: "E2PoiHalfgateTooltip");
+            TooltipKey: "E1WorldMapPoiCityPatentedTooltipTemplate");
 
         var result = PoiDispatchLogic.Dispatch(poi);
 
@@ -39,7 +39,7 @@ public sealed class PoiDispatchLogicTests
             PoiId: "halfgate",
             IsClickable: true,
             TargetScreenId: "E2_AREA",
-            TooltipKey: "E2PoiHalfgateTooltip");
+            TooltipKey: "E1WorldMapPoiCityPatentedTooltipTemplate");
 
         var result = PoiDispatchLogic.Dispatch(poi);
 
@@ -73,7 +73,7 @@ public sealed class PoiDispatchLogicTests
         var result = PoiDispatchLogic.Dispatch(poi);
 
         Assert.Equal(PoiDispatchLogic.BlockedIndicatorTextKey, result.IndicatorTextKey);
-        Assert.Equal("E2PoiBlockedIndicator", result.IndicatorTextKey);
+        Assert.Equal("E1WorldMapPoiBlockedIndicator", result.IndicatorTextKey);
         Assert.Null(result.TargetScreenId);
     }
 

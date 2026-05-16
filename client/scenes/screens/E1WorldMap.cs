@@ -226,15 +226,15 @@ public partial class E1WorldMap : Control, IScreen
         _panComponent.Configure(worldTexture, initialCenter, worldBounds);
 
         // Strings -- single point of swap when Varn revises the .tres.
-        _bannerTitleLabel.Text = _strings.E2Title;
-        _bannerSubtitleLabel.Text = _strings.E2Subtitle;
-        _panelLeftTitleLabel.Text = _strings.E2PanelLeftTitle;
-        _panelLeftBodyLabel.Text = _strings.E2PanelLeftBody;
-        _panelRightTitleLabel.Text = _strings.E2PanelRightTitle;
-        _panelRightBodyLabel.Text = _strings.E2PanelRightBody;
-        _layerIndicatorLabel.Text = _strings.E2LayerIndicator;
-        _backButton.Text = _strings.E2BackButton;
-        _blockedIndicatorLabel.Text = _strings.E2PoiBlockedIndicator;
+        _bannerTitleLabel.Text = _strings.E1WorldMapTitle;
+        _bannerSubtitleLabel.Text = _strings.E1WorldMapSubtitle;
+        _panelLeftTitleLabel.Text = _strings.E1WorldMapPanelLeftTitle;
+        _panelLeftBodyLabel.Text = _strings.E1WorldMapPanelLeftBody;
+        _panelRightTitleLabel.Text = _strings.E1WorldMapPanelRightTitle;
+        _panelRightBodyLabel.Text = _strings.E1WorldMapPanelRightBody;
+        _layerIndicatorLabel.Text = _strings.E1WorldMapLayerIndicator;
+        _backButton.Text = _strings.E1WorldMapBackButton;
+        _blockedIndicatorLabel.Text = _strings.E1WorldMapPoiBlockedIndicator;
 
         _backButton.Pressed += OnBackPressed;
 
@@ -759,11 +759,11 @@ public partial class E1WorldMap : Control, IScreen
         {
             return poi.TooltipKey switch
             {
-                "E2PoiHalfgateTooltip" => _strings.E2PoiHalfgateTooltip,
-                _ => _strings.E2PoiCitySuspendedTooltipTemplate.Replace("[Nom]", poi.DisplayName),
+                "E1WorldMapPoiCityPatentedTooltipTemplate" => _strings.E1WorldMapPoiCityPatentedTooltipTemplate,
+                _ => _strings.E1WorldMapPoiCitySuspendedTooltipTemplate.Replace("[Nom]", poi.DisplayName),
             };
         }
-        return _strings.E2PoiCitySuspendedTooltipTemplate.Replace("[Nom]", poi.DisplayName);
+        return _strings.E1WorldMapPoiCitySuspendedTooltipTemplate.Replace("[Nom]", poi.DisplayName);
     }
 
     private void ShowBlockedFlash()

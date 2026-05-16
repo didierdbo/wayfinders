@@ -11,7 +11,7 @@ Position = Vector2(900, 760)
 Size = Vector2(160, 160)
 IsClickable = true
 TargetScreenId = "E3_DISTRICT"
-TooltipKey = "E3PoiDistrictTooltipTemplate"
+TooltipKey = "E2AreaMapPoiDistrictTooltipTemplate"
 AssetKey = "e2.poi.district"
 Kind = 1
 
@@ -23,7 +23,7 @@ Position = Vector2(2780, 1280)
 Size = Vector2(160, 160)
 IsClickable = true
 TargetScreenId = "E3_DISTRICT"
-TooltipKey = "E3PoiDistrictTooltipTemplate"
+TooltipKey = "E2AreaMapPoiDistrictTooltipTemplate"
 AssetKey = "e2.poi.district"
 Kind = 1
 
@@ -35,7 +35,7 @@ Position = Vector2(1860, 540)
 Size = Vector2(160, 160)
 IsClickable = true
 TargetScreenId = ""
-TooltipKey = "E3PoiKeyBuildingHqTooltip"
+TooltipKey = "E2AreaMapPoiKeyBuildingHqTooltip"
 AssetKey = "e2.poi.key_building.hq"
 Kind = 4
 
@@ -47,7 +47,7 @@ Position = Vector2(1480, 1380)
 Size = Vector2(192, 192)
 IsClickable = true
 TargetScreenId = ""
-TooltipKey = "E3PoiCandidateTooltip"
+TooltipKey = "E2AreaMapPoiCandidateTooltip"
 AssetKey = "e2.poi.npc_candidate"
 Kind = 3
 
@@ -59,7 +59,7 @@ Position = Vector2(2360, 1620)
 Size = Vector2(192, 192)
 IsClickable = true
 TargetScreenId = ""
-TooltipKey = "E3PoiCandidateTooltip"
+TooltipKey = "E2AreaMapPoiCandidateTooltip"
 AssetKey = "e2.poi.npc_candidate"
 Kind = 3
 

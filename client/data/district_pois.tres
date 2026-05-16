@@ -11,7 +11,7 @@ Position = Vector2(1240, 1100)
 Size = Vector2(160, 160)
 IsClickable = false
 TargetScreenId = ""
-TooltipKey = "E5AmbientHommeTooltip"
+TooltipKey = "E3DistrictMapAmbientLoiteringManTooltip"
 AssetKey = "e3.poi.ambient.homme"
 Kind = 5
 
@@ -23,7 +23,7 @@ Position = Vector2(2200, 1380)
 Size = Vector2(192, 192)
 IsClickable = true
 TargetScreenId = ""
-TooltipKey = "E3PoiCandidateTooltip"
+TooltipKey = "E2AreaMapPoiCandidateTooltip"
 AssetKey = "e2.poi.npc_candidate"
 Kind = 3
 
