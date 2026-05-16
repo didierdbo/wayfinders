@@ -1,6 +1,6 @@
-[gd_resource type="Resource" script_class="HalfgateMarchePois" format=3 uid="uid://chmpois0001"]
+[gd_resource type="Resource" script_class="DistrictPois" format=3 uid="uid://chmpois0001"]
 
-[ext_resource type="Script" path="res://data/HalfgateMarchePois.cs" id="1_hmrcp"]
+[ext_resource type="Script" path="res://data/DistrictPois.cs" id="1_hmrcp"]
 [ext_resource type="Script" path="res://data/PoiDefinition.cs" id="2_poidef"]
 
 [sub_resource type="Resource" id="Resource_ambient_homme"]
@@ -12,7 +12,7 @@ Size = Vector2(160, 160)
 IsClickable = false
 TargetScreenId = ""
 TooltipKey = "E5AmbientHommeTooltip"
-AssetKey = "e5.poi.ambient.homme"
+AssetKey = "e3.poi.ambient.homme"
 Kind = 5
 
 [sub_resource type="Resource" id="Resource_kira"]
@@ -24,7 +24,7 @@ Size = Vector2(192, 192)
 IsClickable = true
 TargetScreenId = ""
 TooltipKey = "E3PoiCandidateTooltip"
-AssetKey = "e3.poi.npc_candidate"
+AssetKey = "e2.poi.npc_candidate"
 Kind = 3
 
 [resource]

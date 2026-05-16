@@ -4,19 +4,21 @@ namespace Wayfinders.Client.Data;
 
 /// <summary>
 /// Top-level Resource holding the list of <see cref="PoiDefinition"/>
-/// entries for the E3 City Halfgate scene. Authored as
-/// <c>res://data/city_halfgate_pois.tres</c>, loaded once at
-/// <see cref="Wayfinders.Client.Scenes.Screens.E2AreaMap"/>'s
-/// <c>_Ready</c>.
+/// entries for the <see cref="Wayfinders.Client.Scenes.Screens.E2AreaMap"/>
+/// scene (the cité-level cadastral feuillet, MVP-locked to Halfgate as
+/// the unique area). Authored as <c>res://data/area_pois.tres</c>,
+/// loaded once at <c>E2AreaMap._Ready</c>.
 ///
 /// <para>
-/// <b>Why a per-cité file (J4 D-J4-02).</b> The MVP gate is 1 cité
-/// (Halfgate). Putting all cities into a single <c>city_pois.tres</c>
-/// would create either a giant inspector-unfriendly resource or a
-/// faux-split via naming convention. Establishing the
-/// <c>city_&lt;name&gt;_pois.tres</c> pattern now means
-/// <c>city_veylant_pois.tres</c> at post-MVP follows naturally.
-/// See Rune J4 pre-brief §11.4 for the design rationale.
+/// <b>Why a per-area file (J4 D-J4-02).</b> The MVP gate is 1 area
+/// (Halfgate, hardcoded at the call site in <c>E1WorldMap.OnPoiPressed</c>
+/// via Phase B's <c>Configure(string areaId)</c> seam). Putting all
+/// future areas into a single <c>area_pois.tres</c> would create
+/// either a giant inspector-unfriendly resource or a faux-split via
+/// naming convention. Establishing the <c>area_pois.tres</c> file
+/// pattern now means a future multi-area selector can dispatch to
+/// <c>area_veylant_pois.tres</c>, etc., without touching the runtime
+/// shape. See Rune J4 pre-brief §11.4 for the design rationale.
 /// </para>
 ///
 /// <para>
@@ -44,12 +46,12 @@ namespace Wayfinders.Client.Data;
 /// </para>
 /// </summary>
 [GlobalClass]
-public partial class CityHalfgatePois : Resource
+public partial class AreaPois : Resource
 {
     /// <summary>
-    /// Ordered list of POIs to spawn on the City Halfgate map. Order
-    /// does not matter for dispatch but matters for z-order when two
-    /// markers overlap (later entries draw on top).
+    /// Ordered list of POIs to spawn on the area map. Order does not
+    /// matter for dispatch but matters for z-order when two markers
+    /// overlap (later entries draw on top).
     /// </summary>
     [Export] public Godot.Collections.Array<PoiDefinition> Pois { get; set; } = new();
 }

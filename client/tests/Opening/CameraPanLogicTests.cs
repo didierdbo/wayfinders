@@ -236,17 +236,17 @@ public sealed class CameraPanLogicTests
     }
 
     [Fact]
-    public void HalfgatePoiCenter_is_within_valid_camera_range()
+    public void InitialFocusPoiCenter_is_within_valid_camera_range()
     {
         // Defense-doc P8.2 D-P8.2-08: position initiale = Halfgate POI
         // center (1820, 980 in world_map_pois.tres). It must already be
         // a legal camera position so MakeCurrent() at _Ready does not
         // trigger a visible snap. Halfgate is at x=1820 (vs valid range
         // [960, 2880]) and y=980 (vs [540, 1620]) -- inside.
-        var halfgate = new PanVec2(1820f, 980f);
-        var clamped = CameraPanLogic.ClampCameraCenter(halfgate, E2ImageSize, E2ViewportSize);
+        var initialFocusPoi = new PanVec2(1820f, 980f);
+        var clamped = CameraPanLogic.ClampCameraCenter(initialFocusPoi, E2ImageSize, E2ViewportSize);
 
-        Assert.Equal(halfgate, clamped);
+        Assert.Equal(initialFocusPoi, clamped);
     }
 
     // -------------------------------------------------------------------

@@ -66,7 +66,7 @@ public partial class E1WorldMap : Control, IScreen
     private const string BannerTopAssetKey = "e2.banner_top";
     private const string PanelLeftAssetKey = "e2.panel_left";
     private const string PanelRightAssetKey = "e2.panel_right";
-    private const string HalfgatePoiId = "halfgate";
+    private const string InitialFocusPoiId = "halfgate";
 
     /// <summary>
     /// Path of the editor-baked palette PNG. Default matches the slice 1
@@ -202,9 +202,9 @@ public partial class E1WorldMap : Control, IScreen
         // ClampCameraCenter's snap-to-center branch, freezing vertical pan.
         // Bounds = max(bitmap, fogGrid) so any future asset that exceeds
         // the grid still keeps a pannable world.
-        var halfgate = FindPoi(HalfgatePoiId);
+        var initialFocusPoi = FindPoi(InitialFocusPoiId);
         var imageSize = worldTexture.GetSize();
-        var initialCenter = halfgate?.Position ?? imageSize / 2f;
+        var initialCenter = initialFocusPoi?.Position ?? imageSize / 2f;
 
         var fogGridDimensions = FogTileGridLogic.ComputeGridSize(
             new PanVec2(imageSize.X, imageSize.Y),

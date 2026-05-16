@@ -10,11 +10,11 @@
     "e2.panel_right": "e2/wf_e2_panneau_iso_right_1024x2048.png",
     "e2.poi_marker.active": "e2/wf_e2_poi_cite_marker_active_512x512.png",
     "e2.poi_marker.suspended": "e2/wf_e2_poi_cite_marker_suspended_512x512.png",
-    "e3.halfgate.base": "e3/wf_e3_halfgate_base_3840x2160.png",
-    "e3.poi.district": "e3/wf_e3_poi_district_marker_256x256.png",
-    "e3.poi.key_building.hq": "e3/wf_e3_poi_key_building_hq_256x256.png",
-    "e3.poi.npc_candidate": "e3/wf_e3_poi_npc_candidate_512x512.png",
-    "e3.panel_bottom": "e3/wf_e3_panel_bottom_3840x768.png",
+    "e2.area.base": "e3/wf_e3_halfgate_base_3840x2160.png",
+    "e2.poi.district": "e3/wf_e3_poi_district_marker_256x256.png",
+    "e2.poi.key_building.hq": "e3/wf_e3_poi_key_building_hq_256x256.png",
+    "e2.poi.npc_candidate": "e3/wf_e3_poi_npc_candidate_512x512.png",
+    "e2.panel_bottom": "e3/wf_e3_panel_bottom_3840x768.png",
     "e4.frame_card": "e4/wf_e4_frame_card_2400x3000.png",
     "e4.tabs_lateral": "e4/wf_e4_tabs_lateral_512x2048.png",
     "e4.frame_fiche": "e4/wf_e4_frame_fiche_iso_2400x3000.png",
@@ -24,8 +24,8 @@
     "e4.portrait.dorn": "e4/wf_e4_portrait_dorn_1024x1536.png",
     "e4.portrait.default": "e4/wf_e4_portrait_default_1024x1536.png",
     "e4.redaction_overlay": "e4/wf_e4_redaction_overlay_1024x256.png",
-    "e5.halfgate.district_lower": "e5/wf_e5_halfgate_lower_3840x2160.png",
-    "e5.halfgate.marche.base": "e5/wf_e5_halfgate_marche_base_3840x2160.png",
-    "e5.poi.ambient.homme": "e5/wf_e5_poi_ambient_homme_512x512.png"
+    "e3.area.district_lower": "e5/wf_e5_halfgate_lower_3840x2160.png",
+    "e3.area.district.base": "e5/wf_e5_halfgate_marche_base_3840x2160.png",
+    "e3.poi.ambient.homme": "e5/wf_e5_poi_ambient_homme_512x512.png"
   }
 }

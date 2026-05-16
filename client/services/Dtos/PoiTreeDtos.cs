@@ -20,7 +20,7 @@ namespace Wayfinders.Client.Services.Dtos;
 /// <para>
 /// <b>Why a <c>version</c> field at top level.</b> The manifest is a
 /// referential ; bumping the version lets Varn rev the closed lookup
-/// (M-15/M-16 when the legacy <c>HalfgateMarchePois.cs</c> / similar
+/// (M-15/M-16 when the legacy <c>DistrictPois.cs</c> / similar
 /// mocks retire) without breaking older clients silently. M1 always
 /// pins version = 1.
 /// </para>

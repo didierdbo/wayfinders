@@ -32,7 +32,7 @@ public partial class PoiData: Resource
     /// <list type="bullet">
     ///   <item>Resource authoring (<c>.tres</c>) — designer fills the
     ///         field in the inspector. Will land when the legacy
-    ///         <c>HalfgateMarchePois.cs</c> / <c>CityHalfgatePois.cs</c>
+    ///         <c>DistrictPois.cs</c> / <c>AreaPois.cs</c>
     ///         mocks migrate to runtime instantiation from
     ///         <c>poi_tree.json</c> (M-15/M-16 PR, hors-scope).</item>
     ///   <item>Code override (scoped, MVP) — the scene that spawns the

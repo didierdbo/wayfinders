@@ -201,7 +201,7 @@ public partial class IsoMapE1Probe : Node2D
     // --- Asset directory & names (framework placeholder Mira <-> Rune) ---
     private const string E1AssetDir = "res://assets/wayfinders_visual_assets/e1";
     private const string TileAssetName = "wf_e1_tile_neutral.png";
-    private const string PoiHalfgateAssetName = "wf_e1_halfgate_poi.png";
+    private const string OpeningCinematicPoiAssetName = "wf_e1_halfgate_poi.png";
     private const string TooltipParchmentAssetName = "wf_e1_tooltip_parchment.png";
     private const string SealWaxAssetName = "wf_e1_seal_wax.png";
 
@@ -209,7 +209,7 @@ public partial class IsoMapE1Probe : Node2D
     // canonical PR1 sidecar loader. Note this is the *PR3-6* asset under
     // res://assets/poi/e1/, distinct from the legacy 1024x512 placeholder
     // PNG under res://assets/wayfinders_visual_assets/e1/ (referenced by
-    // <see cref="PoiHalfgateAssetName"/>, kept for the AssetLoader path
+    // <see cref="OpeningCinematicPoiAssetName"/>, kept for the AssetLoader path
     // and used by other deprecated code paths in this probe).
     private const string PoiSidecarPngResPath =
         "res://assets/poi/e1/wf_e1_halfgate_poi.png";
@@ -420,8 +420,8 @@ public partial class IsoMapE1Probe : Node2D
     // the 4x4 face-B imprint) without re-doing tile->world projection
     // via FogTileGridLogic (which expects the 24x24 production grid
     // origin shift, not this 64x64 probe grid).
-    private Poi? _halfgatePoi;
-    private PoiData? _halfgatePoiData;
+    private Poi? _openingCinematicPoi;
+    private PoiData? _openingCinematicPoiData;
     // PR4 router reference + handler delegates kept on the field side so
     // _ExitTree can unsubscribe symmetrically (methodology trap #10).
     private PoiInputRouter? _poiRouter;
@@ -545,7 +545,7 @@ public partial class IsoMapE1Probe : Node2D
     // Forward-compatible : the bbox is computed by iterating
     // _knownPois, so adding a second POI is _knownPois.Add(newPoi)
     // + RecomputePoiAwareBounds(). For MVP, _knownPois is hardcoded
-    // to { _halfgatePoi } at activation time.
+    // to { _openingCinematicPoi } at activation time.
     private readonly List<Poi> _knownPois = new();
     private bool _poiAwareBoundsActive;
     // Cached bbox of known POI positions, in world coords. Updated by
@@ -614,7 +614,7 @@ public partial class IsoMapE1Probe : Node2D
         else
         {
             SpawnFullGrid();
-            SpawnHalfgatePoi();
+            SpawnOpeningCinematicPoi();
             SpawnTooltipUi();
         }
 
@@ -765,10 +765,10 @@ public partial class IsoMapE1Probe : Node2D
         // predicate flips to false we fire the exit transition. Cost :
         // one Rect2.HasPoint + at most one bit read per frame.
         if (_poiHoverEnabled && !_clickInProgress && _isHoveringPoi
-            && _halfgatePoi is not null && IsInstanceValid(_halfgatePoi)
+            && _openingCinematicPoi is not null && IsInstanceValid(_openingCinematicPoi)
             && _poiRouter is not null)
         {
-            if (!_poiRouter.IsCursorOverPoi(_halfgatePoi))
+            if (!_poiRouter.IsCursorOverPoi(_openingCinematicPoi))
             {
                 OnPoiHoverExit();
             }
@@ -789,19 +789,19 @@ public partial class IsoMapE1Probe : Node2D
         // cadastral B/W sol the contrast is too low and the shadow reads as
         // "à peine visible". We bump to 0.55 by overwriting the shadow's
         // Modulate.A AFTER Poi._Process wrote its 0.35 * poiAlpha tick.
-        // ProcessPriority=-10 on _halfgatePoi (set in SpawnHalfgatePoi)
+        // ProcessPriority=-10 on _openingCinematicPoi (set in SpawnOpeningCinematicPoi)
         // guarantees Poi's _Process runs FIRST each frame, then this
         // _Process overwrites — the locked fog-fade rule
         // shadow.alpha = const * poi.alpha is preserved with const=0.55.
         // The poi.alpha factor lets the cinematic fade-in (Modulate.A 0→1)
         // still carry the shadow with it.
-        if (_halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+        if (_openingCinematicPoi is not null && IsInstanceValid(_openingCinematicPoi))
         {
-            var shadowNode = _halfgatePoi.GetNodeOrNull<Sprite2D>("Shadow");
+            var shadowNode = _openingCinematicPoi.GetNodeOrNull<Sprite2D>("Shadow");
             if (shadowNode is not null && IsInstanceValid(shadowNode))
             {
                 const float ShadowAlphaProbeOverride = 0.55f;
-                float poiAlpha = _halfgatePoi.Modulate.A;
+                float poiAlpha = _openingCinematicPoi.Modulate.A;
                 float targetA = ShadowAlphaProbeOverride * poiAlpha;
                 var mod = shadowNode.Modulate;
                 if (Mathf.Abs(mod.A - targetA) > 0.001f)
@@ -816,7 +816,7 @@ public partial class IsoMapE1Probe : Node2D
     // GetPoiDiamondVertices retires. Le hit-test pixel-perfect est desormais
     // execute par PoiInputRouter (autoload). L'enter est signal-driven
     // (OnRouterPoiHovered), l'exit est polle dans _Process via
-    // _poiRouter.IsCursorOverPoi(_halfgatePoi).
+    // _poiRouter.IsCursorOverPoi(_openingCinematicPoi).
 
     private void OnPoiHoverEnter()
     {
@@ -939,14 +939,14 @@ public partial class IsoMapE1Probe : Node2D
         {
             if (debugKey.PhysicalKeycode == Key.F9)
             {
-                if (_halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+                if (_openingCinematicPoi is not null && IsInstanceValid(_openingCinematicPoi))
                 {
-                    _halfgatePoi.Visible = !_halfgatePoi.Visible;
-                    GD.Print($"[PROBE IsoMapE1Probe] DEBUG POI visibility toggled = {_halfgatePoi.Visible}");
+                    _openingCinematicPoi.Visible = !_openingCinematicPoi.Visible;
+                    GD.Print($"[PROBE IsoMapE1Probe] DEBUG POI visibility toggled = {_openingCinematicPoi.Visible}");
                 }
                 else
                 {
-                    GD.PushWarning("[PROBE IsoMapE1Probe] DEBUG F9 pressed but _halfgatePoi is null/freed — toggle skipped");
+                    GD.PushWarning("[PROBE IsoMapE1Probe] DEBUG F9 pressed but _openingCinematicPoi is null/freed — toggle skipped");
                 }
                 // Fallthrough on purpose : F9 is a pure visual flip, nothing
                 // else listens to F9, no SetInputAsHandled needed.
@@ -1165,9 +1165,9 @@ public partial class IsoMapE1Probe : Node2D
             GD.Print($"  ({gx},{gy}) name={name} Position=({node.Position.X:F1},{node.Position.Y:F1}) ZIndex={actualZ} (expected {expectedZ}, match={zMatches}) ZAsRelative={node.ZAsRelative} ZAbsolute={absoluteZ} Scale={node.Scale} Modulate={node.Modulate} Visible={node.Visible}");
         }
 
-        if (_halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+        if (_openingCinematicPoi is not null && IsInstanceValid(_openingCinematicPoi))
         {
-            GD.Print($"  POI Halfgate: ZIndex={_halfgatePoi.ZIndex} ZAsRelative={_halfgatePoi.ZAsRelative} Position=({_halfgatePoi.Position.X:F1},{_halfgatePoi.Position.Y:F1}) Modulate={_halfgatePoi.Modulate}");
+            GD.Print($"  POI Halfgate: ZIndex={_openingCinematicPoi.ZIndex} ZAsRelative={_openingCinematicPoi.ZAsRelative} Position=({_openingCinematicPoi.Position.X:F1},{_openingCinematicPoi.Position.Y:F1}) Modulate={_openingCinematicPoi.Modulate}");
         }
 
         GD.Print("[PROBE IsoMapE1Probe] === END Z-ORDER DIAG ===");
@@ -1292,7 +1292,7 @@ public partial class IsoMapE1Probe : Node2D
     /// Visible=true a t~4.95s, tween Modulate.A vers 1 sur 0.6s, et Register a t~5.55s.
     /// </para>
     /// </summary>
-    private void SpawnHalfgatePoi()
+    private void SpawnOpeningCinematicPoi()
     {
         // PR3-6 integration : load the Mira-painted POI through the canonical
         // sidecar loader. Returns a PoiData with Texture + AnchorPixel +
@@ -1300,7 +1300,7 @@ public partial class IsoMapE1Probe : Node2D
         // for the iso footprint (kept for future use, ignored here).
         try
         {
-            _halfgatePoiData = PoiSidecarLoader.Load(PoiSidecarPngResPath);
+            _openingCinematicPoiData = PoiSidecarLoader.Load(PoiSidecarPngResPath);
         }
         catch (System.Exception e)
         {
@@ -1314,7 +1314,7 @@ public partial class IsoMapE1Probe : Node2D
         // PR1/PR3-6 sidecar schema migrates (M-15+). For now this is
         // the one line that makes mission↔POI prefix-match work in
         // the tooltip aggregator below.
-        _halfgatePoiData.PoiId = "e1.halfgate";
+        _openingCinematicPoiData.PoiId = "e1.halfgate";
 
         float imprintCenterGx = (RevealMinGx + RevealMaxGx) * 0.5f; // 31.5
         float imprintCenterGy = (RevealMinGy + RevealMaxGy) * 0.5f; // 31.5
@@ -1328,10 +1328,10 @@ public partial class IsoMapE1Probe : Node2D
         // geometric center of the 4x4 face-B imprint (0, 4032). The city's
         // mass then rises UP from there, exactly the iso-plateau stance Didier
         // asked for ("la ville detache au-dessus, pion-sur-plateau").
-        _halfgatePoi = new Poi
+        _openingCinematicPoi = new Poi
         {
             Name = "HalfgatePoi",
-            PoiData = _halfgatePoiData,
+            PoiData = _openingCinematicPoiData,
             Position = imprintCenterScreen,
             // PR3-6 trap : ZIndex=4096 (CANVAS_ITEM_Z_MAX) places the painted
             // POI above the tile band (ZIndex=gx in [0,63]). Set BEFORE
@@ -1358,7 +1358,7 @@ public partial class IsoMapE1Probe : Node2D
             Visible = false,
         };
 
-        _tileGrid.AddChild(_halfgatePoi);
+        _tileGrid.AddChild(_openingCinematicPoi);
 
         // Hardcoded baseline (locked 2026-05-15, GIMP overlay workflow).
         // The PR3 Poi._Ready ran inside AddChild and set the default
@@ -1373,11 +1373,11 @@ public partial class IsoMapE1Probe : Node2D
         // (512, 256) = centre image, per the 2026-05-15 1024x512 asset swap)
         // — this is a per-Sprite2D override only. PoiSpawner / M1Slice /
         // PoiSpawnProbe keep the PR3 default for their own POIs.
-        _halfgatePoi.Centered = true;
-        _halfgatePoi.Offset = Vector2.Zero;
-        _halfgatePoi.Scale = Vector2.One;
+        _openingCinematicPoi.Centered = true;
+        _openingCinematicPoi.Offset = Vector2.Zero;
+        _openingCinematicPoi.Scale = Vector2.One;
 
-        GD.Print($"[PROBE IsoMapE1Probe] POI baseline hardcoded : Centered=true Offset=(0,0) Scale=(1.00,1.00) Position=({_halfgatePoi.Position.X:F1},{_halfgatePoi.Position.Y:F1}) (geometric centre of 4x4 face-B emprise, native 1024x512 render)");
+        GD.Print($"[PROBE IsoMapE1Probe] POI baseline hardcoded : Centered=true Offset=(0,0) Scale=(1.00,1.00) Position=({_openingCinematicPoi.Position.X:F1},{_openingCinematicPoi.Position.Y:F1}) (geometric centre of 4x4 face-B emprise, native 1024x512 render)");
 
         // Shadow re-pivot override (2026-05-15, scoped to IsoMapE1Probe only).
         //
@@ -1435,7 +1435,7 @@ public partial class IsoMapE1Probe : Node2D
         // unchanged. This override only re-stages the shadow child's
         // transform for this scene's hardcoded Centered=true override.
         const float ShadowPivotOffsetY = -160f; // image_y=416 foot, sea-banded 1024x512
-        var shadow = _halfgatePoi.GetNodeOrNull<Sprite2D>("Shadow");
+        var shadow = _openingCinematicPoi.GetNodeOrNull<Sprite2D>("Shadow");
         if (shadow != null)
         {
             shadow.Centered = true;
@@ -1461,7 +1461,7 @@ public partial class IsoMapE1Probe : Node2D
             // Setting ProcessPriority=-10 on the Poi guarantees its tick
             // runs BEFORE this scene's _Process (Godot processes nodes by
             // ascending priority).
-            _halfgatePoi.ProcessPriority = -10;
+            _openingCinematicPoi.ProcessPriority = -10;
 
             // Shadow disable (scoped IsoMapE1Probe, 2026-05-15 it.5).
             // Didier integrates the shadow directly into the bitmap source
@@ -1482,7 +1482,7 @@ public partial class IsoMapE1Probe : Node2D
         }
         else
         {
-            GD.PushWarning("[PROBE IsoMapE1Probe] Shadow child not found on _halfgatePoi — PR5 shadow disabled or AttachShadow failed");
+            GD.PushWarning("[PROBE IsoMapE1Probe] Shadow child not found on _openingCinematicPoi — PR5 shadow disabled or AttachShadow failed");
         }
 
         // PR3-6 integration : the Poi._Ready ran during AddChild and already
@@ -1492,7 +1492,7 @@ public partial class IsoMapE1Probe : Node2D
         // after the fade-in completes.
         if (_poiRouter is not null && IsInstanceValid(_poiRouter))
         {
-            _poiRouter.Unregister(_halfgatePoi);
+            _poiRouter.Unregister(_openingCinematicPoi);
         }
     }
 
@@ -1692,7 +1692,7 @@ public partial class IsoMapE1Probe : Node2D
     {
         if (_missionsSectionPanel is null) return 0;
 
-        var hoveredPoiId = _halfgatePoiData?.PoiId ?? "";
+        var hoveredPoiId = _openingCinematicPoiData?.PoiId ?? "";
         if (string.IsNullOrEmpty(hoveredPoiId))
         {
             _missionsSectionPanel.Visible = false;
@@ -1760,7 +1760,7 @@ public partial class IsoMapE1Probe : Node2D
     // pas AssetLoader -- les placeholders Mira ne sont pas valides pour le
     // PR3-6 asset, le sidecar pointe explicitement vers le PNG final).
     // Si l asset manque, PoiSidecarLoader leve, le catch dans
-    // SpawnHalfgatePoi log un PushError et la cinematique POI est skippee.
+    // SpawnOpeningCinematicPoi log un PushError et la cinematique POI est skippee.
 
 
     // ------------------------------------------------------------------------
@@ -1907,9 +1907,9 @@ public partial class IsoMapE1Probe : Node2D
             .SetEase(Tween.EaseType.In);
 
         // Centre la caméra sur le POI au passage (donne le sentiment de "tomber dedans").
-        if (_halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+        if (_openingCinematicPoi is not null && IsInstanceValid(_openingCinematicPoi))
         {
-            Vector2 poiGlobalPos = _halfgatePoi.GlobalPosition;
+            Vector2 poiGlobalPos = _openingCinematicPoi.GlobalPosition;
             zoomTween.Parallel().TweenProperty(_camera, "global_position", poiGlobalPos, ClickZoomDurationSec)
                 .SetTrans(Tween.TransitionType.Quad)
                 .SetEase(Tween.EaseType.In);
@@ -1962,7 +1962,7 @@ public partial class IsoMapE1Probe : Node2D
     private void OnRouterPoiHovered(string displayName)
     {
         if (!_poiHoverEnabled || _clickInProgress) return;
-        if (_halfgatePoiData is null || displayName != _halfgatePoiData.DisplayName) return;
+        if (_openingCinematicPoiData is null || displayName != _openingCinematicPoiData.DisplayName) return;
         if (_isHoveringPoi) return; // already in, ignore further motion fires
         OnPoiHoverEnter();
     }
@@ -1976,8 +1976,8 @@ public partial class IsoMapE1Probe : Node2D
     private void OnRouterPoiClicked(string displayName)
     {
         if (!_poiHoverEnabled || _clickInProgress) return;
-        if (_halfgatePoiData is null || displayName != _halfgatePoiData.DisplayName) return;
-        if (_halfgatePoi is null || !IsInstanceValid(_halfgatePoi)) return;
+        if (_openingCinematicPoiData is null || displayName != _openingCinematicPoiData.DisplayName) return;
+        if (_openingCinematicPoi is null || !IsInstanceValid(_openingCinematicPoi)) return;
 
         GD.Print($"[PROBE IsoMapE1Probe] click POI '{displayName}' (router bitmap hit-test) -- starting zoom-in + crossfade to E2Stub");
         _ = HandlePoiClickAsync();
@@ -2025,9 +2025,9 @@ public partial class IsoMapE1Probe : Node2D
         // fade-in tween starts. Until now Visible=false ensured the PR5
         // shadow / lift did not pop in pre-cinematic ; the tween animates
         // Modulate.A from 0 to 1 with the node now visible.
-        if (_halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+        if (_openingCinematicPoi is not null && IsInstanceValid(_openingCinematicPoi))
         {
-            _halfgatePoi.Visible = true;
+            _openingCinematicPoi.Visible = true;
         }
 
         await FadeInPoiAsync();
@@ -2045,9 +2045,9 @@ public partial class IsoMapE1Probe : Node2D
         // an initial register at AddChild time ; we Unregister'ed it right
         // after to suppress the cinematic, this is the symmetric re-arm.
         if (_poiRouter is not null && IsInstanceValid(_poiRouter)
-            && _halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+            && _openingCinematicPoi is not null && IsInstanceValid(_openingCinematicPoi))
         {
-            _poiRouter.Register(_halfgatePoi);
+            _poiRouter.Register(_openingCinematicPoi);
             GD.Print("[PROBE IsoMapE1Probe] POI registered with PoiInputRouter -- hover/click now live (pixel-perfect bitmap)");
         }
 
@@ -2063,9 +2063,9 @@ public partial class IsoMapE1Probe : Node2D
         // Tween is in flight, _cinematicPanInProgress=true and all user
         // pan input paths (ApplyFrameTickPan, HandlePanDragInput) short-
         // circuit -- same gating pattern as _isRevealAnimating.
-        if (_halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+        if (_openingCinematicPoi is not null && IsInstanceValid(_openingCinematicPoi))
         {
-            await PanCameraToPoiAsync(_halfgatePoi, CinematicPanToPoiDurationSec);
+            await PanCameraToPoiAsync(_openingCinematicPoi, CinematicPanToPoiDurationSec);
 
             if (!IsInstanceValid(this) || !IsInsideTree())
             {
@@ -2084,16 +2084,16 @@ public partial class IsoMapE1Probe : Node2D
         // with one POI ; bbox grows as future POIs are discovered).
         // The smooth pan above already brought the camera to the POI,
         // so RecomputePoiAwareBounds' pull-back is a no-op in practice.
-        if (_halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+        if (_openingCinematicPoi is not null && IsInstanceValid(_openingCinematicPoi))
         {
             _knownPois.Clear();
-            _knownPois.Add(_halfgatePoi);
+            _knownPois.Add(_openingCinematicPoi);
             RecomputePoiAwareBounds();
             _poiAwareBoundsActive = true;
         }
         else
         {
-            GD.PushWarning("[PROBE IsoMapE1Probe] POI-aware bounds activation SKIPPED -- _halfgatePoi null or freed at activation point");
+            GD.PushWarning("[PROBE IsoMapE1Probe] POI-aware bounds activation SKIPPED -- _openingCinematicPoi null or freed at activation point");
         }
 
         GD.Print($"[PROBE IsoMapE1Probe] POI fade-in completed at t≈{RevealTriggerDelaySec + RevealTotalDurationSec + PoiFadeInDurationSec:F2}s — zoom unlocked, hover/click POI enabled (e1 D, manual hit-test)");
@@ -2177,9 +2177,9 @@ public partial class IsoMapE1Probe : Node2D
 
     private async Task FadeInPoiAsync()
     {
-        if (_halfgatePoi is null || !IsInstanceValid(_halfgatePoi))
+        if (_openingCinematicPoi is null || !IsInstanceValid(_openingCinematicPoi))
         {
-            GD.PushError("[PROBE IsoMapE1Probe] FadeInPoiAsync: _halfgatePoi is null or freed, skipping fade-in");
+            GD.PushError("[PROBE IsoMapE1Probe] FadeInPoiAsync: _openingCinematicPoi is null or freed, skipping fade-in");
             return;
         }
 
@@ -2192,7 +2192,7 @@ public partial class IsoMapE1Probe : Node2D
 
         var tween = CreateTween();
         tween.SetProcessMode(Tween.TweenProcessMode.Idle);
-        tween.TweenProperty(_halfgatePoi, "modulate:a", 1.0f, PoiFadeInDurationSec)
+        tween.TweenProperty(_openingCinematicPoi, "modulate:a", 1.0f, PoiFadeInDurationSec)
             .SetTrans(Tween.TransitionType.Quad)
             .SetEase(Tween.EaseType.Out);
 
@@ -2849,7 +2849,7 @@ public partial class IsoMapE1Probe : Node2D
         {
             if (poi is null || !IsInstanceValid(poi)) continue;
             // Bug fix 2026-05-15 (Rune) : use GlobalPosition, NOT Position.
-            // _halfgatePoi.Position is local to _tileGrid (its parent), and
+            // _openingCinematicPoi.Position is local to _tileGrid (its parent), and
             // WorldRoot.Position.Y = -4032 translates the whole subtree. The
             // Camera2D is a sibling of WorldRoot, so its Position lives in
             // world coords -- the bbox / Limit* / Mathf.Clamp all consume
@@ -3194,20 +3194,20 @@ public partial class IsoMapE1Probe : Node2D
         float imprintCenterGx = (RevealMinGx + RevealMaxGx) * 0.5f;
         float imprintCenterGy = (RevealMinGy + RevealMaxGy) * 0.5f;
         Vector2 expectedPoiPos = GridToScreen(imprintCenterGx, imprintCenterGy);
-        bool poiExists = _halfgatePoi is not null && IsInstanceValid(_halfgatePoi);
-        bool poiParentOk = poiExists && _halfgatePoi!.GetParent() == _tileGrid;
+        bool poiExists = _openingCinematicPoi is not null && IsInstanceValid(_openingCinematicPoi);
+        bool poiParentOk = poiExists && _openingCinematicPoi!.GetParent() == _tileGrid;
         bool poiPosOk = poiExists
-            && Mathf.IsEqualApprox(_halfgatePoi!.Position.X, expectedPoiPos.X)
-            && Mathf.IsEqualApprox(_halfgatePoi.Position.Y, expectedPoiPos.Y);
+            && Mathf.IsEqualApprox(_openingCinematicPoi!.Position.X, expectedPoiPos.X)
+            && Mathf.IsEqualApprox(_openingCinematicPoi.Position.Y, expectedPoiPos.Y);
         bool poiZOk = poiExists
-            && _halfgatePoi!.ZIndex == PoiZIndex
-            && _halfgatePoi.ZAsRelative == false;
+            && _openingCinematicPoi!.ZIndex == PoiZIndex
+            && _openingCinematicPoi.ZAsRelative == false;
         // Scene-specific override (locked 2026-05-15) : IsoMapE1Probe flips
         // the PR3 default to Centered=true + Offset=Zero so the painted POI
         // centres on the 4x4 face-B emprise instead of anchoring at the
         // sidecar's (538, 573) foot pixel. Validate the override is live.
-        bool poiCenteredOk = poiExists && _halfgatePoi!.Centered
-            && _halfgatePoi.Offset == Vector2.Zero;
+        bool poiCenteredOk = poiExists && _openingCinematicPoi!.Centered
+            && _openingCinematicPoi.Offset == Vector2.Zero;
 
         bool poiCoverageOk = false;
         string coverageDetail = "n/a";
@@ -3220,10 +3220,10 @@ public partial class IsoMapE1Probe : Node2D
             // centroid is exactly the node Position (no anchor-offset math
             // needed). The visible rectangle in WORLD space is
             // [Position - TexSize/2, Position + TexSize/2].
-            Vector2 texSize = _halfgatePoi!.Texture is not null
-                ? _halfgatePoi.Texture.GetSize()
+            Vector2 texSize = _openingCinematicPoi!.Texture is not null
+                ? _openingCinematicPoi.Texture.GetSize()
                 : new Vector2(PoiTextureWidthPx, PoiTextureHeightPx);
-            Vector2 c = _halfgatePoi.Position; // Centered=true → centroid == Position
+            Vector2 c = _openingCinematicPoi.Position; // Centered=true → centroid == Position
             float halfW = texSize.X * 0.5f;
             float halfH = texSize.Y * 0.5f;
 
@@ -3247,13 +3247,13 @@ public partial class IsoMapE1Probe : Node2D
         }
 
         bool poiPlacementOk = poiExists && poiParentOk && poiPosOk && poiZOk && poiCenteredOk && poiCoverageOk;
-        string poiPosStr = poiExists ? _halfgatePoi!.Position.ToString("F2") : "n/a";
-        int poiZIdxActual = poiExists ? _halfgatePoi!.ZIndex : -999;
-        bool poiZAbsActual = poiExists && _halfgatePoi!.ZAsRelative == false;
-        GD.Print($"[PROBE IsoMapE1Probe] 9/17 PoiHalfgate: exists={poiExists} parent_is_TileGrid={poiParentOk} pos={poiPosStr} (expected ({expectedPoiPos.X:F2},{expectedPoiPos.Y:F2}) = geometric center of 4×4 imprint at grid ({imprintCenterGx:F1},{imprintCenterGy:F1})) ZIndex={poiZIdxActual} z_absolute={poiZAbsActual} (expected ZIndex={PoiZIndex} absolute) centered={(poiExists ? _halfgatePoi!.Centered : false)} ; coverage 4 corners {coverageDetail} -- {(poiPlacementOk ? "OK" : "FAIL")}");
+        string poiPosStr = poiExists ? _openingCinematicPoi!.Position.ToString("F2") : "n/a";
+        int poiZIdxActual = poiExists ? _openingCinematicPoi!.ZIndex : -999;
+        bool poiZAbsActual = poiExists && _openingCinematicPoi!.ZAsRelative == false;
+        GD.Print($"[PROBE IsoMapE1Probe] 9/17 PoiHalfgate: exists={poiExists} parent_is_TileGrid={poiParentOk} pos={poiPosStr} (expected ({expectedPoiPos.X:F2},{expectedPoiPos.Y:F2}) = geometric center of 4×4 imprint at grid ({imprintCenterGx:F1},{imprintCenterGy:F1})) ZIndex={poiZIdxActual} z_absolute={poiZAbsActual} (expected ZIndex={PoiZIndex} absolute) centered={(poiExists ? _openingCinematicPoi!.Centered : false)} ; coverage 4 corners {coverageDetail} -- {(poiPlacementOk ? "OK" : "FAIL")}");
 
         // 10. POI texture : dimensions + source + alpha init + fade duration.
-        var poiTex = poiExists ? _halfgatePoi!.Texture : null;
+        var poiTex = poiExists ? _openingCinematicPoi!.Texture : null;
         int poiTexW = poiTex?.GetWidth() ?? 0;
         int poiTexH = poiTex?.GetHeight() ?? 0;
         string poiTexTypeName = poiTex?.GetType().Name ?? "null";
@@ -3264,7 +3264,7 @@ public partial class IsoMapE1Probe : Node2D
         const int PR36PoiTextureHeightPx = 575;
         bool poiTexDimsOk = poiTexW == PR36PoiTextureWidthPx && poiTexH == PR36PoiTextureHeightPx;
         bool poiTexSourceOk = poiTexTypeName == "CompressedTexture2D";
-        float poiInitialAlpha = poiExists ? _halfgatePoi!.Modulate.A : -1f;
+        float poiInitialAlpha = poiExists ? _openingCinematicPoi!.Modulate.A : -1f;
         bool poiAlphaInitOk = poiExists && Mathf.IsEqualApprox(poiInitialAlpha, 0f);
         bool poiFadeDurOk = Mathf.IsEqualApprox((float)PoiFadeInDurationSec, 0.6f);
         bool poiTextureOk = poiTexDimsOk && poiTexSourceOk && poiAlphaInitOk && poiFadeDurOk;
@@ -3278,15 +3278,15 @@ public partial class IsoMapE1Probe : Node2D
         //     IsCursorOverPoi returns false even if the mouse hovers).
         bool hoverDisabledAtBoot = _poiHoverEnabled == false;
         bool routerWiredOk = _poiRouter is not null && IsInstanceValid(_poiRouter);
-        bool routerHasMaskOk = poiExists && _halfgatePoiData is not null
-            && _halfgatePoiData.AlphaMask is not null
-            && _halfgatePoiData.AlphaMaskWidth > 0;
+        bool routerHasMaskOk = poiExists && _openingCinematicPoiData is not null
+            && _openingCinematicPoiData.AlphaMask is not null
+            && _openingCinematicPoiData.AlphaMaskWidth > 0;
         bool poiUnregisteredAtBootOk = routerWiredOk && poiExists
-            && !_poiRouter!.IsCursorOverPoi(_halfgatePoi!); // unregistered -> always false
-        Vector2 poiCenter = poiExists ? _halfgatePoi!.GlobalPosition : Vector2.Zero;
+            && !_poiRouter!.IsCursorOverPoi(_openingCinematicPoi!); // unregistered -> always false
+        Vector2 poiCenter = poiExists ? _openingCinematicPoi!.GlobalPosition : Vector2.Zero;
         bool hitTestOk = hoverDisabledAtBoot && routerWiredOk
             && routerHasMaskOk && poiUnregisteredAtBootOk;
-        GD.Print($"[PROBE IsoMapE1Probe] 11/17 Bitmap hit-test wiring (PR4 router): _poiHoverEnabled={_poiHoverEnabled} (expected false at boot, true at t≈{RevealTriggerDelaySec + RevealTotalDurationSec + PoiFadeInDurationSec:F2}s) ; router wired={routerWiredOk} ; AlphaMask present={routerHasMaskOk} width={(_halfgatePoiData?.AlphaMaskWidth ?? 0)} ; POI Unregister'ed at boot={poiUnregisteredAtBootOk} (will Register at t~5.55s) ; POI center=({poiCenter.X:F0},{poiCenter.Y:F0}) -- {(hitTestOk ? "OK" : "FAIL")}");
+        GD.Print($"[PROBE IsoMapE1Probe] 11/17 Bitmap hit-test wiring (PR4 router): _poiHoverEnabled={_poiHoverEnabled} (expected false at boot, true at t≈{RevealTriggerDelaySec + RevealTotalDurationSec + PoiFadeInDurationSec:F2}s) ; router wired={routerWiredOk} ; AlphaMask present={routerHasMaskOk} width={(_openingCinematicPoiData?.AlphaMaskWidth ?? 0)} ; POI Unregister'ed at boot={poiUnregisteredAtBootOk} (will Register at t~5.55s) ; POI center=({poiCenter.X:F0},{poiCenter.Y:F0}) -- {(hitTestOk ? "OK" : "FAIL")}");
 
         // 12. Tooltip root nodes : Control + parchment + seal + 3 Labels.
         bool tooltipRootOk = _tooltipRoot is not null && IsInstanceValid(_tooltipRoot)
@@ -3395,14 +3395,14 @@ public partial class IsoMapE1Probe : Node2D
         bool poiSpriteHiddenOk;
         bool poiSpriteVisibleFlagOk;
         bool poiSpriteHitboxOk;
-        if (_halfgatePoi is not null && IsInstanceValid(_halfgatePoi))
+        if (_openingCinematicPoi is not null && IsInstanceValid(_openingCinematicPoi))
         {
-            poiSpriteHiddenOk = Mathf.IsEqualApprox(_halfgatePoi.Modulate.A, 0f);
-            poiSpriteVisibleFlagOk = _halfgatePoi.Visible == true;
+            poiSpriteHiddenOk = Mathf.IsEqualApprox(_openingCinematicPoi.Modulate.A, 0f);
+            poiSpriteVisibleFlagOk = _openingCinematicPoi.Visible == true;
             // Hitbox preservee = position non-zero (centre de l'imprint 4x4)
             // ET texture toujours assignee (sinon GetRect renverrait du vide).
-            poiSpriteHitboxOk = _halfgatePoi.Texture is not null
-                && !_halfgatePoi.Position.IsEqualApprox(Vector2.Zero);
+            poiSpriteHitboxOk = _openingCinematicPoi.Texture is not null
+                && !_openingCinematicPoi.Position.IsEqualApprox(Vector2.Zero);
         }
         else
         {
@@ -3417,13 +3417,13 @@ public partial class IsoMapE1Probe : Node2D
         // At boot, expected : Modulate.A=0 AND Visible=false.
         // We also re-read the live state instead of the stale poiSpriteVisibleFlagOk
         // computed above (which was written for the unified-mode contract).
-        bool legacyVisibleFlagAtBootOk = _halfgatePoi is not null && IsInstanceValid(_halfgatePoi)
-            && _halfgatePoi.Visible == false;
-        bool legacyHitboxPosOk = _halfgatePoi is not null && IsInstanceValid(_halfgatePoi)
-            && _halfgatePoi.Texture is not null
-            && !_halfgatePoi.Position.IsEqualApprox(Vector2.Zero);
+        bool legacyVisibleFlagAtBootOk = _openingCinematicPoi is not null && IsInstanceValid(_openingCinematicPoi)
+            && _openingCinematicPoi.Visible == false;
+        bool legacyHitboxPosOk = _openingCinematicPoi is not null && IsInstanceValid(_openingCinematicPoi)
+            && _openingCinematicPoi.Texture is not null
+            && !_openingCinematicPoi.Position.IsEqualApprox(Vector2.Zero);
         bool legacyOk = poiSpriteHiddenOk && legacyVisibleFlagAtBootOk && legacyHitboxPosOk;
-        GD.Print($"[PROBE IsoMapE1Probe] 16/17 PR3-6 Halfgate (ShowPoiSeparateSprite={ShowPoiSeparateSprite}): mode=LEGACY-PR36 (Poi node + Mira-painted sprite, fade-in over 16 face-B patches, shadow+lift PR5) ; PoiSprite.Modulate.A={(_halfgatePoi?.Modulate.A ?? -1f):F2} (expected 0.00 at boot, 1.00 post-fade) ; PoiSprite.Visible={(_halfgatePoi?.Visible ?? false)} (expected false at boot, true at t~4.95s) ; hitbox+pos preserved={legacyHitboxPosOk} -- {(legacyOk ? "OK" : "FAIL")}");
+        GD.Print($"[PROBE IsoMapE1Probe] 16/17 PR3-6 Halfgate (ShowPoiSeparateSprite={ShowPoiSeparateSprite}): mode=LEGACY-PR36 (Poi node + Mira-painted sprite, fade-in over 16 face-B patches, shadow+lift PR5) ; PoiSprite.Modulate.A={(_openingCinematicPoi?.Modulate.A ?? -1f):F2} (expected 0.00 at boot, 1.00 post-fade) ; PoiSprite.Visible={(_openingCinematicPoi?.Visible ?? false)} (expected false at boot, true at t~4.95s) ; hitbox+pos preserved={legacyHitboxPosOk} -- {(legacyOk ? "OK" : "FAIL")}");
 
         // 17. Cursor shape machinery cablee.
         //     Au boot : Arrow, jamais touche PointingHand encore.

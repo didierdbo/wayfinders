@@ -236,7 +236,7 @@ public sealed class PoiHitTestLogicTests
     // ====================================================================
 
     [Fact]
-    public void Halfgate_shape_hits_pillar_misses_corner()
+    public void Pillar_shape_hits_pillar_misses_corner()
     {
         // Synthetic 100x100 mask : opaque vertical pillar in the middle
         // 40..60 columns, full height. Corners and outer columns transparent.

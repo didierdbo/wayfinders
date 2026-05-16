@@ -179,7 +179,7 @@ public sealed class E5NavigationContractTests
     public async Task E5_ambient_npc_clickable_hot_edit_still_blocked()
     {
         // Reinforces the previous test: even if a hot-edited
-        // halfgate_marche_pois.tres flips IsClickable=true on the
+        // district_pois.tres flips IsClickable=true on the
         // ambient homme entry, the dispatcher MUST still route through
         // ShowBlockedIndicator. This pins the J5 lock that ambient
         // PNJs are hover-only by design (Varn E5.I-M, voix D Marges).

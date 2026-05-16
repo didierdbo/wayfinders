@@ -1,6 +1,6 @@
-[gd_resource type="Resource" script_class="CityHalfgatePois" format=3 uid="uid://chlfgpois0001"]
+[gd_resource type="Resource" script_class="AreaPois" format=3 uid="uid://chlfgpois0001"]
 
-[ext_resource type="Script" path="res://data/CityHalfgatePois.cs" id="1_chlfgp"]
+[ext_resource type="Script" path="res://data/AreaPois.cs" id="1_chlfgp"]
 [ext_resource type="Script" path="res://data/PoiDefinition.cs" id="2_poidef"]
 
 [sub_resource type="Resource" id="Resource_marche"]
@@ -12,7 +12,7 @@ Size = Vector2(160, 160)
 IsClickable = true
 TargetScreenId = "E3_DISTRICT"
 TooltipKey = "E3PoiDistrictTooltipTemplate"
-AssetKey = "e3.poi.district"
+AssetKey = "e2.poi.district"
 Kind = 1
 
 [sub_resource type="Resource" id="Resource_port"]
@@ -24,7 +24,7 @@ Size = Vector2(160, 160)
 IsClickable = true
 TargetScreenId = "E3_DISTRICT"
 TooltipKey = "E3PoiDistrictTooltipTemplate"
-AssetKey = "e3.poi.district"
+AssetKey = "e2.poi.district"
 Kind = 1
 
 [sub_resource type="Resource" id="Resource_qg"]
@@ -36,7 +36,7 @@ Size = Vector2(160, 160)
 IsClickable = true
 TargetScreenId = ""
 TooltipKey = "E3PoiKeyBuildingHqTooltip"
-AssetKey = "e3.poi.key_building.hq"
+AssetKey = "e2.poi.key_building.hq"
 Kind = 4
 
 [sub_resource type="Resource" id="Resource_kira"]
@@ -48,7 +48,7 @@ Size = Vector2(192, 192)
 IsClickable = true
 TargetScreenId = ""
 TooltipKey = "E3PoiCandidateTooltip"
-AssetKey = "e3.poi.npc_candidate"
+AssetKey = "e2.poi.npc_candidate"
 Kind = 3
 
 [sub_resource type="Resource" id="Resource_dorn"]
@@ -60,7 +60,7 @@ Size = Vector2(192, 192)
 IsClickable = true
 TargetScreenId = ""
 TooltipKey = "E3PoiCandidateTooltip"
-AssetKey = "e3.poi.npc_candidate"
+AssetKey = "e2.poi.npc_candidate"
 Kind = 3
 
 [resource]

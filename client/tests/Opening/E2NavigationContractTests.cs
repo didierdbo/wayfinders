@@ -69,7 +69,7 @@ public sealed class E2NavigationContractTests
         }
     }
 
-    private static PoiDefinitionDto Halfgate() => new(
+    private static PoiDefinitionDto ClickableArea() => new(
         PoiId: "halfgate",
         IsClickable: true,
         TargetScreenId: "E2_AREA",
@@ -98,7 +98,7 @@ public sealed class E2NavigationContractTests
     {
         var nav = new FakeNavigator();
 
-        await FakeOnPoiPressed(nav, Halfgate());
+        await FakeOnPoiPressed(nav, ClickableArea());
 
         Assert.Single(nav.NavigateToCalls);
         Assert.Equal("E2_AREA", nav.NavigateToCalls[0]);
@@ -159,9 +159,9 @@ public sealed class E2NavigationContractTests
         // is good belt-and-braces).
         var nav = new FakeNavigator();
 
-        await FakeOnPoiPressed(nav, Halfgate());
+        await FakeOnPoiPressed(nav, ClickableArea());
         await FakeOnPoiPressed(nav, Veylant());
-        await FakeOnPoiPressed(nav, Halfgate());
+        await FakeOnPoiPressed(nav, ClickableArea());
 
         Assert.Equal(2, nav.NavigateToCalls.Count);
         Assert.Equal("E2_AREA", nav.NavigateToCalls[0]);

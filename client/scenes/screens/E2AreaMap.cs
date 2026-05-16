@@ -34,7 +34,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///         as <see cref="Node2D"/> roots holding a <see cref="Sprite2D"/>
 ///         and an <see cref="Area2D"/>+<see cref="CollisionShape2D"/>
 ///         hitbox -- same shape as E2 post-slice 1. POI source coords
-///         (<c>city_halfgate_pois.tres</c>) live in the source-image
+///         (<c>area_pois.tres</c>) live in the source-image
 ///         pixel frame, which is the world frame for the WorldRoot
 ///         tree -- positions transfer 1-1 from the J3+J4 era.</item>
 ///   <item>Climb wiring : the pan component's <see cref="MapPan2DComponent.ClimbRequested"/>
@@ -143,7 +143,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// <para>
 /// <b>POI hotspot pattern (J3 D-J3-01 reused, slice 4 ported to
 /// world-space, slice 5 unchanged).</b> POIs are <see cref="Node2D"/>
-/// hotspots spawned from <c>res://data/city_halfgate_pois.tres</c> at
+/// hotspots spawned from <c>res://data/area_pois.tres</c> at
 /// <c>_Ready</c>, parented to <c>MapPan2DComponent.PoiContainer</c>.
 /// Position + hit-box come from each <see cref="PoiDefinition"/>. The
 /// Risk #1 lambda-capture dictionary (<c>_poiHandlers</c>) keeps the
@@ -226,12 +226,12 @@ public partial class E2AreaMap : Control, IScreen
     private const string DrillTargetScreenId = "E3_DISTRICT";
 
     private const string OpeningStringsResPath = "res://data/opening_strings.tres";
-    private const string CityPoisResPath = "res://data/city_halfgate_pois.tres";
-    private const string CityBackgroundAssetKey = "e3.halfgate.base";
+    private const string CityPoisResPath = "res://data/area_pois.tres";
+    private const string CityBackgroundAssetKey = "e2.area.base";
     private const string BannerTopAssetKey = "e2.banner_top";
     private const string PanelLeftAssetKey = "e2.panel_left";
     private const string PanelRightAssetKey = "e2.panel_right";
-    private const string PanelBottomAssetKey = "e3.panel_bottom";
+    private const string PanelBottomAssetKey = "e2.panel_bottom";
 
     private const float BlockedFadeInSeconds = 0.1f;
     private const float BlockedHoldSeconds = 2.0f;
@@ -267,7 +267,7 @@ public partial class E2AreaMap : Control, IScreen
     private Label _blockedIndicatorLabel = null!;
 
     private OpeningStrings _strings = null!;
-    private CityHalfgatePois _poisResource = null!;
+    private AreaPois _poisResource = null!;
 
     /// <summary>
     /// Per-POI handler bag -- captured-reference signal-leak discipline
@@ -300,7 +300,7 @@ public partial class E2AreaMap : Control, IScreen
     public override void _Ready()
     {
         _strings = ResourceLoader.Load<OpeningStrings>(OpeningStringsResPath) ?? new OpeningStrings();
-        _poisResource = ResourceLoader.Load<CityHalfgatePois>(CityPoisResPath) ?? new CityHalfgatePois();
+        _poisResource = ResourceLoader.Load<AreaPois>(CityPoisResPath) ?? new AreaPois();
 
         _panComponent = GetNode<MapPan2DComponent>("MapPan2DComponent");
 

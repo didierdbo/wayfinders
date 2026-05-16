@@ -74,7 +74,7 @@ public sealed class PoiDispatchLogicKindTests
     public void District_clickable_with_empty_target_falls_back_to_blocked()
     {
         // Defensive: same J3 fallback shape, but for the District kind.
-        // A hot-edited city_halfgate_pois.tres with empty TargetScreenId
+        // A hot-edited area_pois.tres with empty TargetScreenId
         // must NOT silently navigate to "" -- flash the blocked indicator.
         var poi = new PoiDefinitionDto(
             PoiId: "halfgate.broken",

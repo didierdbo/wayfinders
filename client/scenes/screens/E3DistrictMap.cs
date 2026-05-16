@@ -31,7 +31,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///         as <see cref="Node2D"/> roots holding a <see cref="Sprite2D"/>
 ///         and an <see cref="Area2D"/>+<see cref="CollisionShape2D"/>
 ///         hitbox -- same shape as E2 post slice-1 / E3 post slice-4.
-///         POI source coords (<c>halfgate_marche_pois.tres</c>) live in
+///         POI source coords (<c>district_pois.tres</c>) live in
 ///         the source-image pixel frame, which is the world frame for
 ///         the WorldRoot tree, so positions transfer 1-1 from the
 ///         pre-slice-5 J5 era.</item>
@@ -85,7 +85,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// <para>
 /// <b>POI hotspot pattern (J5 D-J5-10 reused, slice 5 ported to
 /// world-space).</b> POIs are <see cref="Node2D"/> hotspots spawned
-/// from <c>res://data/halfgate_marche_pois.tres</c> at <c>_Ready</c>,
+/// from <c>res://data/district_pois.tres</c> at <c>_Ready</c>,
 /// parented to <see cref="MapPan2DComponent.PoiContainer"/>. Position
 /// + hit-box come from each <see cref="PoiDefinition"/>. The Risk #1
 /// lambda-capture dictionary (<see cref="_poiHandlers"/>) keeps the
@@ -160,12 +160,12 @@ public partial class E3DistrictMap : Control, IScreen
     public const string OriginCoordPayloadKey = "E3.OriginCoord";
 
     private const string OpeningStringsResPath = "res://data/opening_strings.tres";
-    private const string DistrictPoisResPath = "res://data/halfgate_marche_pois.tres";
-    private const string DistrictBackgroundAssetKey = "e5.halfgate.marche.base";
+    private const string DistrictPoisResPath = "res://data/district_pois.tres";
+    private const string DistrictBackgroundAssetKey = "e3.area.district.base";
     private const string BannerTopAssetKey = "e2.banner_top";
     private const string PanelLeftAssetKey = "e2.panel_left";
     private const string PanelRightAssetKey = "e2.panel_right";
-    private const string PanelBottomAssetKey = "e3.panel_bottom";
+    private const string PanelBottomAssetKey = "e2.panel_bottom";
 
     private const float BlockedFadeInSeconds = 0.1f;
     private const float BlockedHoldSeconds = 2.0f;
@@ -201,7 +201,7 @@ public partial class E3DistrictMap : Control, IScreen
     private Label _blockedIndicatorLabel = null!;
 
     private OpeningStrings _strings = null!;
-    private HalfgateMarchePois _poisResource = null!;
+    private DistrictPois _poisResource = null!;
 
     /// <summary>
     /// Slice 5 -- per-POI handler bag. Three lambda references kept on
@@ -231,7 +231,7 @@ public partial class E3DistrictMap : Control, IScreen
     public override void _Ready()
     {
         _strings = ResourceLoader.Load<OpeningStrings>(OpeningStringsResPath) ?? new OpeningStrings();
-        _poisResource = ResourceLoader.Load<HalfgateMarchePois>(DistrictPoisResPath) ?? new HalfgateMarchePois();
+        _poisResource = ResourceLoader.Load<DistrictPois>(DistrictPoisResPath) ?? new DistrictPois();
 
         _panComponent = GetNode<MapPan2DComponent>("MapPan2DComponent");
 
