@@ -50,9 +50,32 @@ uniform float parchment_alpha : hint_range(0.0, 1.0) = 0.0;
 // uniforms if Mira wants finer control later ; locked here for the MVP.
 uniform vec4 parchment_tint : source_color = vec4(0.690, 0.522, 0.337, 1.0);
 
+// Alpha threshold below which the source pixel is considered transparent
+// "background" and the shader discards the parchment overlay entirely
+// (writes a fully-transparent output). This guards the iso-losange shape
+// from the d3d12 + LinearWithMipmaps + bilinear-sampling edge-bleed combo,
+// AND guards future placeholder bitmaps that may have semi-opaque "halo"
+// pixels at the corners. The E1 neutral bitmap has clean alpha=0 corners
+// so the threshold never bites for it ; the guard is defensive for the
+// E2.1c per-district bitmap dégelé.
+const float ALPHA_DISCARD_THRESHOLD = 0.01;
+
 void fragment() {
     // Read the base sprite's pixel (the district tile texture).
     vec4 base = texture(TEXTURE, UV);
+
+    // Defensive alpha discard. If the source pixel is transparent (a
+    // corner of the iso losange bitmap), short-circuit the blend and
+    // write a fully-transparent output. Keeps the iso losange shape
+    // visible even if a future bitmap has dirty alpha corners ; for
+    // wf_e1_tile_neutral.png (alpha=0 at corners) this is a strict
+    // no-op vs. the previous arithmetic path but makes the contract
+    // explicit -- a reader can see "transparent stays transparent" at
+    // a glance instead of tracing the alpha math.
+    if (base.a < ALPHA_DISCARD_THRESHOLD) {
+        COLOR = vec4(0.0, 0.0, 0.0, 0.0);
+        return;
+    }
 
     // Compute the overlay weight : peaks at parchment_alpha == 0.55 (the
     // Varn-locked Partial value) and tapers to zero at both ends. The
@@ -78,6 +101,17 @@ void fragment() {
     // base's RGB toward the parchment tint by overlay_opacity, then we
     // keep the base alpha (sprite alpha is the source of truth for
     // shape, not the overlay).
+    //
+    // d3d12 trap note (mirrors tile_reveal.gdshader header). canvas_item
+    // fragment contract in Godot 4 : at function entry COLOR =
+    // texture(TEXTURE, UV) * MODULATE. Writing `base.a * COLOR.a` thus
+    // squares the texture alpha at AA edges (slight darkening). For the
+    // E1 neutral bitmap with binary alpha (0 at corners, ~255 inside),
+    // the squaring is invisible ; for any future bitmap with a smooth
+    // alpha falloff at the edge, the discard above short-circuits the
+    // squaring branch entirely. Keeping the multiplication preserves
+    // the parent Modulate.a (fog edge cohabitation pattern, same as
+    // tile_reveal.gdshader).
     vec3 blended_rgb = mix(base.rgb, parchment_tint.rgb, overlay_opacity);
 
     COLOR = vec4(blended_rgb, base.a * COLOR.a);
