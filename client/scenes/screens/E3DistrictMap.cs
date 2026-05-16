@@ -124,7 +124,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///
 /// <para>
 /// <b>OriginCoord payload (slice 5 logged).</b> When E3 drills into E5,
-/// the payload carries <c>"E3.OriginCoord" = Vector2</c> (the L2 image-space
+/// the payload carries <c>"E2.OriginCoord" = Vector2</c> (the L2 image-space
 /// world position the drill fired on). Slice 5 logs it at
 /// <see cref="OnEnter"/> for traceability but does NOT translate it into
 /// an L3 camera focus -- the L2-image-position-to-L3-image-position
@@ -132,7 +132,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// entirely) and would be arbitrary. E5 always opens centered on the
 /// district image center via <see cref="MapPan2DComponent.Configure"/>
 /// with the texture's geometric center. Same logged-but-not-applied
-/// shape as E3's <c>E2.OriginCoord</c> handling in slice 4.
+/// shape as E3's <c>E1.OriginCoord</c> handling in slice 4.
 /// </para>
 ///
 /// <para>
@@ -157,7 +157,7 @@ public partial class E3DistrictMap : Control, IScreen
     /// <see cref="E2AreaMap.NpcIdPayloadKey"/> and
     /// <see cref="E2AreaMap.OriginCoordPayloadKey"/>.
     /// </summary>
-    public const string OriginCoordPayloadKey = "E3.OriginCoord";
+    public const string OriginCoordPayloadKey = "E2.OriginCoord";
 
     private const string OpeningStringsResPath = "res://data/opening_strings.tres";
     private const string DistrictPoisResPath = "res://data/district_pois.tres";
@@ -520,7 +520,7 @@ public partial class E3DistrictMap : Control, IScreen
                     Payload = new Dictionary<string, object>
                     {
                         // SAME payload key as E3 -- cross-scene contract
-                        // verified by E5NavigationContractTests.
+                        // verified by E3DistrictMapNavigationContractTests.
                         [E2AreaMap.NpcIdPayloadKey] = result.NpcId ?? string.Empty,
                     },
                 };

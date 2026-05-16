@@ -36,11 +36,11 @@ namespace Wayfinders.Client.Tests.Opening;
 ///
 /// <para>
 /// <b>Why this lives in its own file.</b> Same pattern as the slice
-/// 4/5 contract pin files (<see cref="E3WorldSpaceClimbContractTests"/>,
-/// <see cref="E5WorldSpaceClimbContractTests"/>) : one regression =
+/// 4/5 contract pin files (<see cref="E2AreaMapWorldSpaceClimbContractTests"/>,
+/// <see cref="E3DistrictMapWorldSpaceClimbContractTests"/>) : one regression =
 /// one file with a stable name that surfaces in the test runner output
 /// when it ever fires. Inlining this assertion into
-/// <see cref="E2NavigationContractTests"/> would mix the back-button
+/// <see cref="E1WorldMapNavigationContractTests"/> would mix the back-button
 /// contract (which DOES want NavigateBack) with the climb-at-zoom-min
 /// contract (which does NOT). Two intents, two files.
 /// </para>
@@ -64,7 +64,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// </list>
 /// </para>
 /// </summary>
-public sealed class E2ClimbAtZoomMinDoesNotPopToE1Tests
+public sealed class E1WorldMapClimbAtZoomMinDoesNotPopToTitleTests
 {
     private sealed class FakeSceneManager
     {
@@ -121,7 +121,7 @@ public sealed class E2ClimbAtZoomMinDoesNotPopToE1Tests
     }
 
     [Fact]
-    public void E2_world_is_top_of_ladder_so_ResolveUpTarget_is_null()
+    public void E1WorldMap_world_is_top_of_ladder_so_ResolveUpTarget_is_null()
     {
         // The substrate contract : the ladder resolution helper, when
         // asked "what climbs out of E1_WORLD ?", returns null. This

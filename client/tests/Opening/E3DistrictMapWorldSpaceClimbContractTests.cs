@@ -26,11 +26,11 @@ namespace Wayfinders.Client.Tests.Opening;
 ///   <item>Slice 5 livrable 1 : the OriginCoord payload key for
 ///         E3-&gt;E5 is the stable string both writers (E3) and readers
 ///         (E5) agree on. Mirror of the E2-&gt;E3 contract pinned in
-///         <see cref="E3WorldSpaceClimbContractTests"/>.</item>
+///         <see cref="E2AreaMapWorldSpaceClimbContractTests"/>.</item>
 /// </list>
 ///
 /// <para>
-/// Pattern mirrors <see cref="E3WorldSpaceClimbContractTests"/> verbatim
+/// Pattern mirrors <see cref="E2AreaMapWorldSpaceClimbContractTests"/> verbatim
 /// : a fake harness simulates the SceneManager + MapPan2DComponent
 /// public surface ; the E5 climb handler is reproduced inline (fake
 /// <c>OnClimbRequested</c>) so the signal-to-NavigateBack-to-lock-release
@@ -38,7 +38,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// <c>E3DistrictMap.OnClimbRequested</c> body.
 /// </para>
 /// </summary>
-public sealed class E5WorldSpaceClimbContractTests
+public sealed class E3DistrictMapWorldSpaceClimbContractTests
 {
     /// <summary>
     /// Stable payload key used by E3 to thread the L2 cursor world
@@ -48,7 +48,7 @@ public sealed class E5WorldSpaceClimbContractTests
     /// duplicated here so the xUnit assembly does not need to compile-
     /// include the Godot screen file.
     /// </summary>
-    private const string OriginCoordPayloadKey = "E3.OriginCoord";
+    private const string OriginCoordPayloadKey = "E2.OriginCoord";
 
     private sealed class FakeSceneManager
     {
@@ -102,7 +102,7 @@ public sealed class E5WorldSpaceClimbContractTests
     }
 
     [Fact]
-    public async Task Climb_from_E5_calls_NavigateBack_exactly_once()
+    public async Task Climb_from_E3DistrictMap_calls_NavigateBack_exactly_once()
     {
         // Slice 5 livrable 3 -- the climb signal handler dispatches to
         // SceneManager.NavigateBack. NavigateTo is NOT called : the
@@ -123,7 +123,7 @@ public sealed class E5WorldSpaceClimbContractTests
     }
 
     [Fact]
-    public async Task Climb_from_E5_releases_transition_lock_after_NavigateBack()
+    public async Task Climb_from_E3DistrictMap_releases_transition_lock_after_NavigateBack()
     {
         // Slice 5 livrable 3 -- the transition lock on the pan component
         // must be released after NavigateBack returns. E5 is freed by
@@ -172,14 +172,14 @@ public sealed class E5WorldSpaceClimbContractTests
     }
 
     [Fact]
-    public void E3_OriginCoord_payload_key_is_E3_OriginCoord_dot_namespaced()
+    public void E3DistrictMap_OriginCoord_payload_key_is_E2_OriginCoord_dot_namespaced()
     {
         // Slice 5 livrable 1 -- the payload key namespacing for L2->L3.
         // E3 writes, E5 reads, both agree on the literal string. The
         // "E3." prefix matches the convention established for
-        // "E4.NpcId" and "E2.OriginCoord" : the screen that owns the
+        // "E4.NpcId" and "E1.OriginCoord" : the screen that owns the
         // writer's domain prefixes the key.
-        Assert.Equal("E3.OriginCoord", OriginCoordPayloadKey);
+        Assert.Equal("E2.OriginCoord", OriginCoordPayloadKey);
     }
 
     [Fact]
@@ -225,7 +225,7 @@ public sealed class E5WorldSpaceClimbContractTests
         // climb. There is no second panComponent for E3 receiving any
         // camera-position write ; the absence of a second method on
         // the fake is itself the contract assertion. Same shape as
-        // <see cref="E3WorldSpaceClimbContractTests.Climb_does_not_call_explicit_camera_snapshot_on_E2"/>
+        // <see cref="E2AreaMapWorldSpaceClimbContractTests.Climb_does_not_call_explicit_camera_snapshot_on_E2"/>
         // for the L1↔L2 round trip.
         var nav = new FakeSceneManager();
         var e5PanComponent = new FakePanComponent();

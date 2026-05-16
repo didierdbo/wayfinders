@@ -25,7 +25,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// dispatch -&gt; navigation wiring is testable hors-Godot.
 /// </para>
 /// </summary>
-public sealed class E2NavigationContractTests
+public sealed class E1WorldMapNavigationContractTests
 {
     private sealed class FakeNavigator
     {
@@ -82,7 +82,7 @@ public sealed class E2NavigationContractTests
         TooltipKey: "");
 
     [Fact]
-    public async Task E2_back_button_calls_NavigateBack()
+    public async Task E1WorldMap_back_button_calls_NavigateBack()
     {
         var nav = new FakeNavigator();
 
@@ -94,7 +94,7 @@ public sealed class E2NavigationContractTests
     }
 
     [Fact]
-    public async Task E2_halfgate_poi_click_navigates_to_E3_city_halfgate()
+    public async Task E1WorldMap_area_poi_click_navigates_to_E2_area()
     {
         var nav = new FakeNavigator();
 
@@ -106,7 +106,7 @@ public sealed class E2NavigationContractTests
     }
 
     [Fact]
-    public async Task E2_grisée_poi_click_does_not_navigate()
+    public async Task E1WorldMap_grisée_poi_click_does_not_navigate()
     {
         var nav = new FakeNavigator();
 
@@ -117,7 +117,7 @@ public sealed class E2NavigationContractTests
     }
 
     [Fact]
-    public async Task E2_grisée_poi_click_emits_blocked_indicator_request()
+    public async Task E1WorldMap_grisée_poi_click_emits_blocked_indicator_request()
     {
         var nav = new FakeNavigator();
 
@@ -128,7 +128,7 @@ public sealed class E2NavigationContractTests
     }
 
     [Fact]
-    public async Task E2_rapid_grisée_clicks_request_indicator_per_click()
+    public async Task E1WorldMap_rapid_grisée_clicks_request_indicator_per_click()
     {
         // The flash-debounce on the Godot side restarts the tween on
         // each new click ; from the navigator's perspective each click
@@ -149,7 +149,7 @@ public sealed class E2NavigationContractTests
     }
 
     [Fact]
-    public async Task E2_mixed_clicks_route_correctly()
+    public async Task E1WorldMap_mixed_clicks_route_correctly()
     {
         // Clickable POI + grisée POI in alternation: the navigator
         // sees one NavigateTo and one BlockedIndicator request,

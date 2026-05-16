@@ -20,7 +20,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// </list>
 ///
 /// <para>
-/// Pattern mirrors <see cref="E2NavigationContractTests"/> (J3): a
+/// Pattern mirrors <see cref="E1WorldMapNavigationContractTests"/> (J3): a
 /// FakeNavigator simulates the SceneManager's public surface ; the
 /// E3 click handler is reproduced inline (fake "OnPoiPressed") so the
 /// dispatch -&gt; navigation/modal/blocked wiring is testable
@@ -28,7 +28,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// <c>E2AreaMap.OnPoiPressed</c> body.
 /// </para>
 /// </summary>
-public sealed class E3NavigationContractTests
+public sealed class E2AreaMapNavigationContractTests
 {
     /// <summary>
     /// Stable payload key used by E3 to thread the npc id into the
@@ -118,7 +118,7 @@ public sealed class E3NavigationContractTests
         Kind: PoiKind.KeyBuilding);
 
     [Fact]
-    public async Task E3_back_button_calls_NavigateBack()
+    public async Task E2AreaMap_back_button_calls_NavigateBack()
     {
         var nav = new FakeE3Navigator();
 
@@ -131,7 +131,7 @@ public sealed class E3NavigationContractTests
     }
 
     [Fact]
-    public async Task E3_esc_key_calls_NavigateBack_via_scene_manager()
+    public async Task E2AreaMap_esc_key_calls_NavigateBack_via_scene_manager()
     {
         // Esc handling is owned by SceneManager._UnhandledInput
         // (mapped to ui_cancel) -- E3 inherits the J1 behaviour. Same
@@ -146,7 +146,7 @@ public sealed class E3NavigationContractTests
     }
 
     [Fact]
-    public async Task E3_district_poi_click_navigates_to_E5_district()
+    public async Task E2AreaMap_district_poi_click_navigates_to_E5_district()
     {
         var nav = new FakeE3Navigator();
 
@@ -159,7 +159,7 @@ public sealed class E3NavigationContractTests
     }
 
     [Fact]
-    public async Task E3_candidate_poi_click_opens_E4_modal_with_npc_payload()
+    public async Task E2AreaMap_candidate_poi_click_opens_E4_modal_with_npc_payload()
     {
         // D-J4-07 option α: clicking a NpcCandidate POI opens the E4
         // fiche cadastrale modal pre-filled with the candidat's id.
@@ -180,7 +180,7 @@ public sealed class E3NavigationContractTests
     }
 
     [Fact]
-    public async Task E3_key_building_poi_click_shows_blocked_does_not_navigate()
+    public async Task E2AreaMap_key_building_poi_click_shows_blocked_does_not_navigate()
     {
         // Varn §3.3.3 + D-J4-09: KeyBuilding QG is hover-only J4 ;
         // click stub-flashes the E3KeyBuildingBlockedIndicator. No

@@ -24,7 +24,7 @@ namespace Wayfinders.Client.Tests.Opening;
 ///   <item>Slice 5 livrable 2 : the OriginCoord payload key for E3-&gt;E5
 ///         is the stable string both writers (E3) and readers (E5)
 ///         agree on. Mirrors the same pattern used for
-///         <c>E2.OriginCoord</c> in slice 4.</item>
+///         <c>E1.OriginCoord</c> in slice 4.</item>
 ///   <item>Slice 5 decision α : the always-true drill resolver always
 ///         returns a state &gt;= Esquissée so
 ///         <see cref="ZoomNavLogic.EvaluateWheelInput"/> classifies the
@@ -39,8 +39,8 @@ namespace Wayfinders.Client.Tests.Opening;
 /// </list>
 ///
 /// <para>
-/// Pattern mirrors <see cref="E3WorldSpaceClimbContractTests"/> and
-/// <see cref="E2NavigationContractTests"/> J3 : a fake harness
+/// Pattern mirrors <see cref="E2AreaMapWorldSpaceClimbContractTests"/> and
+/// <see cref="E1WorldMapNavigationContractTests"/> J3 : a fake harness
 /// simulates the SceneManager + MapPan2DComponent public surface ; the
 /// E3 drill handler is reproduced inline (fake <c>OnDrillRequested</c>)
 /// so the signal-to-NavigateTo-to-lock-release wiring is testable
@@ -49,7 +49,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// the engine assembly which xUnit cannot load.
 /// </para>
 /// </summary>
-public sealed class E3DrillToL3ContractTests
+public sealed class E2AreaMapDrillToDistrictContractTests
 {
     /// <summary>
     /// Stable payload key used by E3 to thread the L2 cursor position
@@ -57,9 +57,9 @@ public sealed class E3DrillToL3ContractTests
     /// on the Godot-side <c>E3DistrictMap.OriginCoordPayloadKey</c> --
     /// duplicated here so the xUnit assembly does not need to compile-include
     /// the Godot screen file. Same duplication ceremony as the
-    /// <c>"E4.NpcId"</c> and <c>"E2.OriginCoord"</c> mirrors.
+    /// <c>"E4.NpcId"</c> and <c>"E1.OriginCoord"</c> mirrors.
     /// </summary>
-    private const string OriginCoordPayloadKey = "E3.OriginCoord";
+    private const string OriginCoordPayloadKey = "E2.OriginCoord";
 
     /// <summary>Stable screen id of the L3 drill target.</summary>
     private const string DrillTargetScreenId = "E3_DISTRICT";
@@ -102,8 +102,8 @@ public sealed class E3DrillToL3ContractTests
     /// position (passed in from outside in this fake), pack it into
     /// the payload, await NavigateTo, release the transition lock in
     /// finally. Same shape as E2's slice-3 drill handler (with the
-    /// payload key flipped from <c>E2.OriginCoord</c> to
-    /// <c>E3.OriginCoord</c>). The fake panComponent observes that
+    /// payload key flipped from <c>E1.OriginCoord</c> to
+    /// <c>E2.OriginCoord</c>). The fake panComponent observes that
     /// <c>NotifyTransitionEnded</c> is called exactly once even on
     /// the happy path.
     /// </summary>
@@ -198,17 +198,17 @@ public sealed class E3DrillToL3ContractTests
     }
 
     [Fact]
-    public void E3_OriginCoord_payload_key_is_E3_OriginCoord_dot_namespaced()
+    public void E2AreaMap_OriginCoord_payload_key_is_E2_OriginCoord_dot_namespaced()
     {
         // Slice 5 livrable 2 -- the payload key namespacing for L2->L3.
         // E3 writes, E5 reads, both agree on the literal string.
         // The "E3." prefix matches the convention established for
-        // "E4.NpcId" and "E2.OriginCoord" : the screen that owns the
+        // "E4.NpcId" and "E1.OriginCoord" : the screen that owns the
         // writer's domain prefixes the key. A future typed
         // ScreenContext.OriginCoord property would replace this string-
         // keyed pattern, but for MVP the inline string is the contract
         // surface and this test pins it.
-        Assert.Equal("E3.OriginCoord", OriginCoordPayloadKey);
+        Assert.Equal("E2.OriginCoord", OriginCoordPayloadKey);
     }
 
     [Fact]

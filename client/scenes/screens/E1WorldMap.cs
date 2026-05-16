@@ -493,7 +493,7 @@ public partial class E1WorldMap : Control, IScreen
         {
             Payload = new Dictionary<string, object>
             {
-                ["E2.OriginCoord"] = coord,
+                ["E1.OriginCoord"] = coord,
             },
         };
 
@@ -539,7 +539,7 @@ public partial class E1WorldMap : Control, IScreen
     /// is the Esc/back-button semantics ; the wheel ladder semantics
     /// are <c>NavigateLadderUp</c>, which respects the ladder spine and
     /// silently no-ops at the top rung. Pinned by
-    /// <see cref="Wayfinders.Client.Tests.Opening.E2ClimbAtZoomMinDoesNotPopToE1Tests"/>.
+    /// <see cref="Wayfinders.Client.Tests.Opening.E1WorldMapClimbAtZoomMinDoesNotPopToTitleTests"/>.
     /// </para>
     ///
     /// <para>

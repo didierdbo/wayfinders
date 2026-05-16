@@ -20,14 +20,14 @@ namespace Wayfinders.Client.Tests.Opening;
 /// </list>
 ///
 /// <para>
-/// Pattern mirrors <see cref="E3NavigationContractTests"/>: same
+/// Pattern mirrors <see cref="E2AreaMapNavigationContractTests"/>: same
 /// FakeNavigator + FakeOnPoiPressed shape, swapping the test data
 /// fixtures to E5 quartier POIs. The OpeningStrings consumption (label
 /// rendering, tooltip text) is Godot-bound so it is verified by the
 /// J5 manual checklist, not xUnit.
 /// </para>
 /// </summary>
-public sealed class E5NavigationContractTests
+public sealed class E3DistrictMapNavigationContractTests
 {
     /// <summary>
     /// Stable payload key used by E5 to thread the npc id into the
@@ -35,7 +35,7 @@ public sealed class E5NavigationContractTests
     /// <c>E2AreaMap.NpcIdPayloadKey</c> -- duplicated here so the
     /// xUnit assembly does not need to compile-include the Godot
     /// screen file. Same duplication pattern as
-    /// <see cref="E3NavigationContractTests"/>.
+    /// <see cref="E2AreaMapNavigationContractTests"/>.
     /// </summary>
     private const string NpcIdPayloadKey = "E4.NpcId";
 
@@ -111,7 +111,7 @@ public sealed class E5NavigationContractTests
         Kind: PoiKind.AmbientNpc);
 
     [Fact]
-    public async Task E5_back_button_calls_NavigateBack()
+    public async Task E3DistrictMap_back_button_calls_NavigateBack()
     {
         var nav = new FakeE5Navigator();
 
@@ -125,7 +125,7 @@ public sealed class E5NavigationContractTests
     }
 
     [Fact]
-    public async Task E5_esc_key_calls_NavigateBack_via_scene_manager()
+    public async Task E3DistrictMap_esc_key_calls_NavigateBack_via_scene_manager()
     {
         // Esc handling is owned by SceneManager._UnhandledInput
         // (mapped to ui_cancel) -- E5 inherits the J1 behaviour. Same
@@ -138,7 +138,7 @@ public sealed class E5NavigationContractTests
     }
 
     [Fact]
-    public async Task E5_kira_npc_click_opens_E4_modal_with_npc_payload()
+    public async Task E3DistrictMap_kira_npc_click_opens_E4_modal_with_npc_payload()
     {
         // D-J5-10 reuse: clicking the Kira NpcCandidate on E5 must open
         // the SAME E4 modal as on E3, with the SAME payload key
@@ -158,7 +158,7 @@ public sealed class E5NavigationContractTests
     }
 
     [Fact]
-    public async Task E5_ambient_npc_click_blocked_does_not_navigate_or_open_modal()
+    public async Task E3DistrictMap_ambient_npc_click_blocked_does_not_navigate_or_open_modal()
     {
         // Defense-in-depth from J4 dispatcher: AmbientNpc kind is
         // forced through ShowBlockedIndicator regardless of
@@ -176,7 +176,7 @@ public sealed class E5NavigationContractTests
     }
 
     [Fact]
-    public async Task E5_ambient_npc_clickable_hot_edit_still_blocked()
+    public async Task E3DistrictMap_ambient_npc_clickable_hot_edit_still_blocked()
     {
         // Reinforces the previous test: even if a hot-edited
         // district_pois.tres flips IsClickable=true on the
@@ -194,10 +194,10 @@ public sealed class E5NavigationContractTests
     }
 
     [Fact]
-    public void E5_kira_uses_same_payload_key_constant_as_test_E3()
+    public void E3DistrictMap_kira_uses_same_payload_key_constant_as_test_E3()
     {
         // Documentation test: the cross-scene contract is "E4.NpcId".
-        // Both E3NavigationContractTests and E5NavigationContractTests
+        // Both E2AreaMapNavigationContractTests and E3DistrictMapNavigationContractTests
         // duplicate the constant -- a future rename of the Godot-side
         // E2AreaMap.NpcIdPayloadKey would surface here only if
         // both test files are also updated, which is the desired

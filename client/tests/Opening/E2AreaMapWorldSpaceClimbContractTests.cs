@@ -29,8 +29,8 @@ namespace Wayfinders.Client.Tests.Opening;
 /// </list>
 ///
 /// <para>
-/// Pattern mirrors <see cref="E3NavigationContractTests"/> J4 +
-/// <see cref="E2NavigationContractTests"/> J3 : a fake harness
+/// Pattern mirrors <see cref="E2AreaMapNavigationContractTests"/> J4 +
+/// <see cref="E1WorldMapNavigationContractTests"/> J3 : a fake harness
 /// simulates the <c>SceneManager</c> + <c>MapPan2DComponent</c> public
 /// surface ; the E3 climb handler is reproduced inline (fake
 /// <c>OnClimbRequested</c>) so the signal-to-NavigateBack-to-lock-release
@@ -38,7 +38,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// <c>E2AreaMap.OnClimbRequested</c> body.
 /// </para>
 /// </summary>
-public sealed class E3WorldSpaceClimbContractTests
+public sealed class E2AreaMapWorldSpaceClimbContractTests
 {
     /// <summary>
     /// Stable payload key used by E2 to thread the L1 origin cell into
@@ -48,7 +48,7 @@ public sealed class E3WorldSpaceClimbContractTests
     /// here so the xUnit assembly does not need to compile-include the
     /// Godot screen file.
     /// </summary>
-    private const string OriginCoordPayloadKey = "E2.OriginCoord";
+    private const string OriginCoordPayloadKey = "E1.OriginCoord";
 
     private sealed class FakeSceneManager
     {
@@ -104,7 +104,7 @@ public sealed class E3WorldSpaceClimbContractTests
     }
 
     [Fact]
-    public async Task Climb_from_E3_calls_NavigateBack_exactly_once()
+    public async Task Climb_from_E2AreaMap_calls_NavigateBack_exactly_once()
     {
         // Slice 4 livrable 2 -- the climb signal handler dispatches to
         // SceneManager.NavigateBack. NavigateTo is NOT called : the
@@ -124,7 +124,7 @@ public sealed class E3WorldSpaceClimbContractTests
     }
 
     [Fact]
-    public async Task Climb_from_E3_releases_transition_lock_after_NavigateBack()
+    public async Task Climb_from_E2AreaMap_releases_transition_lock_after_NavigateBack()
     {
         // Slice 4 livrable 2 -- the transition lock on the pan component
         // must be released after NavigateBack returns. Without this, a
@@ -171,7 +171,7 @@ public sealed class E3WorldSpaceClimbContractTests
     }
 
     [Fact]
-    public void OriginCoord_payload_key_is_E2_OriginCoord_dot_namespaced()
+    public void OriginCoord_payload_key_is_E1_OriginCoord_dot_namespaced()
     {
         // Slice 4 livrable 1 -- the payload key namespacing. E2 writes,
         // E3 reads, both agree on the literal string. The "E2." prefix
@@ -180,7 +180,7 @@ public sealed class E3WorldSpaceClimbContractTests
         // typed ScreenContext.OriginCoord property would replace this
         // string-keyed pattern, but for MVP the inline string is the
         // contract surface and this test pins it.
-        Assert.Equal("E2.OriginCoord", OriginCoordPayloadKey);
+        Assert.Equal("E1.OriginCoord", OriginCoordPayloadKey);
     }
 
     [Fact]
@@ -210,7 +210,7 @@ public sealed class E3WorldSpaceClimbContractTests
     }
 
     [Fact]
-    public async Task Climb_does_not_call_explicit_camera_snapshot_on_E2()
+    public async Task Climb_does_not_call_explicit_camera_snapshot_on_E1WorldMap()
     {
         // Slice 4 livrable 3 -- the climb path does NOT explicitly
         // snapshot E2's camera state. The Hide-not-Free model on

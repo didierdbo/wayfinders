@@ -109,12 +109,12 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// <b>OriginCoord payload contract (slice 4 + slice 5).</b>
 /// <list type="bullet">
 ///   <item><b>E2 -&gt; E3</b> (slice 4) : payload key
-///         <see cref="OriginCoordPayloadKey"/> = <c>"E2.OriginCoord"</c>,
+///         <see cref="OriginCoordPayloadKey"/> = <c>"E1.OriginCoord"</c>,
 ///         value <see cref="Vector2I"/> = the L1 grid cell coord the
 ///         drill fired on. Logged in <see cref="OnEnter"/> for
 ///         traceability ; not consumed visually.</item>
 ///   <item><b>E3 -&gt; E5</b> (slice 5) : payload key
-///         <c>"E3.OriginCoord"</c>
+///         <c>"E2.OriginCoord"</c>
 ///         (<see cref="E3DistrictMap.OriginCoordPayloadKey"/>), value
 ///         <see cref="Vector2"/> = the L2 image-space cursor position
 ///         at drill time. Logged in <see cref="E3DistrictMap.OnEnter"/>
@@ -215,7 +215,7 @@ public partial class E2AreaMap : Control, IScreen
     /// the contract is one writer (E2) and one reader (E3) keyed by an
     /// inline string -- the same shape as <see cref="NpcIdPayloadKey"/>.
     /// </summary>
-    public const string OriginCoordPayloadKey = "E2.OriginCoord";
+    public const string OriginCoordPayloadKey = "E1.OriginCoord";
 
     /// <summary>
     /// Slice 5 -- the screen id of the drill target when L2 cap-Pushes.
@@ -640,7 +640,7 @@ public partial class E2AreaMap : Control, IScreen
 
         // Pack the L2 origin position into the payload bag. E5 reads it
         // back at OnEnter for traceability (logged-but-not-applied,
-        // same shape as E3's E2.OriginCoord handling -- the
+        // same shape as E2AreaMap's E1.OriginCoord handling -- the
         // L2-image-to-L3-image mapping is undefined for the MVP single-
         // quartier).
         var payload = new ScreenContext
