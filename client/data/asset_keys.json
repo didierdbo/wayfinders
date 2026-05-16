@@ -18,7 +18,7 @@
     "e2.panel_bottom": "e3/wf_e3_panel_bottom_3840x768.png",
     "e2.area_grid.background": "e2_area_grid/wf_e2_grid_background_2048x2048.png",
     "e2.area_grid.fog": "e2_area_grid/wf_e2_grid_fog_256x256.png",
-    "e2.area_grid.poi_marker": "e2_area_grid/wf_e2_grid_poi_marker_192x192.png",
+    "e2.area_grid.poi_marker": "e2_area_grid/wf_e2_grid_poi_marker_96x96.png",
     "e2.area_grid.tile.intramuros": "e2_area_grid/wf_e2_grid_tile_intramuros_256x256.png",
     "e2.area_grid.tile.wall": "e2_area_grid/wf_e2_grid_tile_wall_256x256.png",
     "e2.area_grid.tile.gateway": "e2_area_grid/wf_e2_grid_tile_gateway_256x256.png",

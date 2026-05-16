@@ -62,7 +62,10 @@ TILE_DIM = (256, 256)  # one district tile sprite
 PORTRAIT_DIM = (256, 384)  # 2:3 portrait, NPC vibe
 BACKGROUND_DIM = (2048, 2048)  # 8x8 grid at 256 px/cell
 FOG_DIM = (256, 256)  # one fog veil tile
-POI_MARKER_DIM = (192, 192)  # one POI marker icon
+POI_MARKER_DIM = (
+    96,
+    96,
+)  # one POI marker icon (E2.1c refonte : sober solid dot, 40 px on 96 canvas)
 
 
 def _load_font(size: int) -> ImageFont.ImageFont:
@@ -286,24 +289,31 @@ def _draw_fog(out_path: Path) -> None:
 
 
 def _draw_poi_marker(out_path: Path) -> None:
-    """POI marker icon -- a centred ring + dot in terracotta. Shown on
-    the central footprint cell when the tuto mission's pop_effect fires
-    poi_visible=true."""
+    """POI marker icon -- a sober solid terracotta dot, no ring.
+
+    E2.1c refonte (Didier lock 2026-05-16) : the first pass drew an
+    outer terracotta ring + inner dot, which read as a UI target icon
+    ("icone cible") rather than a diegetic POI anchor on the parchment.
+    Refonte drops the outer ring entirely and keeps only a solid filled
+    circle, ~40 px diameter on the 96x96 RGBA canvas. The fill is
+    terracotta (matching the parchment wash umber-terracotta family) with
+    a single 2 px DARK_UMBER outline for the alpha cleanup edge -- enough
+    contrast against the wash, no halo, no rim, no white ring.
+
+    Sizing : 96x96 canvas with a 40 px diameter dot leaves enough
+    transparent padding around the dot for Godot's LinearWithMipmaps
+    downscaling to stay clean at the rendered ~24-32 px on-screen size.
+    """
     dim = POI_MARKER_DIM
     img = Image.new("RGBA", dim, (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     cx, cy = dim[0] // 2, dim[1] // 2
-    r_outer = 80
-    r_inner = 24
-
+    # Dot radius : 20 px on a 96x96 canvas = 40 px diameter, leaves a
+    # generous transparent border for clean alpha during downscale.
+    r_dot = 20
     draw.ellipse(
-        [cx - r_outer, cy - r_outer, cx + r_outer, cy + r_outer],
-        outline=(*TERRACOTTA, 255),
-        width=6,
-    )
-    draw.ellipse(
-        [cx - r_inner, cy - r_inner, cx + r_inner, cy + r_inner],
+        [cx - r_dot, cy - r_dot, cx + r_dot, cy + r_dot],
         fill=(*TERRACOTTA, 255),
         outline=DARK_UMBER,
         width=2,
@@ -355,7 +365,7 @@ def main() -> None:
     _draw_fog(OUT_ROOT / "wf_e2_grid_fog_256x256.png")
 
     # 1 POI marker icon.
-    _draw_poi_marker(OUT_ROOT / "wf_e2_grid_poi_marker_192x192.png")
+    _draw_poi_marker(OUT_ROOT / "wf_e2_grid_poi_marker_96x96.png")
 
     print("[gen_e2_area_grid_placeholders] done")
 
