@@ -11,13 +11,13 @@ namespace Wayfinders.Client.Tests.Opening;
 /// be loaded from xUnit (no engine), so these tests assert on a fake
 /// harness that mimics the slice 5 drill pipeline (
 /// <c>MapPan2DComponent.DrillRequested</c> signal -&gt; screen handler
-/// -&gt; <c>SceneManager.NavigateTo("E5_DISTRICT", payload)</c> -&gt;
+/// -&gt; <c>SceneManager.NavigateTo("E3_DISTRICT", payload)</c> -&gt;
 /// transition lock release) and lock the expected intents independent
 /// of the Godot scene tree.
 ///
 /// <list type="bullet">
 ///   <item>Slice 5 livrable 2 : drill-from-E3 calls
-///         <c>SceneManager.NavigateTo("E5_DISTRICT", ...)</c> exactly once.</item>
+///         <c>SceneManager.NavigateTo("E3_DISTRICT", ...)</c> exactly once.</item>
 ///   <item>Slice 5 livrable 2 : the transition lock on the pan
 ///         component is released via <c>NotifyTransitionEnded</c> after
 ///         NavigateTo returns (mirror of climb in slice 4).</item>
@@ -62,7 +62,7 @@ public sealed class E3DrillToL3ContractTests
     private const string OriginCoordPayloadKey = "E3.OriginCoord";
 
     /// <summary>Stable screen id of the L3 drill target.</summary>
-    private const string DrillTargetScreenId = "E5_DISTRICT";
+    private const string DrillTargetScreenId = "E3_DISTRICT";
 
     private sealed class FakeSceneManager
     {
@@ -131,7 +131,7 @@ public sealed class E3DrillToL3ContractTests
     public async Task Drill_from_E3_calls_NavigateTo_E5_exactly_once()
     {
         // Slice 5 livrable 2 -- the drill signal handler dispatches to
-        // SceneManager.NavigateTo with the literal id "E5_DISTRICT".
+        // SceneManager.NavigateTo with the literal id "E3_DISTRICT".
         // NavigateBack is NOT called : the drill path is a forward
         // push, not a back-pop. This pins the contract that drill at
         // L2 is a forward navigation that Hide-not-Free's E3 (preserving

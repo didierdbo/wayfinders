@@ -36,10 +36,10 @@ public sealed class NavigationStackTests
     {
         var stack = new NavigationStack();
         stack.Push(Entry("E1_TITLE"));
-        stack.Push(Entry("E2_WORLD", "E1_TITLE"));
+        stack.Push(Entry("E1_WORLD", "E1_TITLE"));
 
         Assert.Equal(2, stack.Count);
-        Assert.Equal("E2_WORLD", stack.Current!.ScreenId);
+        Assert.Equal("E1_WORLD", stack.Current!.ScreenId);
         Assert.Equal("E1_TITLE", stack.Current.Context.CallerScreenId);
     }
 
@@ -48,12 +48,12 @@ public sealed class NavigationStackTests
     {
         var stack = new NavigationStack();
         stack.Push(Entry("E1_TITLE"));
-        stack.Push(Entry("E2_WORLD"));
+        stack.Push(Entry("E1_WORLD"));
 
         var popped = stack.Pop();
 
         Assert.NotNull(popped);
-        Assert.Equal("E2_WORLD", popped!.ScreenId);
+        Assert.Equal("E1_WORLD", popped!.ScreenId);
         Assert.Equal(1, stack.Count);
         Assert.Equal("E1_TITLE", stack.Current!.ScreenId);
     }
@@ -73,13 +73,13 @@ public sealed class NavigationStackTests
     {
         var stack = new NavigationStack();
         stack.Push(Entry("E1_TITLE"));
-        stack.Push(Entry("E2_WORLD"));
-        stack.Push(Entry("E3_CITY_HALFGATE"));
+        stack.Push(Entry("E1_WORLD"));
+        stack.Push(Entry("E2_AREA"));
 
         Assert.True(stack.Contains("E1_TITLE"));
-        Assert.True(stack.Contains("E2_WORLD"));
-        Assert.True(stack.Contains("E3_CITY_HALFGATE"));
-        Assert.False(stack.Contains("E5_DISTRICT"));
+        Assert.True(stack.Contains("E1_WORLD"));
+        Assert.True(stack.Contains("E2_AREA"));
+        Assert.False(stack.Contains("E3_DISTRICT"));
     }
 
     [Fact]
@@ -87,13 +87,13 @@ public sealed class NavigationStackTests
     {
         var stack = new NavigationStack();
         stack.Push(Entry("E1_TITLE"));
-        stack.Push(Entry("E2_WORLD"));
+        stack.Push(Entry("E1_WORLD"));
 
         var snap = stack.Snapshot();
 
         Assert.Equal(2, snap.Count);
         Assert.Equal("E1_TITLE", snap[0].ScreenId);
-        Assert.Equal("E2_WORLD", snap[1].ScreenId);
+        Assert.Equal("E1_WORLD", snap[1].ScreenId);
 
         // Mutating the stack does not mutate the snapshot.
         stack.Pop();
@@ -105,20 +105,20 @@ public sealed class NavigationStackTests
     {
         var stack = new NavigationStack();
         stack.Push(Entry("E1_TITLE"));
-        stack.Push(Entry("E2_WORLD"));
-        stack.Push(Entry("E3_CITY_HALFGATE"));
+        stack.Push(Entry("E1_WORLD"));
+        stack.Push(Entry("E2_AREA"));
 
-        var popped = stack.PopUntilThenPush("E2_WORLD", Entry("E5_DISTRICT"));
+        var popped = stack.PopUntilThenPush("E1_WORLD", Entry("E3_DISTRICT"));
 
         Assert.Equal(2, popped.Count);
-        Assert.Contains(popped, e => e.ScreenId == "E3_CITY_HALFGATE");
-        Assert.Contains(popped, e => e.ScreenId == "E2_WORLD");
+        Assert.Contains(popped, e => e.ScreenId == "E2_AREA");
+        Assert.Contains(popped, e => e.ScreenId == "E1_WORLD");
 
         // E1 base + new E5 top.
         Assert.Equal(2, stack.Count);
-        Assert.Equal("E5_DISTRICT", stack.Current!.ScreenId);
+        Assert.Equal("E3_DISTRICT", stack.Current!.ScreenId);
         Assert.True(stack.Contains("E1_TITLE"));
-        Assert.False(stack.Contains("E2_WORLD"));
+        Assert.False(stack.Contains("E1_WORLD"));
     }
 
     [Fact]
@@ -127,11 +127,11 @@ public sealed class NavigationStackTests
         var stack = new NavigationStack();
         stack.Push(Entry("E1_TITLE"));
 
-        var popped = stack.PopUntilThenPush("DOES_NOT_EXIST", Entry("E2_WORLD"));
+        var popped = stack.PopUntilThenPush("DOES_NOT_EXIST", Entry("E1_WORLD"));
 
         Assert.Empty(popped);
         Assert.Equal(2, stack.Count);
-        Assert.Equal("E2_WORLD", stack.Current!.ScreenId);
+        Assert.Equal("E1_WORLD", stack.Current!.ScreenId);
     }
 
     [Fact]
@@ -139,7 +139,7 @@ public sealed class NavigationStackTests
     {
         var stack = new NavigationStack();
         stack.Push(Entry("E1_TITLE"));
-        stack.Push(Entry("E2_WORLD"));
+        stack.Push(Entry("E1_WORLD"));
 
         stack.Clear();
 
@@ -154,12 +154,12 @@ public sealed class NavigationStackTests
         // across entries — each push lands its own ScreenContext.
         var stack = new NavigationStack();
         stack.Push(Entry("E1_TITLE"));
-        stack.Push(Entry("E2_WORLD", caller: "E1_TITLE"));
+        stack.Push(Entry("E1_WORLD", caller: "E1_TITLE"));
         stack.Pop();
-        stack.Push(Entry("E3_CITY_HALFGATE", caller: "E1_TITLE"));
+        stack.Push(Entry("E2_AREA", caller: "E1_TITLE"));
 
         Assert.Equal(2, stack.Count);
-        Assert.Equal("E3_CITY_HALFGATE", stack.Current!.ScreenId);
+        Assert.Equal("E2_AREA", stack.Current!.ScreenId);
         Assert.Equal("E1_TITLE", stack.Current.Context.CallerScreenId);
     }
 }

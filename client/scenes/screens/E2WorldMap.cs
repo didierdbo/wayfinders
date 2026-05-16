@@ -58,7 +58,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// </summary>
 public partial class E2WorldMap : Control, IScreen
 {
-    public string ScreenId => "E2_WORLD";
+    public string ScreenId => "E1_WORLD";
 
     private const string OpeningStringsResPath = "res://data/opening_strings.tres";
     private const string WorldMapPoisResPath = "res://data/world_map_pois.tres";
@@ -499,7 +499,7 @@ public partial class E2WorldMap : Control, IScreen
 
         try
         {
-            await sceneManager.NavigateTo("E3_CITY_HALFGATE", payload);
+            await sceneManager.NavigateTo("E2_AREA", payload);
         }
         finally
         {

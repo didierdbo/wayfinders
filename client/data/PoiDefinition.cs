@@ -81,8 +81,8 @@ public partial class PoiDefinition : Resource
     [Export] public bool IsClickable { get; set; } = false;
 
     /// <summary>
-    /// SceneManager screen id (e.g. <c>E3_CITY_HALFGATE</c>,
-    /// <c>E5_DISTRICT</c>) to navigate to when <see cref="IsClickable"/>
+    /// SceneManager screen id (e.g. <c>E2_AREA</c>,
+    /// <c>E3_DISTRICT</c>) to navigate to when <see cref="IsClickable"/>
     /// is true and <see cref="Kind"/> is City or District. Empty string
     /// for grisée POIs and for kinds that don't navigate
     /// (NpcCandidate / NpcCompanion open a modal instead).

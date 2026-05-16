@@ -10,7 +10,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// so these tests assert on a fake harness that mimics the SceneManager
 /// + dispatcher integration and locks the expected intents:
 /// <list type="bullet">
-///   <item>Halfgate POI click -&gt; NavigateTo("E3_CITY_HALFGATE")</item>
+///   <item>Halfgate POI click -&gt; NavigateTo("E2_AREA")</item>
 ///   <item>Grisée POI click -&gt; no NavigateTo, blocked indicator
 ///         requested instead</item>
 ///   <item>Back button / Esc -&gt; NavigateBack()</item>
@@ -72,7 +72,7 @@ public sealed class E2NavigationContractTests
     private static PoiDefinitionDto Halfgate() => new(
         PoiId: "halfgate",
         IsClickable: true,
-        TargetScreenId: "E3_CITY_HALFGATE",
+        TargetScreenId: "E2_AREA",
         TooltipKey: "E2PoiHalfgateTooltip");
 
     private static PoiDefinitionDto Veylant() => new(
@@ -101,7 +101,7 @@ public sealed class E2NavigationContractTests
         await FakeOnPoiPressed(nav, Halfgate());
 
         Assert.Single(nav.NavigateToCalls);
-        Assert.Equal("E3_CITY_HALFGATE", nav.NavigateToCalls[0]);
+        Assert.Equal("E2_AREA", nav.NavigateToCalls[0]);
         Assert.Empty(nav.BlockedIndicatorRequests);
     }
 
@@ -164,8 +164,8 @@ public sealed class E2NavigationContractTests
         await FakeOnPoiPressed(nav, Halfgate());
 
         Assert.Equal(2, nav.NavigateToCalls.Count);
-        Assert.Equal("E3_CITY_HALFGATE", nav.NavigateToCalls[0]);
-        Assert.Equal("E3_CITY_HALFGATE", nav.NavigateToCalls[1]);
+        Assert.Equal("E2_AREA", nav.NavigateToCalls[0]);
+        Assert.Equal("E2_AREA", nav.NavigateToCalls[1]);
         Assert.Single(nav.BlockedIndicatorRequests);
     }
 }

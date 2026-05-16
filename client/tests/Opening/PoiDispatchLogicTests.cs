@@ -24,7 +24,7 @@ public sealed class PoiDispatchLogicTests
         var poi = new PoiDefinitionDto(
             PoiId: "halfgate",
             IsClickable: true,
-            TargetScreenId: "E3_CITY_HALFGATE",
+            TargetScreenId: "E2_AREA",
             TooltipKey: "E2PoiHalfgateTooltip");
 
         var result = PoiDispatchLogic.Dispatch(poi);
@@ -38,12 +38,12 @@ public sealed class PoiDispatchLogicTests
         var poi = new PoiDefinitionDto(
             PoiId: "halfgate",
             IsClickable: true,
-            TargetScreenId: "E3_CITY_HALFGATE",
+            TargetScreenId: "E2_AREA",
             TooltipKey: "E2PoiHalfgateTooltip");
 
         var result = PoiDispatchLogic.Dispatch(poi);
 
-        Assert.Equal("E3_CITY_HALFGATE", result.TargetScreenId);
+        Assert.Equal("E2_AREA", result.TargetScreenId);
         Assert.Null(result.IndicatorTextKey);
     }
 
@@ -104,7 +104,7 @@ public sealed class PoiDispatchLogicTests
         // always return the per-input result, never leak state.
         var clickable = new PoiDefinitionDto(
             PoiId: "halfgate", IsClickable: true,
-            TargetScreenId: "E3_CITY_HALFGATE", TooltipKey: "");
+            TargetScreenId: "E2_AREA", TooltipKey: "");
         var blocked = new PoiDefinitionDto(
             PoiId: "veylant", IsClickable: false,
             TargetScreenId: "", TooltipKey: "");

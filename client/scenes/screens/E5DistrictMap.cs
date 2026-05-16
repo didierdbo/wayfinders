@@ -144,7 +144,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// </summary>
 public partial class E5DistrictMap : Control, IScreen
 {
-    public string ScreenId => "E5_DISTRICT";
+    public string ScreenId => "E3_DISTRICT";
 
     /// <summary>
     /// Slice 5 -- payload key consumed at <see cref="OnEnter"/> when E3

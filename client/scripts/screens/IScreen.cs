@@ -42,7 +42,7 @@ namespace Wayfinders.Client.Scripts.Screens;
 public interface IScreen
 {
     /// <summary>
-    /// Stable identifier for this screen, e.g. "E1_TITLE", "E2_WORLD".
+    /// Stable identifier for this screen, e.g. "E1_TITLE", "E1_WORLD".
     /// Used in navigation logs, signal payloads, and test assertions.
     /// Must not change at runtime.
     /// </summary>

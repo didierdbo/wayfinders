@@ -58,9 +58,9 @@ public static class LadderResolutionLogic
     /// </remarks>
     public static readonly IReadOnlyList<LayerRung> DefaultLadder = new[]
     {
-        new LayerRung("monde",    "E2_WORLD"),
-        new LayerRung("cité",     "E3_CITY_HALFGATE"),
-        new LayerRung("quartier", "E5_DISTRICT"),
+        new LayerRung("monde",    "E1_WORLD"),
+        new LayerRung("cité",     "E2_AREA"),
+        new LayerRung("quartier", "E3_DISTRICT"),
     };
 
     /// <summary>

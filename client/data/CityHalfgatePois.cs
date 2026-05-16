@@ -34,7 +34,7 @@ namespace Wayfinders.Client.Data;
 /// <b>J4 contents (D-J4-08, D-J4-09, D-J4-10).</b>
 /// <list type="bullet">
 ///   <item>2 District POIs (<c>halfgate.marche</c>,
-///         <c>halfgate.port</c>) -&gt; navigate to E5_DISTRICT.</item>
+///         <c>halfgate.port</c>) -&gt; navigate to E3_DISTRICT.</item>
 ///   <item>1 KeyBuilding POI (<c>halfgate.qg</c>) -&gt; flash blocked
 ///         indicator (J4 stub, real opening lands post-MVP).</item>
 ///   <item>2 NpcCandidate POIs -&gt; open E4 modal stub.</item>

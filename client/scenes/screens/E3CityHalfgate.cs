@@ -61,7 +61,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///         <see cref="MapPan2DComponent.DrillRequested"/> signal is now
 ///         connected to <see cref="OnDrillRequested"/>, which calls
 ///         <see cref="SceneManager.NavigateTo"/> with target id
-///         <c>E5_DISTRICT</c> and a payload carrying the cursor's
+///         <c>E3_DISTRICT</c> and a payload carrying the cursor's
 ///         world-space position under <see cref="OriginCoordPayloadKey"/>.</item>
 ///   <item><b>Always-true drill resolver (Didier lock α).</b> The slice
 ///         5 brief explicitly trades fog tiles for "drill libre" : at L2
@@ -195,7 +195,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// </summary>
 public partial class E3CityHalfgate : Control, IScreen
 {
-    public string ScreenId => "E3_CITY_HALFGATE";
+    public string ScreenId => "E2_AREA";
 
     /// <summary>
     /// <see cref="ScreenContext.Payload"/> key for the npc id surfaced
@@ -223,7 +223,7 @@ public partial class E3CityHalfgate : Control, IScreen
     /// SceneManager registration of E5 lives in <c>OpeningBootstrap</c>
     /// under the same id.
     /// </summary>
-    private const string DrillTargetScreenId = "E5_DISTRICT";
+    private const string DrillTargetScreenId = "E3_DISTRICT";
 
     private const string OpeningStringsResPath = "res://data/opening_strings.tres";
     private const string CityPoisResPath = "res://data/city_halfgate_pois.tres";

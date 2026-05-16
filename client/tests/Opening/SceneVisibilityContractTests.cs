@@ -121,10 +121,10 @@ public sealed class SceneVisibilityContractTests
         var nav = new FakeVisibilityNavigator();
 
         await nav.NavigateTo("E1_TITLE");
-        await nav.NavigateTo("E2_WORLD");
+        await nav.NavigateTo("E1_WORLD");
 
         Assert.False(nav.IsVisible("E1_TITLE"));
-        Assert.True(nav.IsVisible("E2_WORLD"));
+        Assert.True(nav.IsVisible("E1_WORLD"));
         Assert.Single(nav.HideCalls);
         Assert.Equal("E1_TITLE", nav.HideCalls[0]);
     }
@@ -137,12 +137,12 @@ public sealed class SceneVisibilityContractTests
         // black scene.
         var nav = new FakeVisibilityNavigator();
         await nav.NavigateTo("E1_TITLE");
-        await nav.NavigateTo("E2_WORLD");
+        await nav.NavigateTo("E1_WORLD");
 
         await nav.NavigateBack();
 
         Assert.True(nav.IsVisible("E1_TITLE"));
-        Assert.False(nav.IsVisible("E2_WORLD")); // E2 was popped
+        Assert.False(nav.IsVisible("E1_WORLD")); // E2 was popped
         Assert.Single(nav.ShowCalls);
         Assert.Equal("E1_TITLE", nav.ShowCalls[0]);
     }
@@ -168,15 +168,15 @@ public sealed class SceneVisibilityContractTests
         // bounces E1 -> E2 -> E1 -> E2 from the title.
         var nav = new FakeVisibilityNavigator();
         await nav.NavigateTo("E1_TITLE");
-        await nav.NavigateTo("E2_WORLD");
+        await nav.NavigateTo("E1_WORLD");
         await nav.NavigateBack();
-        await nav.NavigateTo("E2_WORLD");
+        await nav.NavigateTo("E1_WORLD");
         await nav.NavigateBack();
 
         // After two full cycles, only E1 remains and is visible.
         Assert.Equal("E1_TITLE", nav.CurrentScreenId);
         Assert.True(nav.IsVisible("E1_TITLE"));
-        Assert.False(nav.IsVisible("E2_WORLD"));
+        Assert.False(nav.IsVisible("E1_WORLD"));
 
         // Hide called twice (each Push past root), Show called twice
         // (each Pop back to E1).
@@ -221,10 +221,10 @@ public sealed class SceneVisibilityContractTests
         await nav.CloseModal();
 
         // Now the [01] Nouvelle Partie path:
-        await nav.NavigateTo("E2_WORLD");
+        await nav.NavigateTo("E1_WORLD");
 
         Assert.False(nav.IsVisible("E1_TITLE"));
-        Assert.True(nav.IsVisible("E2_WORLD"));
+        Assert.True(nav.IsVisible("E1_WORLD"));
         Assert.Single(nav.HideCalls);
         Assert.Equal("E1_TITLE", nav.HideCalls[0]);
     }

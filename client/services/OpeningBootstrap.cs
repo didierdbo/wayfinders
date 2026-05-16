@@ -147,9 +147,9 @@ public partial class OpeningBootstrap : Node
         }
 
         sceneManager.RegisterScreen("E1_TITLE", GD.Load<PackedScene>(E1ScenePath));
-        sceneManager.RegisterScreen("E2_WORLD", GD.Load<PackedScene>(E2ScenePath));
-        sceneManager.RegisterScreen("E3_CITY_HALFGATE", GD.Load<PackedScene>(E3ScenePath));
-        sceneManager.RegisterScreen("E5_DISTRICT", GD.Load<PackedScene>(E5ScenePath));
+        sceneManager.RegisterScreen("E1_WORLD", GD.Load<PackedScene>(E2ScenePath));
+        sceneManager.RegisterScreen("E2_AREA", GD.Load<PackedScene>(E3ScenePath));
+        sceneManager.RegisterScreen("E3_DISTRICT", GD.Load<PackedScene>(E5ScenePath));
 
         sceneManager.RegisterModal("E4_CHARACTER_SHEET", GD.Load<PackedScene>(E4ScenePath));
         sceneManager.RegisterModal("OPTIONS_MODAL", GD.Load<PackedScene>(OptionsModalScenePath));

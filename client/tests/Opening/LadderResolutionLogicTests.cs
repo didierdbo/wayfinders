@@ -30,29 +30,29 @@ public sealed class LadderResolutionLogicTests
 
         Assert.Equal(3, ladder.Count);
         Assert.Equal("monde", ladder[0].LayerName);
-        Assert.Equal("E2_WORLD", ladder[0].ScreenId);
+        Assert.Equal("E1_WORLD", ladder[0].ScreenId);
         Assert.Equal("cité", ladder[1].LayerName);
-        Assert.Equal("E3_CITY_HALFGATE", ladder[1].ScreenId);
+        Assert.Equal("E2_AREA", ladder[1].ScreenId);
         Assert.Equal("quartier", ladder[2].LayerName);
-        Assert.Equal("E5_DISTRICT", ladder[2].ScreenId);
+        Assert.Equal("E3_DISTRICT", ladder[2].ScreenId);
     }
 
     [Fact]
     public void ResolveDownTarget_from_monde_returns_cite()
     {
         var target = LadderResolutionLogic.ResolveDownTarget(
-            "E2_WORLD", LadderResolutionLogic.DefaultLadder);
+            "E1_WORLD", LadderResolutionLogic.DefaultLadder);
 
-        Assert.Equal("E3_CITY_HALFGATE", target);
+        Assert.Equal("E2_AREA", target);
     }
 
     [Fact]
     public void ResolveDownTarget_from_cite_returns_quartier()
     {
         var target = LadderResolutionLogic.ResolveDownTarget(
-            "E3_CITY_HALFGATE", LadderResolutionLogic.DefaultLadder);
+            "E2_AREA", LadderResolutionLogic.DefaultLadder);
 
-        Assert.Equal("E5_DISTRICT", target);
+        Assert.Equal("E3_DISTRICT", target);
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public sealed class LadderResolutionLogicTests
         // Bottom of the ladder -- no deeper layer in MVP (no `bâtiment`,
         // no `tactique`). Vision §P2 lock: those layers are post-MVP.
         var target = LadderResolutionLogic.ResolveDownTarget(
-            "E5_DISTRICT", LadderResolutionLogic.DefaultLadder);
+            "E3_DISTRICT", LadderResolutionLogic.DefaultLadder);
 
         Assert.Null(target);
     }
@@ -70,18 +70,18 @@ public sealed class LadderResolutionLogicTests
     public void ResolveUpTarget_from_quartier_returns_cite()
     {
         var target = LadderResolutionLogic.ResolveUpTarget(
-            "E5_DISTRICT", LadderResolutionLogic.DefaultLadder);
+            "E3_DISTRICT", LadderResolutionLogic.DefaultLadder);
 
-        Assert.Equal("E3_CITY_HALFGATE", target);
+        Assert.Equal("E2_AREA", target);
     }
 
     [Fact]
     public void ResolveUpTarget_from_cite_returns_monde()
     {
         var target = LadderResolutionLogic.ResolveUpTarget(
-            "E3_CITY_HALFGATE", LadderResolutionLogic.DefaultLadder);
+            "E2_AREA", LadderResolutionLogic.DefaultLadder);
 
-        Assert.Equal("E2_WORLD", target);
+        Assert.Equal("E1_WORLD", target);
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public sealed class LadderResolutionLogicTests
         // the `méta` layer for "quitter le jeu", which Esc on E1 already
         // covers ; see D-P8.1-04 in the pre-brief.
         var target = LadderResolutionLogic.ResolveUpTarget(
-            "E2_WORLD", LadderResolutionLogic.DefaultLadder);
+            "E1_WORLD", LadderResolutionLogic.DefaultLadder);
 
         Assert.Null(target);
     }

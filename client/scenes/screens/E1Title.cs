@@ -210,7 +210,7 @@ public partial class E1Title : Control, IScreen
         // Opening flow in Jalon 2+.
         //
         // 2026-05-13 (Rune) -- route Nouvelle Partie through the e1 cinematic
-        // (IsoMapE1Probe) instead of jumping straight to E2_WORLD. The
+        // (IsoMapE1Probe) instead of jumping straight to E1_WORLD. The
         // cinematic ends with its own ChangeSceneToFile to E2Stub on POI
         // click. See class docstring "New Game path" for the rationale.
         var sceneManager = GetNode<SceneManager>("/root/SceneManager");

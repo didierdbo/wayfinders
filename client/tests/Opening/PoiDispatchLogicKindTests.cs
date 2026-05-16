@@ -41,13 +41,13 @@ public sealed class PoiDispatchLogicKindTests
         var poi = new PoiDefinitionDto(
             PoiId: "halfgate",
             IsClickable: true,
-            TargetScreenId: "E3_CITY_HALFGATE",
+            TargetScreenId: "E2_AREA",
             TooltipKey: "E2PoiHalfgateTooltip");
 
         var result = PoiDispatchLogic.Dispatch(poi);
 
         Assert.Equal(PoiDispatchOutcome.NavigateToScreen, result.Outcome);
-        Assert.Equal("E3_CITY_HALFGATE", result.TargetScreenId);
+        Assert.Equal("E2_AREA", result.TargetScreenId);
         Assert.Null(result.ModalId);
         Assert.Null(result.NpcId);
     }
@@ -58,14 +58,14 @@ public sealed class PoiDispatchLogicKindTests
         var poi = new PoiDefinitionDto(
             PoiId: "halfgate.marche",
             IsClickable: true,
-            TargetScreenId: "E5_DISTRICT",
+            TargetScreenId: "E3_DISTRICT",
             TooltipKey: "E3PoiDistrictTooltipTemplate",
             Kind: PoiKind.District);
 
         var result = PoiDispatchLogic.Dispatch(poi);
 
         Assert.Equal(PoiDispatchOutcome.NavigateToScreen, result.Outcome);
-        Assert.Equal("E5_DISTRICT", result.TargetScreenId);
+        Assert.Equal("E3_DISTRICT", result.TargetScreenId);
         Assert.Null(result.IndicatorTextKey);
         Assert.Null(result.ModalId);
     }

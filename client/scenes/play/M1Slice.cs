@@ -216,12 +216,12 @@ public partial class M1Slice : Node2D
     /// PR6 — when the POI input router emits <c>PoiClicked</c> for one of
     /// the spawned POIs, navigate to this screen id via
     /// <see cref="SceneManager.NavigateTo"/>. Defaults to
-    /// <c>E3_CITY_HALFGATE</c> (the existing E2WorldMap dispatch target).
+    /// <c>E2_AREA</c> (the existing E2WorldMap dispatch target).
     /// Empty string disables navigation — the click is only logged.
     /// MVP only : a future PR replaces this single-target field with a
     /// per-POI dispatch table keyed by <c>DisplayName</c>.
     /// </summary>
-    [Export] public string PoiClickNavigateTo { get; set; } = "E3_CITY_HALFGATE";
+    [Export] public string PoiClickNavigateTo { get; set; } = "E2_AREA";
 
     private const float PersonaSpacingWorldUnits = 96f;
     private const float Label3DPixelSize = 0.5f;

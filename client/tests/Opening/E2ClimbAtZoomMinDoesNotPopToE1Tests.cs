@@ -48,7 +48,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// <para>
 /// <b>What is asserted.</b>
 /// <list type="bullet">
-///   <item>The ladder helper, given E2_WORLD as current and the default
+///   <item>The ladder helper, given E1_WORLD as current and the default
 ///         ladder, returns null -- the verb's substrate already encodes
 ///         the no-op contract independently of the SceneManager.</item>
 ///   <item>The fake-harness body of <c>E2WorldMap.OnClimbRequested</c>
@@ -124,14 +124,14 @@ public sealed class E2ClimbAtZoomMinDoesNotPopToE1Tests
     public void E2_world_is_top_of_ladder_so_ResolveUpTarget_is_null()
     {
         // The substrate contract : the ladder resolution helper, when
-        // asked "what climbs out of E2_WORLD ?", returns null. This
+        // asked "what climbs out of E1_WORLD ?", returns null. This
         // is the engine-free reason NavigateLadderUp silently no-ops on
         // E2 -- the SceneManager wrapper just delegates to this helper.
         // If a future ladder ever inserts a higher rung above monde
         // (e.g. a "méta-monde" world-of-worlds), this test fires and
         // the climb-at-E2 contract has to be re-thought deliberately.
         var target = LadderResolutionLogic.ResolveUpTarget(
-            "E2_WORLD", LadderResolutionLogic.DefaultLadder);
+            "E1_WORLD", LadderResolutionLogic.DefaultLadder);
 
         Assert.Null(target);
     }

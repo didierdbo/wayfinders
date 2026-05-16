@@ -14,8 +14,8 @@ public sealed class PoiDefinitionDtoTests
     [Fact]
     public void Two_dtos_with_same_fields_are_equal()
     {
-        var a = new PoiDefinitionDto("halfgate", true, "E3_CITY_HALFGATE", "E2PoiHalfgateTooltip");
-        var b = new PoiDefinitionDto("halfgate", true, "E3_CITY_HALFGATE", "E2PoiHalfgateTooltip");
+        var a = new PoiDefinitionDto("halfgate", true, "E2_AREA", "E2PoiHalfgateTooltip");
+        var b = new PoiDefinitionDto("halfgate", true, "E2_AREA", "E2PoiHalfgateTooltip");
 
         Assert.Equal(a, b);
         Assert.Equal(a.GetHashCode(), b.GetHashCode());
@@ -24,7 +24,7 @@ public sealed class PoiDefinitionDtoTests
     [Fact]
     public void Dto_is_immutable_record_struct_value_semantics()
     {
-        var a = new PoiDefinitionDto("halfgate", true, "E3_CITY_HALFGATE", "E2PoiHalfgateTooltip");
+        var a = new PoiDefinitionDto("halfgate", true, "E2_AREA", "E2PoiHalfgateTooltip");
         var b = a with { IsClickable = false };
 
         Assert.True(a.IsClickable);

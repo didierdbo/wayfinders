@@ -10,7 +10,7 @@ DisplayName = "Halfgate"
 Position = Vector2(1820, 980)
 Size = Vector2(120, 120)
 IsClickable = true
-TargetScreenId = "E3_CITY_HALFGATE"
+TargetScreenId = "E2_AREA"
 TooltipKey = "E2PoiHalfgateTooltip"
 AssetKey = "e2.poi_marker.active"
 

@@ -11,7 +11,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// on a fake harness that mimics the SceneManager API shape and locks the
 /// expected intents:
 /// <list type="bullet">
-///   <item><c>[01] Nouvelle Partie</c> -&gt; NavigateTo("E2_WORLD")</item>
+///   <item><c>[01] Nouvelle Partie</c> -&gt; NavigateTo("E1_WORLD")</item>
 ///   <item><c>[03] Préférences</c> -&gt; OpenModal("OPTIONS_MODAL")</item>
 ///   <item><c>[04] Refermer</c> -&gt; OpenModal("QUIT_CONFIRM_MODAL")</item>
 ///   <item>The single-modal invariant: a second OpenModal while one is
@@ -63,15 +63,15 @@ public sealed class E1NavigationContractTests
     }
 
     [Fact]
-    public async Task NewGame_button_navigates_to_E2_WORLD()
+    public async Task NewGame_button_navigates_to_E1_WORLD()
     {
         var nav = new FakeNavigator();
 
         // Simulate the OnNewGamePressed handler from E1Title.cs (line 167).
-        await nav.NavigateTo("E2_WORLD");
+        await nav.NavigateTo("E1_WORLD");
 
         Assert.Single(nav.NavigateToCalls);
-        Assert.Equal("E2_WORLD", nav.NavigateToCalls[0]);
+        Assert.Equal("E1_WORLD", nav.NavigateToCalls[0]);
         Assert.Empty(nav.OpenModalCalls);
     }
 

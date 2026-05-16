@@ -12,7 +12,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// intents:
 /// <list type="bullet">
 ///   <item>Back button / Esc -&gt; NavigateBack()</item>
-///   <item>District POI click -&gt; NavigateTo("E5_DISTRICT")</item>
+///   <item>District POI click -&gt; NavigateTo("E3_DISTRICT")</item>
 ///   <item>NpcCandidate POI click -&gt; OpenModal("E4_CHARACTER_SHEET")
 ///         with the npc id threaded through the payload bag</item>
 ///   <item>KeyBuilding POI click -&gt; ShowBlockedIndicator
@@ -99,7 +99,7 @@ public sealed class E3NavigationContractTests
     private static PoiDefinitionDto Marche() => new(
         PoiId: "halfgate.marche",
         IsClickable: true,
-        TargetScreenId: "E5_DISTRICT",
+        TargetScreenId: "E3_DISTRICT",
         TooltipKey: "E3PoiDistrictTooltipTemplate",
         Kind: PoiKind.District);
 
@@ -153,7 +153,7 @@ public sealed class E3NavigationContractTests
         await FakeOnPoiPressed(nav, Marche());
 
         Assert.Single(nav.NavigateToCalls);
-        Assert.Equal("E5_DISTRICT", nav.NavigateToCalls[0]);
+        Assert.Equal("E3_DISTRICT", nav.NavigateToCalls[0]);
         Assert.Empty(nav.OpenModalCalls);
         Assert.Empty(nav.BlockedIndicatorRequests);
     }

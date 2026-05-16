@@ -88,7 +88,7 @@ DisplayNameOverride = "HalfgateAnnex"
 script = ExtResource("1_m1slice")
 PoisToSpawn = Array[Resource]([SubResource("PoiEntry_halfgate"), SubResource("PoiEntry_halfgate_annex")])
 PoiSpawnerPath = NodePath("PoiSpawner")
-PoiClickNavigateTo = "E3_CITY_HALFGATE"
+PoiClickNavigateTo = "E2_AREA"
 metadata/skip_opening_bootstrap = true
 
 ; PR6 - POI spawner child. Stateless ; per-scene lifetime (locked memo

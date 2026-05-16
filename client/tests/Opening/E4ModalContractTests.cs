@@ -43,7 +43,7 @@ public sealed class E4ModalContractTests
     /// </summary>
     private sealed class FakeE3Host : IScreen
     {
-        public string ScreenId => "E3_CITY_HALFGATE";
+        public string ScreenId => "E2_AREA";
         public bool HostVisible { get; private set; } = true;
         public bool Suspended { get; private set; }
 
@@ -183,7 +183,7 @@ public sealed class E4ModalContractTests
 
         var ctx = new ScreenContext
         {
-            CallerScreenId = "E3_CITY_HALFGATE",
+            CallerScreenId = "E2_AREA",
             Payload = new Dictionary<string, object>
             {
                 [NpcIdPayloadKey] = "kira",
@@ -193,7 +193,7 @@ public sealed class E4ModalContractTests
         await OpenAndClose(host, modal, ctx);
 
         Assert.NotNull(modal.CapturedContext);
-        Assert.Equal("E3_CITY_HALFGATE", modal.CapturedContext!.CallerScreenId);
+        Assert.Equal("E2_AREA", modal.CapturedContext!.CallerScreenId);
         Assert.Equal("kira", modal.CapturedNpcId);
     }
 }
