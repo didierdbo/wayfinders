@@ -713,16 +713,53 @@ public partial class E2AreaMap
     }
 
     /// <summary>
-    /// Callback fired by <see cref="TileRevealRenderController"/>.
-    /// <b>Inert at E2.1a</b> -- the controller is never spawned, so the
-    /// callback never fires. Kept here for E2.1b dégelé.
+    /// E2.1b smoke canary cell : the center of the 8x8 area grid. Matches
+    /// <c>TileRevealRenderController.CanaryCell</c> so the controller-side
+    /// signal/Tween trace and the consumer-side shader-set trace align on
+    /// the same cell at the centre of the tutorial pop. A
+    /// <see cref="HashSet{T}"/> guards "first step seen" so the canary
+    /// fires once per Tween instead of once per step (a 300ms Tween at
+    /// 60fps would emit ~18 steps -> 18 log lines per cell, flooding the
+    /// console).
+    /// </summary>
+    private static readonly Vector2I CanaryCellVec = new Vector2I(4, 4);
+    private readonly HashSet<Vector2I> _canaryFirstStepSeen = new();
+
+    /// <summary>
+    /// Callback fired by <see cref="TileRevealRenderController"/> on every
+    /// Tween step. Translates the controller-side <see cref="Vector2I"/>
+    /// cell coord into the local <see cref="GridCoord"/> form, fetches the
+    /// per-cell Sprite2D from <see cref="_tileBaseSprites"/>, and pushes
+    /// the fresh <c>revealLevel</c> into the sprite's ShaderMaterial under
+    /// the <c>parchment_alpha</c> uniform name.
+    ///
+    /// <para>
+    /// <b>E2.1b smoke canary (2026-05-16).</b> Didier reports the wash
+    /// never visually applies despite <c>e2_cells_written=64</c>. This
+    /// callback is the last leg of the signal -> Tween -> shader path :
+    /// if the controller-side canary in
+    /// <see cref="TileRevealRenderController"/> fires but this one does
+    /// not, the consumer wiring (<c>OnRevealLevelChanged</c> delegate) is
+    /// broken ; if both fire but the wash stays invisible, the SHADER
+    /// SIDE is the culprit (uniform name mismatch, Material instance
+    /// stale, formula too subtle to be visible). The canary logs the
+    /// first step (~0.0) and the converged-near-target step (>=0.54)
+    /// once per cell, gated on the sentinel cell (4,4) to avoid flooding
+    /// the console with 64-cell output.
+    /// </para>
     /// </summary>
     private void OnRevealLevelTweenStep(Vector2I cellVec, float revealLevel)
     {
         var coord = new GridCoord(cellVec.X, cellVec.Y);
 
-        if (_tileBaseSprites.TryGetValue(coord, out var baseSprite)
-            && baseSprite.Material is ShaderMaterial material)
+        bool sentinelHit = cellVec == CanaryCellVec;
+        bool first = sentinelHit && _canaryFirstStepSeen.Add(cellVec);
+        bool nearTarget = sentinelHit && revealLevel >= 0.54f;
+
+        var hasSprite = _tileBaseSprites.TryGetValue(coord, out var baseSprite);
+        var hasShaderMaterial = hasSprite && baseSprite!.Material is ShaderMaterial;
+
+        if (hasSprite && baseSprite!.Material is ShaderMaterial material)
         {
             material.SetShaderParameter("parchment_alpha", revealLevel);
         }
@@ -730,6 +767,15 @@ public partial class E2AreaMap
         if (_tileFogSprites.TryGetValue(coord, out var fogSprite))
         {
             fogSprite.Visible = revealLevel < 0.05f;
+        }
+
+        if (first || nearTarget)
+        {
+            GD.Print(
+                $"[E2AreaMap] CANARY shader-set cell=({cellVec.X},{cellVec.Y}) " +
+                $"revealLevel={revealLevel:F3} " +
+                $"sprite_found={hasSprite} shader_material={hasShaderMaterial} " +
+                $"phase={(first ? "FIRST_STEP" : "NEAR_TARGET")}");
         }
     }
 
@@ -875,6 +921,7 @@ public partial class E2AreaMap
         _tileFogSprites.Clear();
         _tileHitAreas.Clear();
         _npcPortraitRoots.Clear();
+        _canaryFirstStepSeen.Clear();
     }
 
     /// <summary>

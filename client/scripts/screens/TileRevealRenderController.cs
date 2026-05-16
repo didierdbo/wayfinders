@@ -83,6 +83,33 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// callbacks land on the main thread by Godot's contract. No
 /// <c>CallDeferred</c> needed inside this controller.
 /// </para>
+///
+/// <para>
+/// <b>E2.1b smoke canary (2026-05-16 Didier report).</b> Didier reports
+/// the wash never visually applies at E2.1b boot despite
+/// <c>e2_cells_written=64</c>. To diagnose without runtime access on
+/// the coach side, this revision emits a one-shot canary log at four
+/// critical points along the signal -> Tween -> shader path for the
+/// sentinel cell (4,4) at the centre of the 8x8 grid. The expected log
+/// sequence at a healthy boot is :
+/// </para>
+/// <list type="number">
+///   <item><c>[TileRevealRenderController] _Ready: subscribed to ...</c>
+///         -- the controller successfully resolved GameState and wired
+///         the signal subscription.</item>
+///   <item><c>[TileRevealRenderController] CANARY signal received cell=(4,4) ...</c>
+///         -- the GameState signal fired and reached the controller for
+///         the sentinel cell.</item>
+///   <item><c>[TileRevealRenderController] CANARY tween scheduled cell=(4,4) from=0.000 to=0.550</c>
+///         -- the Tween was created on the controller node.</item>
+///   <item>(consumer side, in E2AreaMap.AreaGrid) the shader-set canary
+///         log fires per Tween step for the sentinel cell.</item>
+/// </list>
+/// <para>
+/// If any of these break, the missing log pinpoints the exact stage
+/// that drops the signal. The canary is gated on the sentinel cell
+/// only -- 64-cell logging would flood the console.
+/// </para>
 /// </summary>
 public partial class TileRevealRenderController : Node
 {
@@ -109,6 +136,15 @@ public partial class TileRevealRenderController : Node
     /// "did the reveal land yet ?" affordance.
     /// </summary>
     public const Tween.EaseType TweenEase = Tween.EaseType.Out;
+
+    /// <summary>
+    /// E2.1b smoke canary cell : the center of the 8x8 area grid. The
+    /// tutorial-mission pop_effect flips this cell (along with the other
+    /// 63) from Fog to Partial at boot. Canary logs are gated on this
+    /// cell to give a one-shot signal -> Tween -> shader trace without
+    /// flooding the console with 64-cell output.
+    /// </summary>
+    private static readonly Vector2I CanaryCell = new Vector2I(4, 4);
 
     /// <summary>
     /// Caller-supplied callback invoked on every Tween step with the
@@ -169,6 +205,9 @@ public partial class TileRevealRenderController : Node
             return;
         }
         _gameState.TileRevealStateChanged += OnTileRevealStateChanged;
+        GD.Print(
+            "[TileRevealRenderController] _Ready: subscribed to GameState.TileRevealStateChanged " +
+            $"(node path={GetPath()}, callback wired={OnRevealLevelChanged is not null})");
     }
 
     /// <summary>
@@ -212,6 +251,12 @@ public partial class TileRevealRenderController : Node
     /// </remarks>
     private void OnTileRevealStateChanged(Vector2I cell, int oldState, int newState)
     {
+        if (cell == CanaryCell)
+        {
+            GD.Print(
+                $"[TileRevealRenderController] CANARY signal received cell=({cell.X},{cell.Y}) " +
+                $"old={(TileRevealState)oldState} new={(TileRevealState)newState}");
+        }
         var oldEnum = (TileRevealState)oldState;
         var newEnum = (TileRevealState)newState;
         StartTransition(cell, oldEnum, newEnum);
@@ -292,9 +337,23 @@ public partial class TileRevealRenderController : Node
             {
                 _activeTweens.Remove(cell);
             }
+            if (cell == CanaryCell)
+            {
+                GD.Print(
+                    $"[TileRevealRenderController] CANARY tween FINISHED cell=({cell.X},{cell.Y}) " +
+                    $"final_committed={_lastCommittedLevel.GetValueOrDefault(cell, -1f):F3}");
+            }
         };
 
         _activeTweens[cell] = tween;
+
+        if (cell == CanaryCell)
+        {
+            GD.Print(
+                $"[TileRevealRenderController] CANARY tween scheduled cell=({cell.X},{cell.Y}) " +
+                $"from={fromValue:F3} to={toValue:F3} duration={TweenDurationSeconds:F3}s " +
+                $"callback_wired={OnRevealLevelChanged is not null}");
+        }
     }
 
     // ---------------------------------------------------------------
