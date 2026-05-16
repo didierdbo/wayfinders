@@ -133,6 +133,7 @@
        store, editor "Run Bake Now" toggle for the tool). -->
   <ItemGroup>
     <Compile Include="..\scripts\screens\TileKnowledgeLadder.cs" Link="src\TileKnowledgeLadder.cs" />
+    <Compile Include="..\scripts\screens\TileRevealState.cs" Link="src\TileRevealState.cs" />
     <Compile Include="..\scripts\screens\FogTileGridLogic.cs" Link="src\FogTileGridLogic.cs" />
   </ItemGroup>
 

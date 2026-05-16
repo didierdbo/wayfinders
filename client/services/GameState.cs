@@ -90,8 +90,7 @@ namespace Wayfinders.Client.Services;
 /// the main thread before mutating these slots.
 /// </para>
 /// </summary>
-public partial class GameState : Node
-{
+public partial class GameState : Noden{n    /// <summary>n    /// Fired after a cell's reveal-substrate state changes vian    /// <see cref="/>. The render layer (an    /// <c>TileRevealRenderController</c> in the scene that owns then    /// face-B reveal subsystem) subscribes once at <c>_Ready</c> andn    /// animates the derived <c>reveal_level</c> float via a 300 msn    /// cubic-out Tween per the Varn-locked render mappingn    /// (<see cref="/>).n    /// Disconnection discipline is the consumer's responsibilityn    /// (Rune-coaching Risk #1, signal-leak trap).n    ///n    /// <para>n    /// <b>Wire format.</b> The cell is a <see cref="/>n    /// (one of the few Godot-native struct types that marshal throughn    /// the [Signal] binding in Godot 4.6) ; the states are integern    /// casts of <see cref="/> values. The consumern    /// casts back at the receiver edge ; seen    /// <c>TileRevealRenderController</c> for the canonical receiver.n    /// </para>n    ///n    /// <para>n    /// <b>Why on GameState (not on a dedicated store).</b> The revealn    /// substrate is a session-wide GameState authority per Varnn    /// reconciliation §3.2 : it lives alongsiden    /// <see cref="/> andn    /// <see cref="/> in the client-side authoritativen    /// snapshot. Promoting to a sub-Node store is reserved for the dayn    /// the dictionary grows past O(thousands) of cells and the cost ofn    /// holding it as a plain dict starts to matter.n    /// </para>n    /// </summary>n    [Signal]n    public delegate void TileRevealStateChangedEventHandler(Vector2I cell, int oldState, int newState);n
     /// <summary>
     /// True if a save exists. J1: always false on boot, no persistence.
     /// J3+: replaced with a real save-system check.
@@ -235,6 +234,77 @@ public partial class GameState : Node
             PersonaLegacy[tag.PersonaId] = list;
         }
         list.Add(tag);
+    }
+
+    /// <summary>
+    /// Per-cell reveal-substrate state, GameState-authoritative per
+    /// Varn reconciliation 2026-05-16 §3.2. Orthogonal to the
+    /// <see cref="Wayfinders.Client.Scripts.Screens.TileKnowledgeLadder"/>
+    /// 5-state ladder owned by <c>TileKnowledgeStore</c> (which is
+    /// scene-scoped, not GameState-scoped).
+    ///
+    /// <para>
+    /// <b>Default-state semantics.</b> Cells absent from the dictionary
+    /// are treated as <see cref="TileRevealState.Fog"/> by
+    /// <see cref="GetTileRevealState"/>. Mirrors the sparse-dict
+    /// idiom of <see cref="TileKnowledgeStore"/>.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Mutation contract.</b> Same as the other GameState slots :
+    /// main-thread only. Producers running on a thread-pool thread
+    /// (HTTP continuations, async event handlers) MUST hop back via
+    /// <c>CallDeferred</c> before calling
+    /// <see cref="SetTileRevealState"/>.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>M1/M2 population.</b> The dictionary is empty at boot. No
+    /// runtime gameplay path populates it yet ; population lands when
+    /// Phase E2.1 / E2.2 wire NPC-recruit known_tiles and mission
+    /// success_effect / reveal_on_fail to flip cells. The signal
+    /// surface and the controller plumbing exist now so the day a
+    /// gameplay event mutates a cell, the render path animates the
+    /// face-B reveal end-to-end with no additional wiring.
+    /// </para>
+    /// </summary>
+    public Dictionary<Vector2I, TileRevealState> TileRevealStates { get; } = new();
+
+    /// <summary>
+    /// Read the reveal-substrate state for a cell. Cells that have
+    /// never been mutated return <see cref="TileRevealState.Fog"/> —
+    /// the canonical default per Varn reconciliation §3.2.
+    /// </summary>
+    public TileRevealState GetTileRevealState(Vector2I cell) =>
+        TileRevealStates.TryGetValue(cell, out var state) ? state : TileRevealState.Fog;
+
+    /// <summary>
+    /// Set the reveal-substrate state for a cell and emit
+    /// <see cref="TileRevealStateChanged"/> if the value actually
+    /// changes. Idempotent : setting a cell to its current state is a
+    /// silent no-op (no signal fired, no allocation).
+    ///
+    /// <para>
+    /// <b>Sparse-dict invariant.</b> Setting a cell back to
+    /// <see cref="TileRevealState.Fog"/> removes it from the dictionary
+    /// so the absent-key-default semantics stay consistent and the dict
+    /// does not bloat with explicit-Fog entries.
+    /// </para>
+    /// </summary>
+    public void SetTileRevealState(Vector2I cell, TileRevealState newState)
+    {
+        var current = GetTileRevealState(cell);
+        if (current == newState) return;
+
+        if (newState == TileRevealState.Fog)
+        {
+            TileRevealStates.Remove(cell);
+        }
+        else
+        {
+            TileRevealStates[cell] = newState;
+        }
+        EmitSignal(SignalName.TileRevealStateChanged, cell, (int)current, (int)newState);
     }
 
     public override void _Ready()
