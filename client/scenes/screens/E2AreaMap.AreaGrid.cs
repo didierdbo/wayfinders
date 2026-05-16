@@ -13,127 +13,252 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// city-level POI dispatch in <see cref="E2AreaMap"/> stays readable.
 ///
 /// <para>
-/// <b>Scene shape (built at runtime by <see cref="BuildAreaGrid"/>).</b>
-/// All nodes parented under <c>MapPan2DComponent.WorldRoot.AreaGridLayer</c>
-/// (a freshly-spawned <see cref="Node2D"/> sibling of WorldMapSprite +
-/// PoiContainer). Visual order from bottom to top :
+/// <b>E2.1a strict re-scope (2026-05-16, Didier lock).</b> The first E2.1
+/// pass landed all of {iso grid render, fog overlay, tuto mission pop
+/// flipping the 4 central cells, NPC portrait spawn, district tooltips,
+/// parchment shader overlay} in one shot. Smoke test surfaced four
+/// regressions Didier flagged as "trop visible d'un coup" : tuiles
+/// rendered orthogonally (not iso losange), 3 portraits visible too
+/// early, mission tuto popping at boot, district tooltips on hover.
+/// </para>
+///
+/// <para>
+/// E2.1 is now re-decomposed into three jalons :
+/// <list type="bullet">
+///   <item><b>E2.1a (this commit)</b> — iso 8x8 in pure Fog state,
+///         using the E1 tile bitmap (<c>wf_e1_tile_neutral.png</c>).
+///         Pan + zoom basics. <i>Nothing else visible.</i></item>
+///   <item><b>E2.1b (next)</b> — central POI marker + tuto mission
+///         pop_effect flipping the 4 central cells to Partial. Parchment
+///         shader overlay re-activates here.</item>
+///   <item><b>E2.1c (after)</b> — district tooltip composition (EC6
+///         hover path) + per-district tile bitmaps. NPC portraits stay
+///         out (those land in E2.2 with the full Recruit + Company panel
+///         flow).</item>
+/// </list>
+/// </para>
+///
+/// <para>
+/// <b>Scope gating mechanism.</b> Every block that overshoots the E2.1a
+/// scope is wrapped in <c>if (ScopeMode != "E2.1a") { ... }</c> rather
+/// than deleted. The code stays at the rendezvous so when E2.1b ships,
+/// we flip the constant and dégèle progressively. The four gated blocks
+/// at E2.1a :
+/// <list type="number">
+///   <item>NPC portrait spawn loop (the 3 portraits).</item>
+///   <item>Tuto mission <c>pop_effect</c> (the 4 fog->partial flips +
+///         the POI marker visibility flip).</item>
+///   <item>Per-cell tile hit-test Area2D + hover handlers (no tooltips
+///         in E2.1a).</item>
+///   <item>Reveal substrate (per-cell parchment shader material +
+///         <see cref="TileRevealRenderController"/> child). Since
+///         nothing flips fog->partial in E2.1a, the controller would
+///         have nothing to render anyway, but gating it explicitly
+///         keeps the boot log clean and removes a moving part from
+///         the smoke test.</item>
+/// </list>
+/// </para>
+///
+/// <para>
+/// <b>Iso placement (E2.1a, replaces the orthogonal layout of the first
+/// E2.1 pass).</b> Tiles are laid out using the same iso math as
+/// <see cref="Wayfinders.Client.Scenes.Scratch.IsoMapE1Probe"/> :
+/// <code>
+///   screenX = (col - row) * IsoWStride        (IsoWStride = 128)
+///   screenY = (col + row) * IsoHStride        (IsoHStride = 64)
+/// </code>
+/// The raw iso math produces negative X values when row &gt; col
+/// (south-west tiles). The pan component's Camera2D bounds are
+/// positive-only ([0..W] x [0..H]), so we shift the grid into the
+/// positive quadrant via <see cref="IsoOriginOffsetX"/> applied to every
+/// tile Position. The shifted bbox is exactly
+/// <see cref="IsoBboxWidth"/> x <see cref="IsoBboxHeight"/>, passed
+/// verbatim to <see cref="MapPan2DComponent.Configure(Texture2D, Vector2, Vector2)"/>
+/// as worldBoundsSize so the camera can pan over the whole grid and
+/// nothing else.
+/// </para>
+///
+/// <para>
+/// <b>Tile texture (E2.1a).</b> All 64 tiles use the E1 neutral fog
+/// bitmap (<c>e1.tile_neutral</c> = <c>wf_e1_tile_neutral.png</c>,
+/// 256x132). The fog veil and per-district tile bitmaps are E2.1b/c
+/// concerns ; at E2.1a the entire grid is the same fog texture. This
+/// matches Didier's brief : "RIEN d'autre visible -- toutes les tuiles
+/// restent fog, le shader area_grid_tile_overlay n'a rien à rendre".
+/// </para>
+///
+/// <para>
+/// <b>Sprite.Offset.Y discipline.</b> The E1 tile is a 256x132 bitmap
+/// = face-top losange 256x128 + 4 px bottom slab. To align the losange
+/// centre on the tile's Position, we set <c>Sprite2D.Offset.Y =
+/// <see cref="TileSpriteOffsetY"/> = +2</c> (= slab/2). Same correction
+/// IsoMapE1Probe applies (see SpriteOffsetY constant there).
+/// </para>
+///
+/// <para>
+/// <b>Scene shape (E2.1a final).</b> Nodes parented under
+/// <c>MapPan2DComponent.WorldRoot.AreaGridLayer</c>. The WorldMapSprite
+/// is hidden : at E2.1a there is no area background bitmap behind the
+/// grid (the iso losange IS the visible surface).
 /// </para>
 /// <list type="number">
-///   <item><c>WorldMapSprite</c> -- area background (already owned by
-///         the pan component, set in <see cref="E2AreaMap.Configure"/>).</item>
+///   <item><c>WorldMapSprite</c> -- hidden at E2.1a (Configure() sets
+///         <c>WorldMapSprite.Visible = false</c>).</item>
 ///   <item><c>AreaGridLayer</c> -- the 8x8 grid container.
 ///         <list type="bullet">
-///           <item><c>TileBaseLayer</c> -- 64 Sprite2D, one per cell,
-///                 textured with the district_type-locked placeholder.
-///                 ShaderMaterial referencing <c>area_grid_tile_overlay.gdshader</c>
-///                 with per-cell <c>parchment_alpha</c> uniform.</item>
-///           <item><c>TileFogLayer</c> -- 64 Sprite2D, one per cell,
-///                 textured with the fog veil placeholder. Visible iff
-///                 the cell's <see cref="TileRevealState"/> is
-///                 <see cref="TileRevealState.Fog"/>.</item>
-///           <item><c>TileHitTestLayer</c> -- 64 Area2D, one per cell,
-///                 for hover detection (EC6 per-cell tooltip path).</item>
-///           <item><c>PoiMarker</c> -- one Sprite2D at the grid centre,
-///                 visible iff the tuto mission's
-///                 <c>pop_effect.poi_visible</c> has fired (always true
-///                 at E2.1 since the mission pops at boot).</item>
-///           <item><c>NpcPortraitLayer</c> -- 3 Sprite2D + Area2D pairs,
-///                 one per <see cref="HalfgateNpcAuthoring"/> NPC,
-///                 spawned at the NPC's <c>PortraitCell</c> centre.</item>
+///           <item><c>TileBaseLayer</c> -- 64 Sprite2D positioned in iso
+///                 space, all textured with the E1 fog bitmap. No
+///                 ShaderMaterial at E2.1a (the parchment overlay is
+///                 dégelé in E2.1b).</item>
 ///         </list>
 ///   </item>
 /// </list>
 ///
 /// <para>
-/// <b>Reveal-substrate plumbing (Phase C-bis-3 pattern).</b> The owner
-/// scene instantiates :
-/// </para>
-/// <list type="bullet">
-///   <item>One <see cref="TileRevealStateLogic"/> (pure-C# state holder
-///         + R8 encoder + CPU blur engine).</item>
-///   <item>One <see cref="ImageTexture"/> backing the R8 reveal-level
-///         buffer (an alternative to the per-cell shader uniform when
-///         the cinematic shader is wanted ; at E2.1 we use the simpler
-///         per-uniform path described below, but the seam is kept so
-///         the cinematic shader could be wired later).</item>
-///   <item>One <see cref="TileRevealRenderController"/> as a child
-///         Node, with its <see cref="TileRevealRenderController.OnRevealLevelChanged"/>
-///         callback wired to <see cref="OnRevealLevelTweenStep"/> here.
-///         The controller subscribes to
-///         <see cref="GameState.TileRevealStateChanged"/> and drives the
-///         300 ms cubic-out Tween on every transition.</item>
-/// </list>
-///
-/// <para>
-/// <b>Per-uniform render path (E2.1 choice).</b> The 64 base-tile
-/// Sprite2D each carry their own ShaderMaterial referencing the shared
-/// <c>area_grid_tile_overlay.gdshader</c>. The
-/// <see cref="OnRevealLevelTweenStep"/> callback writes the cell's
-/// fresh <c>parchment_alpha</c> uniform directly on the matching
-/// material. This avoids the R8 ImageTexture round-trip that the
-/// cinematic uses ; for an 8x8 grid the simpler per-uniform approach
-/// has the same visual result with less plumbing. The R8 texture path
-/// stays available for E2.2+ if the cinematic shader is wanted on the
-/// area-grid (it is not at E2.1).
-/// </para>
-///
-/// <para>
-/// <b>Fog visibility toggle.</b> The fog overlay Sprite2D is shown when
-/// the cell's reveal state is Fog ; hidden when Partial or Revealed.
-/// The transition is *not* tweened : the fog sprite is binary
-/// visible/hidden at the cell level. The smooth fade is carried by the
-/// base-tile shader's <c>parchment_alpha</c> Tween (which rises from
-/// 0 to 0.55 over 300 ms when fog -> partial fires). At the moment
-/// the controller emits the first step > 0, we hide the fog overlay ;
-/// at the moment it emits 0 again (revert_to_fog rule), we show it.
-/// </para>
-///
-/// <para>
-/// <b>Hover tooltip composition (EC6).</b> The TileHitTestLayer Area2D
-/// per cell connects <see cref="Area2D.MouseEntered"/> ->
-/// <see cref="OnCellHoverIn"/> which reads the cell's reveal state from
-/// GameState. If Fog : no tooltip. If Partial or Revealed : compose via
-/// <see cref="HalfgateRumorHooks.ComposeCellTooltip"/> using the
-/// mission's narrative hook (if any mission's tiles_to_partial includes
-/// this cell) or the per-district fallback line.
-/// </para>
-///
-/// <para>
-/// <b>NPC portrait hover.</b> Each NPC has its own Area2D ; on hover
-/// the tooltip reads the NPC's display_name, class, and
-/// district_origin (A4.3 schema).
+/// <b>Future scope (kept in source, gated).</b> When E2.1b lights up :
+/// flip <see cref="ScopeMode"/> to <c>"E2.1b"</c>, and re-enable the
+/// mission pop_effect block + the POI marker + the reveal substrate.
+/// E2.1c flips it to <c>"E2.1c"</c> and re-enables hit-test + tooltips
+/// + per-district tile bitmaps. The tile placement (iso math) is the
+/// E2.1a foundation that every subsequent jalon builds on.
 /// </para>
 /// </summary>
 public partial class E2AreaMap
 {
     /// <summary>
-    /// World-space size of one grid cell, in pixels. Locked at 256 to
-    /// match the placeholder asset dimensions. If a future area uses
-    /// larger tiles, bump here AND regenerate placeholders accordingly.
+    /// E2.1 scope gate (Didier lock 2026-05-16). At E2.1a we render only
+    /// the iso 8x8 grid in pure Fog state. Future values <c>"E2.1b"</c>,
+    /// <c>"E2.1c"</c>, <c>"E2.2"</c> progressively dégèle the NPC
+    /// portraits, the tuto mission pop, the hover tooltips, and the
+    /// parchment overlay shader. Each gated block uses
+    /// <c>if (ScopeMode != "E2.1a")</c> rather than being deleted so the
+    /// code stays at the rendezvous for the flip.
+    ///
+    /// <para>
+    /// <b>static readonly, not const.</b> A <c>const string</c> would
+    /// trigger CS0162 "unreachable code detected" on every gated branch
+    /// because the C# compiler constant-folds the literal-vs-literal
+    /// comparison at build time. The static readonly form keeps the
+    /// comparison runtime-evaluated, which is exactly the semantics we
+    /// want : when the constant flips for E2.1b, no code disappears
+    /// silently from a stale compile.
+    /// </para>
+    /// </summary>
+    private static readonly string ScopeMode = "E2.1a";
+
+    // -- Iso placement constants (mirror IsoMapE1Probe, see partial XML
+    //    doc §"Iso placement"). The E1 tile bitmap is 256 wide x 132
+    //    tall (face-top losange 256x128 + 4 px slab). Iso stride is the
+    //    classic 2:1 ratio used everywhere in this codebase.
+
+    /// <summary>Width of one iso step on the screen X axis.</summary>
+    private const float IsoWStride = 128f;
+
+    /// <summary>Height of one iso step on the screen Y axis.</summary>
+    private const float IsoHStride = 64f;
+
+    /// <summary>
+    /// Sprite.Offset.Y for tile sprites : aligns the face-top losange
+    /// centre on the sprite's Position by compensating for the 4 px slab
+    /// at the bottom of the bitmap. Mirrors IsoMapE1Probe.SpriteOffsetY.
+    /// </summary>
+    private const float TileSpriteOffsetY = 2f;
+
+    /// <summary>
+    /// Texture width of the E1 tile bitmap, in pixels. Used for the bbox
+    /// margin computation. The actual sprite uses
+    /// <c>Centered = true</c>, so the bitmap extends half this distance
+    /// to each side of its Position.
+    /// </summary>
+    private const int TileTextureWidthPx = 256;
+
+    /// <summary>Texture height of the E1 tile bitmap, in pixels.</summary>
+    private const int TileTextureHeightPx = 132;
+
+    /// <summary>
+    /// Iso bbox width for an 8x8 grid. Leftmost screen X is
+    /// <c>(0 - (GridSize-1)) * IsoWStride = -896</c>, rightmost is
+    /// <c>((GridSize-1) - 0) * IsoWStride = +896</c>, so the span is
+    /// <c>1792 + tile width</c> = 2048 px once we add the half-tile
+    /// extension on each side. With <see cref="IsoOriginOffsetX"/>
+    /// shifting the leftmost tile centre to <c>+128</c>, the bbox sits
+    /// in [0, 2048].
+    /// </summary>
+    private const int IsoBboxWidth =
+        2 * (AreaGridLogic.GridSize - 1) * (int)IsoWStride + TileTextureWidthPx;
+
+    /// <summary>
+    /// Iso bbox height for an 8x8 grid. Topmost screen Y is
+    /// <c>(0 + 0) * IsoHStride = 0</c>, bottommost is
+    /// <c>((GridSize-1) + (GridSize-1)) * IsoHStride = +896</c>, so the
+    /// span is <c>896 + tile height</c> = 1028 px once we add the
+    /// half-tile extension. With <see cref="IsoOriginOffsetY"/> shifting
+    /// the topmost tile centre to <c>+66</c>, the bbox sits in
+    /// [0, 1028].
+    /// </summary>
+    private const int IsoBboxHeight =
+        2 * (AreaGridLogic.GridSize - 1) * (int)IsoHStride + TileTextureHeightPx;
+
+    /// <summary>
+    /// Horizontal offset applied to every tile Position so the iso bbox
+    /// sits in the positive quadrant. Equals half the bbox width = 1024.
+    /// Without this shift, the south-west tile (col=0, row=7) would land
+    /// at screen X = -896, which the Camera2D positive-only limits
+    /// cannot frame.
+    /// </summary>
+    private const float IsoOriginOffsetX = IsoBboxWidth / 2f;
+
+    /// <summary>
+    /// Vertical offset applied to every tile Position so the iso bbox
+    /// sits in the positive quadrant. Equals half the tile height = 66.
+    /// The north-most tile (col=0, row=0) lands at screen Y = 0 in raw
+    /// iso math ; +66 lifts it to <c>+66</c> so its top edge sits at 0.
+    /// </summary>
+    private const float IsoOriginOffsetY = TileTextureHeightPx / 2f;
+
+    /// <summary>
+    /// E1 tile bitmap key in the asset map. Resolves to
+    /// <c>res://assets/wayfinders_visual_assets/e1/wf_e1_tile_neutral.png</c>
+    /// (256x132, face-top losange + 4 px slab). Reused at E2.1a because
+    /// Didier explicitly asked for the "même bitmap que E1" so the L1
+    /// to L2 transition is visually continuous.
+    /// </summary>
+    private const string AreaGridTileFogAssetKey = "e1.tile_neutral";
+
+    /// <summary>
+    /// World-space size of one grid cell, in pixels. Pre-E2.1a (orthogonal
+    /// layout) used this for tile placement -- still referenced by the
+    /// gated NPC portrait spawn for cell-centre computation. Kept at 256.
     /// </summary>
     private const int CellPixelSize = 256;
 
     /// <summary>
-    /// World-space total size of the 8x8 grid (cell × grid). Used to
-    /// size the AreaGridLayer + the pan component bounds.
+    /// World-space total size of the 8x8 grid (cell × grid). Legacy
+    /// orthogonal bbox -- only consumed by the gated NPC portrait
+    /// PortraitCell-to-world translation. Iso layout uses
+    /// <see cref="IsoBboxWidth"/> / <see cref="IsoBboxHeight"/> instead.
     /// </summary>
     private const int GridPixelSize = CellPixelSize * AreaGridLogic.GridSize;
 
     /// <summary>
     /// Path of the area-grid tile overlay shader. Loaded once per
-    /// Configure call.
+    /// Configure call. <b>Unused at E2.1a</b> (the parchment overlay is
+    /// dégelé in E2.1b) but kept here so the flip is a one-line constant
+    /// change.
     /// </summary>
     private const string AreaGridTileShaderPath = "res://shaders/area_grid_tile_overlay.gdshader";
 
     /// <summary>
     /// Marker shown above the centre POI footprint when the boot tuto
-    /// mission has fired its pop_effect (poi_visible = true).
+    /// mission has fired its pop_effect. <b>Unused at E2.1a</b> (the POI
+    /// marker is dégelé in E2.1b alongside the mission pop).
     /// </summary>
     private const string AreaGridPoiMarkerAssetKey = "e2.area_grid.poi_marker";
 
     /// <summary>
-    /// Fog veil tile texture (reused on every cell whose reveal state
-    /// is Fog).
+    /// Fog veil tile texture from the E2 placeholder set. <b>Unused at
+    /// E2.1a</b> -- at E2.1a all 64 tiles use the E1 bitmap directly as
+    /// the fog state. The E2 fog overlay layer is dégelé in E2.1b.
     /// </summary>
     private const string AreaGridFogAssetKey = "e2.area_grid.fog";
 
@@ -149,63 +274,65 @@ public partial class E2AreaMap
     private Node2D? _npcPortraitLayer;
 
     /// <summary>
-    /// Per-cell base-tile Sprite2D, keyed by grid coord. The
-    /// ShaderMaterial bound here is the per-cell instance carrying the
-    /// parchment_alpha uniform.
+    /// Per-cell base-tile Sprite2D, keyed by grid coord. At E2.1a the
+    /// ShaderMaterial slot is empty (no parchment overlay) ; from E2.1b
+    /// onward each sprite carries its per-cell ShaderMaterial with the
+    /// <c>parchment_alpha</c> uniform.
     /// </summary>
     private readonly Dictionary<GridCoord, Sprite2D> _tileBaseSprites = new();
 
-    /// <summary>Per-cell fog overlay Sprite2D, toggled by reveal state.</summary>
+    /// <summary>Per-cell fog overlay Sprite2D, toggled by reveal state.
+    /// Empty at E2.1a (the fog overlay layer is dégelé in E2.1b).</summary>
     private readonly Dictionary<GridCoord, Sprite2D> _tileFogSprites = new();
 
-    /// <summary>Per-cell Area2D hit-test, owns the MouseEntered handler.</summary>
+    /// <summary>Per-cell Area2D hit-test, owns the MouseEntered handler.
+    /// Empty at E2.1a (hit-test layer is dégelé in E2.1c).</summary>
     private readonly Dictionary<GridCoord, Area2D> _tileHitAreas = new();
 
-    /// <summary>Captured handlers per cell so _ExitTree disconnects cleanly.</summary>
+    /// <summary>Captured handlers per cell so _ExitTree disconnects cleanly.
+    /// Empty at E2.1a.</summary>
     private readonly Dictionary<GridCoord, (Action mouseEntered, Action mouseExited)> _tileHitHandlers = new();
 
-    /// <summary>Per-NPC portrait root Node2D, keyed by NPC id.</summary>
+    /// <summary>Per-NPC portrait root Node2D, keyed by NPC id. Empty at
+    /// E2.1a -- portraits land in E2.2.</summary>
     private readonly Dictionary<string, Node2D> _npcPortraitRoots = new();
 
-    /// <summary>Per-NPC captured handlers for clean disconnect.</summary>
+    /// <summary>Per-NPC captured handlers. Empty at E2.1a.</summary>
     private readonly Dictionary<string, (Action mouseEntered, Action mouseExited)> _npcHoverHandlers = new();
 
     /// <summary>
-    /// The reveal-render controller for the area-grid. Spawned as a
-    /// child of <see cref="_areaGridLayer"/> in <see cref="BuildAreaGrid"/>,
-    /// torn down in <see cref="TearDownAreaGrid"/>. Subscribes to
-    /// GameState.TileRevealStateChanged via its own _Ready/_ExitTree --
-    /// we just wire the callback after AddChild.
+    /// The reveal-render controller for the area-grid. Null at E2.1a
+    /// (gated -- no fog->partial transitions happen, nothing to render).
     /// </summary>
     private TileRevealRenderController? _areaGridRevealController;
 
     /// <summary>
-    /// Shader resource loaded once per Configure call. Each per-cell
-    /// ShaderMaterial references this shared resource ; the per-instance
-    /// uniform is `parchment_alpha`.
+    /// Shader resource. Null at E2.1a (parchment overlay gated).
     /// </summary>
     private Shader? _areaGridTileShader;
 
     /// <summary>
-    /// Build the 8x8 grid render + hover hit-test + reveal-substrate
-    /// wiring. Idempotent : safe to call after a prior teardown ; called
-    /// from <see cref="E2AreaMap.Configure"/> after the pan-component
-    /// background is set. The pan-component's WorldRoot.AreaGridLayer
-    /// is created here (it does not pre-exist in the .tscn).
+    /// Build the 8x8 grid render at the current <see cref="ScopeMode"/>.
+    /// At E2.1a this is just the 64 iso-placed fog tiles ; from E2.1b
+    /// onward this also wires the POI marker, mission pop, hit-test
+    /// layer, parchment overlay, etc. Idempotent : safe to call after a
+    /// prior teardown.
     /// </summary>
     private void BuildAreaGrid()
     {
         TearDownAreaGrid();
 
-        // 1. Load shader resource (defensive : log error and skip the
-        //    overlay if missing -- the grid still renders with base tiles
-        //    + fog overlay, just no parchment fade).
-        _areaGridTileShader = ResourceLoader.Load<Shader>(AreaGridTileShaderPath);
-        if (_areaGridTileShader is null)
+        // 1. Shader load -- gated past E2.1a. Defensive : log error and
+        //    skip the overlay if missing once the gate opens.
+        if (ScopeMode != "E2.1a")
         {
-            GD.PushError(
-                $"[E2AreaMap] BuildAreaGrid: failed to load shader at {AreaGridTileShaderPath} -- " +
-                $"parchment overlay disabled this run, base tiles + fog still render.");
+            _areaGridTileShader = ResourceLoader.Load<Shader>(AreaGridTileShaderPath);
+            if (_areaGridTileShader is null)
+            {
+                GD.PushError(
+                    $"[E2AreaMap] BuildAreaGrid: failed to load shader at {AreaGridTileShaderPath} -- " +
+                    $"parchment overlay disabled this run, base tiles + fog still render.");
+            }
         }
 
         // 2. Spawn the AreaGridLayer Node2D under MapPan2DComponent.WorldRoot.
@@ -213,90 +340,146 @@ public partial class E2AreaMap
         _panComponent.WorldRoot.AddChild(_areaGridLayer);
 
         _tileBaseLayer = new Node2D { Name = "TileBaseLayer", ZIndex = 0 };
-        _tileFogLayer = new Node2D { Name = "TileFogLayer", ZIndex = 1 };
-        _tileHitTestLayer = new Node2D { Name = "TileHitTestLayer", ZIndex = 2 };
+        // Y-sort matches the IsoMapE1Probe discipline : tiles with larger
+        // Position.Y (closer iso) paint above tiles with smaller Position.Y
+        // (further iso) -- otherwise the south tiles of the grid would
+        // peek through the north tiles' bottom slab.
+        _tileBaseLayer.YSortEnabled = true;
         _areaGridLayer.AddChild(_tileBaseLayer);
-        _areaGridLayer.AddChild(_tileFogLayer);
-        _areaGridLayer.AddChild(_tileHitTestLayer);
+
+        // 3. Hit-test layer + fog overlay layer are gated past E2.1a.
+        if (ScopeMode != "E2.1a")
+        {
+            _tileFogLayer = new Node2D { Name = "TileFogLayer", ZIndex = 1 };
+            _tileHitTestLayer = new Node2D { Name = "TileHitTestLayer", ZIndex = 2 };
+            _areaGridLayer.AddChild(_tileFogLayer);
+            _areaGridLayer.AddChild(_tileHitTestLayer);
+        }
 
         var assetResolver = GetNode<AssetResolver>("/root/AssetResolver");
-        var fogTexture = assetResolver.Resolve(AreaGridFogAssetKey);
+        // At E2.1a we use the E1 tile bitmap for all 64 cells (Didier
+        // brief : "même bitmap que E1"). Past E2.1a we pre-load the E2
+        // fog veil for the dégelé fog overlay layer.
+        var fogTexture = ScopeMode == "E2.1a"
+            ? assetResolver.Resolve(AreaGridTileFogAssetKey)
+            : assetResolver.Resolve(AreaGridFogAssetKey);
+        var tileE1Texture = assetResolver.Resolve(AreaGridTileFogAssetKey);
 
-        // 3. Spawn the 64 tile sprites + fog overlays + hit-test areas.
+        // 4. Spawn the 64 tile sprites in iso space.
         foreach (var coord in AreaGridLogic.AllCells())
         {
-            SpawnTile(coord, assetResolver, fogTexture);
+            SpawnTile(coord, assetResolver, fogTexture, tileE1Texture);
         }
 
-        // 4. POI marker at the central footprint centre (between cells
-        //    (3,3) and (4,4)). Visible iff the tuto mission popped
-        //    poi_visible=true (always true at E2.1 boot).
-        _poiMarker = new Sprite2D
+        // 5. POI marker -- gated past E2.1a (dégelé in E2.1b alongside
+        //    the mission pop). The marker stays hidden at E2.1a even if
+        //    a future debug path forces it visible : the field is null.
+        if (ScopeMode != "E2.1a")
         {
-            Name = "PoiMarker",
-            Texture = assetResolver.Resolve(AreaGridPoiMarkerAssetKey),
-            Centered = true,
-            ZIndex = 5,
-            // Centre of the 4-cell central footprint.
-            Position = new Vector2(GridPixelSize / 2f, GridPixelSize / 2f),
-            // Hidden by default ; ApplyTutorialMissionPopEffect flips it
-            // on if the mission has poi_visible = true.
-            Visible = false,
-        };
-        _areaGridLayer.AddChild(_poiMarker);
-
-        // 5. NPC portraits.
-        _npcPortraitLayer = new Node2D { Name = "NpcPortraitLayer", ZIndex = 6 };
-        _areaGridLayer.AddChild(_npcPortraitLayer);
-        foreach (var npc in HalfgateNpcAuthoring.All)
-        {
-            SpawnNpcPortrait(npc, assetResolver);
+            _poiMarker = new Sprite2D
+            {
+                Name = "PoiMarker",
+                Texture = assetResolver.Resolve(AreaGridPoiMarkerAssetKey),
+                Centered = true,
+                ZIndex = 5,
+                Position = IsoCellCentre(AreaGridLogic.Centre),
+                Visible = false,
+            };
+            _areaGridLayer.AddChild(_poiMarker);
         }
 
-        // 6. Spawn the reveal-render controller as a child Node and wire
-        //    the OnRevealLevelChanged callback. Mirrors the
-        //    Phase C-bis-3 instantiation pattern.
-        _areaGridRevealController = new TileRevealRenderController
+        // 6. NPC portraits -- gated past E2.1a (land in E2.2 with the
+        //    Recruit + Company panel flow).
+        if (ScopeMode != "E2.1a")
         {
-            Name = "AreaGridRevealController",
-            OnRevealLevelChanged = OnRevealLevelTweenStep,
-        };
-        _areaGridLayer.AddChild(_areaGridRevealController);
+            _npcPortraitLayer = new Node2D { Name = "NpcPortraitLayer", ZIndex = 6 };
+            _areaGridLayer.AddChild(_npcPortraitLayer);
+            foreach (var npc in HalfgateNpcAuthoring.All)
+            {
+                SpawnNpcPortrait(npc, assetResolver);
+            }
+        }
+
+        // 7. Reveal-render controller -- gated past E2.1a. With no
+        //    fog->partial transitions in E2.1a, the controller would
+        //    subscribe to GameState.TileRevealStateChanged and receive
+        //    no events anyway, but gating it explicitly keeps the boot
+        //    log clean.
+        if (ScopeMode != "E2.1a")
+        {
+            _areaGridRevealController = new TileRevealRenderController
+            {
+                Name = "AreaGridRevealController",
+                OnRevealLevelChanged = OnRevealLevelTweenStep,
+            };
+            _areaGridLayer.AddChild(_areaGridRevealController);
+        }
 
         GD.Print(
-            $"[E2AreaMap] BuildAreaGrid: {_tileBaseSprites.Count} tiles, " +
-            $"{_npcPortraitRoots.Count} portraits, " +
+            $"[E2AreaMap] BuildAreaGrid: scope={ScopeMode}, " +
+            $"tiles={_tileBaseSprites.Count} (iso, all fog), " +
+            $"portraits={_npcPortraitRoots.Count}, " +
+            $"hit_test_cells={_tileHitAreas.Count}, " +
             $"shader_loaded={_areaGridTileShader is not null}, " +
-            $"render_controller_wired=true");
+            $"poi_marker={_poiMarker is not null}, " +
+            $"render_controller={_areaGridRevealController is not null}");
     }
 
     /// <summary>
-    /// Spawn one cell's base tile + fog overlay + hit-test area. The
-    /// base tile carries its own ShaderMaterial (per-instance
-    /// `parchment_alpha` uniform). Fog overlay is initially visible
-    /// (cell defaults to Fog) and is hidden as soon as the reveal
-    /// substrate emits a > 0 alpha for this cell.
+    /// Translate a grid coord into the iso-placed world-space centre of
+    /// the cell. Same formula IsoMapE1Probe uses, shifted by
+    /// (<see cref="IsoOriginOffsetX"/>, <see cref="IsoOriginOffsetY"/>)
+    /// to land in the camera's positive quadrant.
     /// </summary>
-    private void SpawnTile(GridCoord coord, AssetResolver assetResolver, Texture2D fogTexture)
+    private static Vector2 IsoCellCentre(GridCoord coord)
     {
-        var district = AreaGridLogic.ResolveDistrictType(coord);
-        var tileKey = $"e2.area_grid.tile.{DistrictTypeHelpers.AssetKeySuffix(district)}";
-        var tileTexture = assetResolver.Resolve(tileKey);
+        float screenX = (coord.Col - coord.Row) * IsoWStride + IsoOriginOffsetX;
+        float screenY = (coord.Col + coord.Row) * IsoHStride + IsoOriginOffsetY;
+        return new Vector2(screenX, screenY);
+    }
 
-        // World-space top-left of the cell.
-        var cellTopLeft = new Vector2(coord.Col * CellPixelSize, coord.Row * CellPixelSize);
-        var cellCentre = cellTopLeft + new Vector2(CellPixelSize / 2f, CellPixelSize / 2f);
+    /// <summary>
+    /// Spawn one cell's tile sprite at its iso-placed world centre. At
+    /// E2.1a the sprite is a plain Sprite2D with the E1 fog bitmap and
+    /// no ShaderMaterial. Past E2.1a, the sprite carries a per-cell
+    /// ShaderMaterial (parchment_alpha uniform) and the fog overlay +
+    /// hit-test Area2D are spawned alongside.
+    /// </summary>
+    private void SpawnTile(
+        GridCoord coord,
+        AssetResolver assetResolver,
+        Texture2D fogTexture,
+        Texture2D tileE1Texture)
+    {
+        // -- Base tile sprite. At E2.1a, all 64 cells use the E1 bitmap.
+        //    Past E2.1a, the base sprite uses the per-district tile
+        //    bitmap (resolved from AreaGridLogic.ResolveDistrictType).
+        var baseTexture = ScopeMode == "E2.1a"
+            ? tileE1Texture
+            : assetResolver.Resolve(
+                $"e2.area_grid.tile.{DistrictTypeHelpers.AssetKeySuffix(AreaGridLogic.ResolveDistrictType(coord))}");
 
-        // -- Base tile sprite + shader material.
+        var cellCentre = IsoCellCentre(coord);
+
         var baseSprite = new Sprite2D
         {
             Name = $"TileBase_{coord.Col}_{coord.Row}",
-            Texture = tileTexture,
+            Texture = baseTexture,
             Centered = true,
+            // Y-sort alignment : the bitmap is face-top 256x128 + 4 px
+            // slab. Offset.Y = +2 (slab/2) puts the losange centre on
+            // Position so Y-sort orders against the right reference.
+            Offset = new Vector2(0f, TileSpriteOffsetY),
             Position = cellCentre,
-            TextureFilter = CanvasItem.TextureFilterEnum.Nearest,
+            // LinearWithMipmaps matches IsoMapE1Probe -- the iso losange
+            // edges read cleaner than Nearest at the default zoom.
+            TextureFilter = CanvasItem.TextureFilterEnum.LinearWithMipmaps,
+            // Per-tile ZIndex tiebreaker within a Y-sort band : larger
+            // col paints above smaller col at the same Position.Y. Same
+            // strategy IsoMapE1Probe uses.
+            ZIndex = coord.Col,
         };
-        if (_areaGridTileShader is not null)
+        if (ScopeMode != "E2.1a" && _areaGridTileShader is not null)
         {
             var material = new ShaderMaterial { Shader = _areaGridTileShader };
             material.SetShaderParameter("parchment_alpha", 0.0f);
@@ -305,12 +488,15 @@ public partial class E2AreaMap
         _tileBaseLayer!.AddChild(baseSprite);
         _tileBaseSprites[coord] = baseSprite;
 
-        // -- Fog overlay sprite. Same world position, visible by default.
+        // -- Fog overlay + hit-test gated past E2.1a.
+        if (ScopeMode == "E2.1a") return;
+
         var fogSprite = new Sprite2D
         {
             Name = $"TileFog_{coord.Col}_{coord.Row}",
             Texture = fogTexture,
             Centered = true,
+            Offset = new Vector2(0f, TileSpriteOffsetY),
             Position = cellCentre,
             TextureFilter = CanvasItem.TextureFilterEnum.Nearest,
             Visible = true,
@@ -334,8 +520,6 @@ public partial class E2AreaMap
         _tileHitTestLayer!.AddChild(hitArea);
         _tileHitAreas[coord] = hitArea;
 
-        // Closure-capture coord once per cell (mistake pattern : the
-        // outer var would all point to the last iteration's value).
         var capturedCoord = coord;
         Action mouseEntered = () => OnCellHoverIn(capturedCoord);
         Action mouseExited = () => OnCellHoverOut(capturedCoord);
@@ -345,18 +529,20 @@ public partial class E2AreaMap
     }
 
     /// <summary>
-    /// Spawn one NPC's portrait + hover hit-test. Portrait is parented
-    /// under the NpcPortraitLayer ; hit-test is a sibling Area2D so the
-    /// hover tooltip reads the NPC entry.
+    /// Spawn one NPC's portrait + hover hit-test. <b>Gated at E2.1a</b>
+    /// (never called from <see cref="BuildAreaGrid"/> while
+    /// <c>ScopeMode == "E2.1a"</c>) ; kept here for E2.2.
     /// </summary>
     private void SpawnNpcPortrait(HalfgateNpc npc, AssetResolver assetResolver)
     {
         var portraitKey = $"e2.area_grid.portrait.{npc.NpcId}";
         var portraitTexture = assetResolver.Resolve(portraitKey);
 
-        var cellCentre = new Vector2(
-            npc.PortraitCell.Col * CellPixelSize + CellPixelSize / 2f,
-            npc.PortraitCell.Row * CellPixelSize + CellPixelSize / 2f);
+        // Portrait positioning uses iso math too once we land in E2.2,
+        // but the legacy orthogonal anchor is kept here pending the
+        // E2.2 redesign : the PortraitCell field gives a grid coord,
+        // and iso-translating it is a one-liner when the gate opens.
+        var cellCentre = IsoCellCentre(npc.PortraitCell);
 
         var root = new Node2D
         {
@@ -370,16 +556,13 @@ public partial class E2AreaMap
             Name = "Portrait",
             Texture = portraitTexture,
             Centered = true,
-            // Slight upward offset so the portrait reads "above" the
-            // tile rather than sitting flat on it -- diegetic "person
-            // standing on the cell". Locked at -32 px (~12 % of cell
-            // height) for the MVP placeholder ; Mira will tune post-
-            // bitmap delivery.
+            // Lift the portrait above the tile (diegetic "person
+            // standing on the cell"). E2.2 will tune this on the real
+            // Mira bitmaps.
             Offset = new Vector2(0f, -32f),
         };
         root.AddChild(sprite);
 
-        // Hover hit area sized to the portrait bbox (256 x 384).
         var hitArea = new Area2D
         {
             Name = "Hitbox",
@@ -396,7 +579,6 @@ public partial class E2AreaMap
         _npcPortraitLayer!.AddChild(root);
         _npcPortraitRoots[npc.NpcId] = root;
 
-        // Captured handlers.
         var capturedId = npc.NpcId;
         Action mouseEntered = () => OnNpcPortraitHoverIn(capturedId);
         Action mouseExited = () => OnNpcPortraitHoverOut(capturedId);
@@ -406,14 +588,10 @@ public partial class E2AreaMap
     }
 
     /// <summary>
-    /// Fire the boot tutorial mission's pop_effect : flip the 4
-    /// central footprint cells from <see cref="TileRevealState.Fog"/> to
-    /// <see cref="TileRevealState.Partial"/>, and show the POI marker
-    /// (poi_visible = true). The GameState.SetTileRevealState calls
-    /// emit signals that the render controller subscribes to ; the
-    /// controller drives the 300 ms Tween, which calls back into
-    /// <see cref="OnRevealLevelTweenStep"/> here for the actual visual
-    /// update.
+    /// Fire the boot tutorial mission's <c>pop_effect</c>. <b>Gated at
+    /// E2.1a</b> -- the gate at the <see cref="E2AreaMap.Configure"/>
+    /// caller skips this call entirely so all 64 tiles stay in Fog.
+    /// Kept here for E2.1b dégelé.
     /// </summary>
     private void ApplyTutorialMissionPopEffect()
     {
@@ -425,16 +603,9 @@ public partial class E2AreaMap
             _poiMarker.Visible = true;
         }
 
-        // EC1 guard : already-partial cells are no-op on a second pop_effect.
-        // GameState.SetTileRevealState is idempotent so the guard is implicit
-        // there (silent no-op if current == new), but the log surfaces what
-        // happened so smoke-test reading is unambiguous.
         int flipped = 0;
         foreach (var cell in mission.PopEffectTilesToPartial)
         {
-            // GameState API speaks Godot Vector2I (engine-marshal-safe) ;
-            // our authoring layer speaks GridCoord (pure-C# record struct).
-            // The translation happens at this single seam.
             var cellVec = new Vector2I(cell.Col, cell.Row);
             var before = gameState.GetTileRevealState(cellVec);
             gameState.SetTileRevealState(cellVec, TileRevealState.Partial);
@@ -448,28 +619,20 @@ public partial class E2AreaMap
     }
 
     /// <summary>
-    /// Callback fired by <see cref="TileRevealRenderController"/> on
-    /// every Tween step. Translates the cell's freshly-interpolated
-    /// reveal_level into a per-cell shader uniform write + a fog
-    /// overlay visibility toggle.
+    /// Callback fired by <see cref="TileRevealRenderController"/>.
+    /// <b>Inert at E2.1a</b> -- the controller is never spawned, so the
+    /// callback never fires. Kept here for E2.1b dégelé.
     /// </summary>
     private void OnRevealLevelTweenStep(Vector2I cellVec, float revealLevel)
     {
         var coord = new GridCoord(cellVec.X, cellVec.Y);
 
-        // Update the base tile shader uniform. The shader maps the
-        // raw float into a "parchment overlay weight" that peaks at
-        // 0.55 (Partial) and tapers to 0 at both ends -- see
-        // area_grid_tile_overlay.gdshader for the formula.
         if (_tileBaseSprites.TryGetValue(coord, out var baseSprite)
             && baseSprite.Material is ShaderMaterial material)
         {
             material.SetShaderParameter("parchment_alpha", revealLevel);
         }
 
-        // Toggle fog overlay : visible only at reveal_level ~ 0.
-        // Threshold tuned at 0.05 -- the first Tween step that crosses
-        // it hides the fog, well before parchment peaks at 0.55.
         if (_tileFogSprites.TryGetValue(coord, out var fogSprite))
         {
             fogSprite.Visible = revealLevel < 0.05f;
@@ -477,8 +640,9 @@ public partial class E2AreaMap
     }
 
     /// <summary>
-    /// Hover-in on a cell. EC6 path : if the cell is in Fog state, no
-    /// tooltip ; otherwise compose the district + rumor hook tooltip.
+    /// Hover-in on a cell. <b>Gated at E2.1a</b> -- the hit-test Area2D
+    /// per cell is not spawned, so this never fires at E2.1a. Kept here
+    /// for E2.1c dégelé.
     /// </summary>
     private void OnCellHoverIn(GridCoord coord)
     {
@@ -486,9 +650,6 @@ public partial class E2AreaMap
         var state = gameState.GetTileRevealState(new Vector2I(coord.Col, coord.Row));
         if (state == TileRevealState.Fog)
         {
-            // EC6 : fog cells do not surface a tooltip. Cancel any
-            // in-flight tooltip request (e.g. if the cursor moved fast
-            // from a partial cell to a fog cell).
             var tooltip = GetNodeOrNull<HoverTooltipController>("/root/HoverTooltipController");
             tooltip?.CancelTooltip();
             return;
@@ -514,12 +675,9 @@ public partial class E2AreaMap
     }
 
     /// <summary>
-    /// Resolve the mission narrative hook for a cell : if any mission's
-    /// tiles_to_partial footprint includes this coord, return that
-    /// mission's hook. Otherwise return null so the rumor-hooks helper
-    /// uses the per-district fallback. At E2.1 there is exactly one
-    /// mission (the tuto) ; the lookup is a contains-check on its
-    /// footprint.
+    /// Resolve the mission narrative hook for a cell. <b>Inert at
+    /// E2.1a</b> (never called -- the hover gate is closed). Kept here
+    /// for E2.1c dégelé.
     /// </summary>
     private static string? ResolveMissionHookForCell(GridCoord coord)
     {
@@ -532,8 +690,8 @@ public partial class E2AreaMap
     }
 
     /// <summary>
-    /// Hover-in on an NPC portrait. The tooltip shows display_name,
-    /// class, and district_origin label (A4.3 schema).
+    /// Hover-in on an NPC portrait. <b>Gated at E2.1a</b>. Kept here for
+    /// E2.2 dégelé.
     /// </summary>
     private void OnNpcPortraitHoverIn(string npcId)
     {
@@ -561,12 +719,11 @@ public partial class E2AreaMap
     /// <summary>
     /// Tear down the area-grid tree + every captured signal handler.
     /// Mandatory before re-Configure (idempotency) and on _ExitTree.
-    /// Mirrors the captured-reference signal-leak discipline used for
-    /// the legacy POI handlers in <see cref="E2AreaMap"/>.
+    /// Safe to call at any <see cref="ScopeMode"/> -- iterates the
+    /// captured handler dicts, which are empty at E2.1a.
     /// </summary>
     private void TearDownAreaGrid()
     {
-        // Disconnect every tile hit-test handler first.
         foreach (var (coord, handlers) in _tileHitHandlers)
         {
             if (_tileHitAreas.TryGetValue(coord, out var area) && IsInstanceValid(area))
@@ -577,7 +734,6 @@ public partial class E2AreaMap
         }
         _tileHitHandlers.Clear();
 
-        // Disconnect every NPC portrait handler.
         foreach (var (npcId, handlers) in _npcHoverHandlers)
         {
             if (_npcPortraitRoots.TryGetValue(npcId, out var root) && IsInstanceValid(root))
@@ -592,9 +748,6 @@ public partial class E2AreaMap
         }
         _npcHoverHandlers.Clear();
 
-        // Free the AreaGridLayer subtree (this also frees the
-        // RenderController which disconnects from GameState in its own
-        // _ExitTree).
         if (_areaGridLayer is not null && IsInstanceValid(_areaGridLayer))
         {
             _areaGridLayer.QueueFree();
@@ -615,9 +768,9 @@ public partial class E2AreaMap
     }
 
     /// <summary>
-    /// Diagnostic surface for the E2.1 smoke test : how many tiles are
-    /// in each reveal state at the moment of the call. Surfaces in the
-    /// preflight log.
+    /// Diagnostic surface : reveal-state distribution at the moment of
+    /// the call. At E2.1a every cell is in Fog (nothing flips), so the
+    /// expected output is (64, 0, 0).
     /// </summary>
     private (int fog, int partial, int revealed) CountRevealStates()
     {
@@ -634,4 +787,11 @@ public partial class E2AreaMap
         }
         return (fog, partial, revealed);
     }
+
+    /// <summary>
+    /// Expose the current E2.1 scope value for tests pinning the
+    /// Didier-locked scope gate. Test-only surface ; kept on the partial
+    /// so it stays beside the constant.
+    /// </summary>
+    internal static string CurrentScopeMode => ScopeMode;
 }

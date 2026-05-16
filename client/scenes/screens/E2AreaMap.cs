@@ -512,10 +512,36 @@ public partial class E2AreaMap : Control, IScreen
         // component's Configure overwrites the world texture + bounds,
         // so a re-Configure on a previously-bound instance resets the
         // camera to the new image center (intended).
+        //
+        // E2.1a strict scope (Didier lock 2026-05-16) : when the area
+        // uses the iso area-grid layer, the area background bitmap is
+        // NOT shown (the iso losanges are the visible surface). We pass
+        // a 1x1 transparent placeholder to the pan component to satisfy
+        // its Configure(texture, ...) contract, then hide the sprite,
+        // and override the camera bounds to the iso bbox so pan + zoom
+        // frame the whole grid. The legacy background path (any future
+        // area without an iso grid) keeps the area bitmap visible.
         var assetResolver = GetNode<AssetResolver>("/root/AssetResolver");
-        var areaTexture = assetResolver.Resolve(assetKey);
-        var initialCenter = areaTexture.GetSize() / 2f;
-        _panComponent.Configure(areaTexture, initialCenter);
+        Texture2D worldImage;
+        Vector2 worldBoundsSize;
+        Vector2 initialCenter;
+        if (useAreaGridLayer)
+        {
+            worldImage = MakeTransparentPlaceholderTexture();
+            worldBoundsSize = new Vector2(IsoBboxWidth, IsoBboxHeight);
+            initialCenter = worldBoundsSize / 2f;
+        }
+        else
+        {
+            worldImage = assetResolver.Resolve(assetKey);
+            worldBoundsSize = worldImage.GetSize();
+            initialCenter = worldBoundsSize / 2f;
+        }
+        _panComponent.Configure(worldImage, initialCenter, worldBoundsSize);
+        // Hide the background sprite when the iso grid owns the visible
+        // surface. The MapPan2DComponent still owns the sprite node and
+        // the world tree -- we just suppress its rendering at E2.1a.
+        _panComponent.WorldMapSprite.Visible = !useAreaGridLayer;
 
         // Per-area chrome strings. Today both Banner title + subtitle
         // come from the shared OpeningStrings entries -- a multi-area
@@ -552,7 +578,15 @@ public partial class E2AreaMap : Control, IScreen
         if (useAreaGridLayer)
         {
             BuildAreaGrid();
-            ApplyTutorialMissionPopEffect();
+            // E2.1a strict scope (Didier lock 2026-05-16) : the tuto
+            // mission pop_effect (4 fog->partial flips + POI marker on)
+            // is dégelé in E2.1b. At E2.1a all 64 cells stay in Fog so
+            // the iso grid renders the E1 bitmap uniformly with nothing
+            // else on top.
+            if (ScopeMode != "E2.1a")
+            {
+                ApplyTutorialMissionPopEffect();
+            }
         }
         else
         {
@@ -1068,4 +1102,22 @@ public partial class E2AreaMap : Control, IScreen
         Area2D.InputEventEventHandler InputEvent,
         Action MouseEntered,
         Action MouseExited);
+
+    /// <summary>
+    /// E2.1a strict scope (2026-05-16) -- placeholder texture for the
+    /// pan component when the iso area-grid owns the visible surface.
+    /// <see cref="MapPan2DComponent.Configure(Texture2D, Vector2, Vector2)"/>
+    /// requires a non-null texture (it copies the size into
+    /// <c>WorldImageSize</c> and writes it onto the WorldMapSprite). At
+    /// E2.1a we hide that sprite and use the bounds-overload to feed
+    /// the camera the iso bbox directly. A 1x1 fully-transparent
+    /// <see cref="ImageTexture"/> satisfies the contract without
+    /// allocating a bitmap-sized empty image.
+    /// </summary>
+    private static Texture2D MakeTransparentPlaceholderTexture()
+    {
+        var image = Image.CreateEmpty(1, 1, false, Image.Format.Rgba8);
+        image.SetPixel(0, 0, new Color(0f, 0f, 0f, 0f));
+        return ImageTexture.CreateFromImage(image);
+    }
 }
