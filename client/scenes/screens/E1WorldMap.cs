@@ -63,9 +63,9 @@ public partial class E1WorldMap : Control, IScreen
     private const string OpeningStringsResPath = "res://data/opening_strings.tres";
     private const string WorldMapPoisResPath = "res://data/world_map_pois.tres";
     private const string WorldMapBackgroundAssetKey = "e2.world_map";
-    private const string BannerTopAssetKey = "e2.banner_top";
-    private const string PanelLeftAssetKey = "e2.panel_left";
-    private const string PanelRightAssetKey = "e2.panel_right";
+    private const string BannerTopAssetKey = "shared.banner_top";
+    private const string PanelLeftAssetKey = "shared.panel_left";
+    private const string PanelRightAssetKey = "shared.panel_right";
     private const string InitialFocusPoiId = "halfgate";
 
     /// <summary>

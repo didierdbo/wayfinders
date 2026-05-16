@@ -250,9 +250,9 @@ public partial class E2AreaMap : Control, IScreen
     // same iso bandeau and side panels frame every cité. If a future
     // area authoritatively redesigns the chrome (Veylant rebuilt the
     // panels post-collapse, say), these become per-area too.
-    private const string BannerTopAssetKey = "e2.banner_top";
-    private const string PanelLeftAssetKey = "e2.panel_left";
-    private const string PanelRightAssetKey = "e2.panel_right";
+    private const string BannerTopAssetKey = "shared.banner_top";
+    private const string PanelLeftAssetKey = "shared.panel_left";
+    private const string PanelRightAssetKey = "shared.panel_right";
     private const string PanelBottomAssetKey = "e2.panel_bottom";
 
     /// <summary>
