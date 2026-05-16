@@ -144,7 +144,7 @@ public partial class E2AreaMap
     /// silently from a stale compile.
     /// </para>
     /// </summary>
-    private static readonly string ScopeMode = "E2.1a";
+    private static readonly string ScopeMode = "E2.1b";
 
     // -- Iso placement constants (mirror IsoMapE1Probe, see partial XML
     //    doc §"Iso placement"). The E1 tile bitmap is 256 wide x 132
@@ -347,8 +347,12 @@ public partial class E2AreaMap
         _tileBaseLayer.YSortEnabled = true;
         _areaGridLayer.AddChild(_tileBaseLayer);
 
-        // 3. Hit-test layer + fog overlay layer are gated past E2.1a.
-        if (ScopeMode != "E2.1a")
+        // 3. Hit-test layer + fog overlay layer.
+        // Deferred until E2.1c (district tooltips + per-district tile bitmaps).
+        // At E2.1b the parchment overlay shader on each base sprite carries
+        // the partial-state visual entirely -- no separate fog veil needed,
+        // no hover hit-test (tooltips arrive E2.1c).
+        if (ScopeMode != "E2.1a" && ScopeMode != "E2.1b")
         {
             _tileFogLayer = new Node2D { Name = "TileFogLayer", ZIndex = 1 };
             _tileHitTestLayer = new Node2D { Name = "TileHitTestLayer", ZIndex = 2 };
@@ -360,7 +364,11 @@ public partial class E2AreaMap
         // At E2.1a we use the E1 tile bitmap for all 64 cells (Didier
         // brief : "même bitmap que E1"). Past E2.1a we pre-load the E2
         // fog veil for the dégelé fog overlay layer.
-        var fogTexture = ScopeMode == "E2.1a"
+        // At E2.1a + E2.1b we don't render a separate fog overlay (the
+        // base sprite + parchment shader carry every visible state).
+        // The variable is kept for future degelé but resolves to the E1
+        // tile bitmap as a defensive default.
+        var fogTexture = (ScopeMode == "E2.1a" || ScopeMode == "E2.1b")
             ? assetResolver.Resolve(AreaGridTileFogAssetKey)
             : assetResolver.Resolve(AreaGridFogAssetKey);
         var tileE1Texture = assetResolver.Resolve(AreaGridTileFogAssetKey);
@@ -371,10 +379,11 @@ public partial class E2AreaMap
             SpawnTile(coord, assetResolver, fogTexture, tileE1Texture);
         }
 
-        // 5. POI marker -- gated past E2.1a (dégelé in E2.1b alongside
-        //    the mission pop). The marker stays hidden at E2.1a even if
-        //    a future debug path forces it visible : the field is null.
-        if (ScopeMode != "E2.1a")
+        // 5. POI marker -- deferred to E2.1c (Didier brief 2026-05-16 :
+        //    "Pas de POI marker quartier" at E2.1b). The marker stays
+        //    hidden at E2.1a + E2.1b ; the field remains null and any
+        //    code path that touches it (PopEffectPoiVisible flip) no-ops.
+        if (ScopeMode != "E2.1a" && ScopeMode != "E2.1b")
         {
             _poiMarker = new Sprite2D
             {
@@ -388,9 +397,10 @@ public partial class E2AreaMap
             _areaGridLayer.AddChild(_poiMarker);
         }
 
-        // 6. NPC portraits -- gated past E2.1a (land in E2.2 with the
-        //    Recruit + Company panel flow).
-        if (ScopeMode != "E2.1a")
+        // 6. NPC portraits -- gated past E2.1b (land in E2.2 with the
+        //    Recruit + Company panel flow). Didier brief 2026-05-16 :
+        //    "Pas de portraits PNJ" at E2.1b.
+        if (ScopeMode != "E2.1a" && ScopeMode != "E2.1b")
         {
             _npcPortraitLayer = new Node2D { Name = "NpcPortraitLayer", ZIndex = 6 };
             _areaGridLayer.AddChild(_npcPortraitLayer);
@@ -488,8 +498,10 @@ public partial class E2AreaMap
         _tileBaseLayer!.AddChild(baseSprite);
         _tileBaseSprites[coord] = baseSprite;
 
-        // -- Fog overlay + hit-test gated past E2.1a.
-        if (ScopeMode == "E2.1a") return;
+        // -- Fog overlay + hit-test deferred until E2.1c. At E2.1a + E2.1b
+        //    the base sprite alone carries the visible state ; the fog veil
+        //    + hover hit-test land alongside the district tooltip dégelé.
+        if (ScopeMode == "E2.1a" || ScopeMode == "E2.1b") return;
 
         var fogSprite = new Sprite2D
         {
@@ -588,10 +600,49 @@ public partial class E2AreaMap
     }
 
     /// <summary>
-    /// Fire the boot tutorial mission's <c>pop_effect</c>. <b>Gated at
-    /// E2.1a</b> -- the gate at the <see cref="E2AreaMap.Configure"/>
-    /// caller skips this call entirely so all 64 tiles stay in Fog.
-    /// Kept here for E2.1b dégelé.
+    /// Fire the boot tutorial mission's <c>pop_effect</c> per the A4.7
+    /// cross-layer projection grammar. <b>Gated at E2.1a</b> ; runs at
+    /// E2.1b + later. The mission lists its cells at the E1 layer
+    /// (<c>tiles_to_partial_layer[E1]</c>) ; the projector cascades to
+    /// the E2 8x8 grid at write time (R3 top-down + EC1/EC2/EC11
+    /// no-downgrade clamp via <see cref="TileRevealProjector.ProjectTopDown"/>).
+    ///
+    /// <para>
+    /// <b>Mock-mission-active at E2.1b.</b> The MVE pipeline does not yet
+    /// have an "active missions on Halfgate" queue plumbed end-to-end
+    /// (that lands at E2.6 with the ML mission generator). For the E2.1b
+    /// smoke this method is invoked unconditionally from
+    /// <see cref="E2AreaMap.Configure"/> when the iso area-grid layer is
+    /// active : the tuto mission's pop_effect is the canonical "mission
+    /// just popped" simulation. When E2.6 wires the real queue, this
+    /// call moves behind <c>GameState.PendingMissions.Where(...).Any()</c>
+    /// or equivalent and the per-mission write becomes a loop over the
+    /// real queue.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Wire steps.</b>
+    /// </para>
+    /// <list type="number">
+    ///   <item>Read <c>mission.PopEffectTilesToPartialLayer[E1]</c> --
+    ///         the 16 cells of the Halfgate 4x4 footprint.</item>
+    ///   <item>Run <see cref="TileRevealProjector.ProjectTopDown"/>
+    ///         with SourceLayer=E1, TargetLayer=E2, TargetState=Partial.
+    ///         The projector applies the no-downgrade clamp per cell.</item>
+    ///   <item>Apply each (cell, newState) write via
+    ///         <see cref="GameState.SetTileRevealState"/>. The signal
+    ///         <c>TileRevealStateChanged</c> fires per cell ;
+    ///         <see cref="TileRevealRenderController"/> picks it up and
+    ///         Tweens parchment_alpha 0 -&gt; 0.55 over 300 ms.</item>
+    /// </list>
+    ///
+    /// <para>
+    /// <b>POI marker.</b> The mission's <c>poi_visible</c> flag toggles
+    /// <see cref="_poiMarker"/>.Visible -- but at E2.1b that field is
+    /// null (POI marker deferred to E2.1c). The null-check below is the
+    /// gate ; when E2.1c degelés the marker, the field is non-null and
+    /// the flip lands automatically.
+    /// </para>
     /// </summary>
     private void ApplyTutorialMissionPopEffect()
     {
@@ -603,19 +654,47 @@ public partial class E2AreaMap
             _poiMarker.Visible = true;
         }
 
-        int flipped = 0;
-        foreach (var cell in mission.PopEffectTilesToPartial)
+        // A4.7 R1 + R3 : the mission lists its E1 cells ; the projector
+        // produces the E2 writes. The mission MUST carry an E1 layer
+        // entry per A4.7.2 (auto-projection mode). A schema slip would
+        // surface as an empty write set at E2 -- defensive log surfaces
+        // that.
+        if (!mission.PopEffectTilesToPartialLayer.TryGetValue(RevealLayer.E1, out var e1Cells)
+            || e1Cells.Count == 0)
         {
-            var cellVec = new Vector2I(cell.Col, cell.Row);
-            var before = gameState.GetTileRevealState(cellVec);
-            gameState.SetTileRevealState(cellVec, TileRevealState.Partial);
-            var after = gameState.GetTileRevealState(cellVec);
-            if (before != after) flipped++;
+            GD.PushWarning(
+                $"[E2AreaMap] ApplyTutorialMissionPopEffect : mission " +
+                $"{mission.MissionId} has no E1 layer cells in " +
+                $"tiles_to_partial_layer -- nothing to project. " +
+                $"Check HalfgateMissionAuthoring against A4.7.2 schema.");
+            return;
+        }
+
+        var projection = TileRevealProjector.ProjectTopDown(new ProjectTopDownArgs
+        {
+            SourceLayer = RevealLayer.E1,
+            TargetLayer = RevealLayer.E2,
+            SourceCells = e1Cells,
+            TargetState = TileRevealState.Partial,
+            // Read the current E2 state from GameState. The projector's
+            // no-downgrade clamp skips cells already at >= Partial.
+            GetCurrentTargetState = c => gameState.GetTileRevealState(
+                new Vector2I(c.Col, c.Row)),
+        });
+
+        int written = 0;
+        foreach (var (cell, newState) in projection.CellsToWrite)
+        {
+            gameState.SetTileRevealState(new Vector2I(cell.Col, cell.Row), newState);
+            written++;
         }
 
         GD.Print(
-            $"[E2AreaMap] ApplyTutorialMissionPopEffect: mission={mission.MissionId} " +
-            $"flipped={flipped} cells fog->partial, poi_marker_visible={mission.PopEffectPoiVisible}");
+            $"[E2AreaMap] ApplyTutorialMissionPopEffect (A4.7 projection) : " +
+            $"mission={mission.MissionId}, " +
+            $"e1_source_cells={e1Cells.Count}, " +
+            $"e2_cells_written={written} (fog->partial via R3 top-down + clamp), " +
+            $"poi_marker_visible={mission.PopEffectPoiVisible} (marker null={(_poiMarker is null)})");
     }
 
     /// <summary>
@@ -675,16 +754,32 @@ public partial class E2AreaMap
     }
 
     /// <summary>
-    /// Resolve the mission narrative hook for a cell. <b>Inert at
-    /// E2.1a</b> (never called -- the hover gate is closed). Kept here
-    /// for E2.1c dégelé.
+    /// Resolve the mission narrative hook for an E2 cell. <b>Inert at
+    /// E2.1a + E2.1b</b> (never called -- the hover gate is closed
+    /// until E2.1c). Kept here for E2.1c dégelé.
+    ///
+    /// <para>
+    /// <b>A4.7 schema-consumer.</b> The mission lists cells at the E1
+    /// layer ; we resolve the E1 parent of the hovered E2 cell via
+    /// <see cref="TileRevealProjector.ResolveParentCoord"/> and check
+    /// membership in the mission's E1 footprint. Cheaper than the
+    /// forward-project + membership-set approach when the footprint is
+    /// small and the hover-cell check runs per mouse-move event.
+    /// </para>
     /// </summary>
     private static string? ResolveMissionHookForCell(GridCoord coord)
     {
         var tuto = HalfgateMissionAuthoring.Tutorial;
-        foreach (var c in tuto.PopEffectTilesToPartial)
+        // The hover coord lives at E2. The mission's footprint lives at
+        // E1. Inverse-project the hover coord (E2 -> E1 parent).
+        var parent = TileRevealProjector.ResolveParentCoord(
+            RevealLayer.E2, coord, RevealLayer.E1);
+        if (tuto.PopEffectTilesToPartialLayer.TryGetValue(RevealLayer.E1, out var e1Cells))
         {
-            if (c.Col == coord.Col && c.Row == coord.Row) return tuto.NarrativeHook;
+            foreach (var c in e1Cells)
+            {
+                if (c == parent) return tuto.NarrativeHook;
+            }
         }
         return null;
     }

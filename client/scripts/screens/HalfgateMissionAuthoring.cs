@@ -4,20 +4,32 @@ namespace Wayfinders.Client.Scripts.Screens;
 
 /// <summary>
 /// Varn-locked hardcoded authoring for the Halfgate E2.1 tutorial
-/// mission, encoded against the A4.2 reveal grammar (canonical schema :
-/// <c>pop_effect</c> / <c>success_effect</c> / <c>reveal_on_fail</c> --
-/// the A3.2 fields <c>reveal_level</c> / <c>reveal_tile_count</c> are
-/// SUPERSEDED and MUST NOT appear here).
+/// mission, encoded against the A4.2 reveal grammar AS AMENDED BY A4.7
+/// (canonical schema : <c>pop_effect</c> / <c>success_effect</c> /
+/// <c>reveal_on_fail</c> — the A3.2 fields <c>reveal_level</c> /
+/// <c>reveal_tile_count</c> are SUPERSEDED and MUST NOT appear here).
+///
+/// <para>
+/// <b>A4.7 schema migration (2026-05-16).</b> The
+/// <c>pop_effect.tiles_to_partial</c> flat list is REPLACED by
+/// <c>pop_effect.tiles_to_partial_layer</c> — a per-layer dictionary
+/// (<see cref="RevealLayer"/> → <see cref="GridCoord"/> list). The
+/// tuto mission now lists its 16 E1 cells (the 4×4 Halfgate footprint)
+/// under the <see cref="RevealLayer.E1"/> key ; the auto-projection
+/// cascade (<see cref="TileRevealProjector.ProjectTopDown"/>) produces
+/// the 64 E2 cells at write time. Explicit cross-layer listing in a
+/// single mission is forbidden per A4.7.1 Q1 + A4.7.8 anti-drift.
+/// </para>
 ///
 /// <para>
 /// <b>One mission at E2.1, no UI yet.</b> Per Varn jalons §E2.1, the
 /// hardcoded tutorial mission lives in code (or a Godot Resource) but
-/// has no Mission panel UI -- that lands at E2.3. The E2.1 visible
-/// effect is purely the reveal substrate : at boot the mission's
-/// <c>pop_effect</c> fires, transitioning the 4 central footprint cells
-/// from <see cref="TileRevealState.Fog"/> to
-/// <see cref="TileRevealState.Partial"/> (rendered as the parchment
-/// overlay shader).
+/// has no Mission panel UI — that lands at E2.3. The E2.1b visible
+/// effect is the reveal substrate : at boot the mission's
+/// <c>pop_effect</c> fires, transitioning all 64 E2 cells fog → partial
+/// via the R3 top-down projection from the 16 E1 footprint cells
+/// (rendered as the parchment overlay shader through
+/// <see cref="TileRevealRenderController"/>).
 /// </para>
 ///
 /// <para>
@@ -34,22 +46,23 @@ namespace Wayfinders.Client.Scripts.Screens;
 ///
 /// <para>
 /// <b>Naming neutrality.</b> The mission id is
-/// <c>mission_tuto_halfgate</c> -- semantically neutral, no narrative
+/// <c>mission_tuto_halfgate</c> — semantically neutral, no narrative
 /// commitments. The narrative copy is Pratchett-tone but minimal at
 /// E2.1 (one line as the rumor hook).
 /// </para>
 ///
 /// <para>
-/// <b>A4.2 schema field map.</b>
+/// <b>A4.2 + A4.7 schema field map.</b>
 /// </para>
 /// <list type="bullet">
-///   <item><see cref="HalfgateMission.PopEffectPoiVisible"/> --
+///   <item><see cref="HalfgateMission.PopEffectPoiVisible"/> —
 ///         <c>pop_effect.poi_visible : bool</c></item>
-///   <item><see cref="HalfgateMission.PopEffectTilesToPartial"/> --
-///         <c>pop_effect.tiles_to_partial : list[CellCoord]</c></item>
-///   <item><see cref="HalfgateMission.SuccessEffectRevealRule"/> --
+///   <item><see cref="HalfgateMission.PopEffectTilesToPartialLayer"/> —
+///         <c>pop_effect.tiles_to_partial_layer : dict[layer, list[CellCoord]]</c>
+///         (A4.7 REQUIRED field).</item>
+///   <item><see cref="HalfgateMission.SuccessEffectRevealRule"/> —
 ///         <c>success_effect.reveal_rule : enum</c></item>
-///   <item><see cref="HalfgateMission.RevealOnFailRule"/> --
+///   <item><see cref="HalfgateMission.RevealOnFailRule"/> —
 ///         <c>reveal_on_fail.rule : enum</c></item>
 /// </list>
 /// </summary>
@@ -63,8 +76,47 @@ public static class HalfgateMissionAuthoring
     public const string TutorialMissionId = "mission_tuto_halfgate";
 
     /// <summary>
+    /// The 4×4 = 16 cells of the Halfgate footprint at the E1 layer,
+    /// expressed in the E1 coordinate frame the projector consumes.
+    /// Anchored at (0, 0) so the top-down projection lands on the
+    /// E2 8×8 grid <see cref="AreaGridLogic.AllCells"/> = (0..7, 0..7).
+    ///
+    /// <para>
+    /// <b>Coord anchor choice.</b> A4.7.6 worked example uses
+    /// (10, 10)..(13, 13) as the canonical E1 Halfgate footprint
+    /// position. For the MVE single-area we anchor at (0, 0) instead
+    /// because the projector's formula is layer-local (R3 :
+    /// <c>child(x, y) = (2x + dx, 2y + dy)</c>) and the E2 8×8 grid
+    /// the renderer materialises uses (0..7, 0..7) too. Aligning the
+    /// E1 footprint to (0..3, 0..3) makes the projection land on the
+    /// rendered 8×8 cells directly — no offset translation needed at
+    /// the boundary. When E1 enters production rendering and the
+    /// Halfgate POI lives at its narratively-correct E1 cell, this
+    /// list moves to that anchor and the projector outputs project
+    /// against the corresponding E2 sub-block ; only the constants
+    /// here and the corresponding test expectations need updating.
+    /// </para>
+    /// </summary>
+    public static readonly IReadOnlyList<GridCoord> HalfgateE1Footprint = new[]
+    {
+        new GridCoord(0, 0), new GridCoord(1, 0), new GridCoord(2, 0), new GridCoord(3, 0),
+        new GridCoord(0, 1), new GridCoord(1, 1), new GridCoord(2, 1), new GridCoord(3, 1),
+        new GridCoord(0, 2), new GridCoord(1, 2), new GridCoord(2, 2), new GridCoord(3, 2),
+        new GridCoord(0, 3), new GridCoord(1, 3), new GridCoord(2, 3), new GridCoord(3, 3),
+    };
+
+    /// <summary>
     /// Single source of truth for the tutorial mission entry. Resolved
     /// once at boot by <c>E2AreaMap.OnEnter</c>.
+    ///
+    /// <para>
+    /// <b>A4.7 cells.</b> The <c>tiles_to_partial_layer[E1]</c> list
+    /// contains the 16 cells of the 4×4 E1 Halfgate footprint
+    /// (<see cref="HalfgateE1Footprint"/>). At pop time the
+    /// <see cref="TileRevealProjector"/> projects these into the 8×8
+    /// E2 grid (64 cells) automatically — no E2 cells are listed here
+    /// (forbidden per A4.7.8 anti-drift).
+    /// </para>
     /// </summary>
     public static HalfgateMission Tutorial { get; } = new(
         MissionId: TutorialMissionId,
@@ -75,18 +127,24 @@ public static class HalfgateMissionAuthoring
         // but unofficial.
         NarrativeHook: "Someone has been walking, deliberately, in the centre. The Cadastre would like a name.",
         PopEffectPoiVisible: true,
-        // Locked from AreaGridLogic.CentralPoiFootprint() : the 4 intramuros
-        // cells around the centre. These will transition fog -> partial
-        // when the mission pops at E2.1 boot.
-        PopEffectTilesToPartial: AreaGridLogic.CentralPoiFootprint(),
+        // A4.7 lock : tiles_to_partial_layer = {E1: <16 cells of the 4×4
+        // Halfgate footprint>}. The projection cascade fills E2 (64
+        // cells) automatically at write time. EXPLICIT E2 LISTING IS
+        // FORBIDDEN per A4.7.8 anti-drift.
+        PopEffectTilesToPartialLayer: new Dictionary<RevealLayer, IReadOnlyList<GridCoord>>
+        {
+            { RevealLayer.E1, HalfgateE1Footprint },
+        },
         // A4.2 enum : on success, the recruited NPC's known_tiles are
         // applied to the partial set. Not exercised at E2.1 (no Recruit
         // button until E2.2), but the schema field is filled per the
         // Varn-locked spec.
         SuccessEffectRevealRule: RevealRule.ByRecruitedNpc,
         // A4.2 MVE default : reveal_on_fail = keep_partial for all
-        // mission types (EC4).
+        // mission types (EC4). A4.7 EC10 extends this across layers :
+        // the cross-layer-projected E2 cells also stay partial on fail.
         RevealOnFailRule: RevealOnFail.KeepPartial);
+
 }
 
 /// <summary>
@@ -127,7 +185,8 @@ public enum RevealOnFail
 {
     /// <summary>
     /// Failure preserves the partial knowledge. The Company "still knows
-    /// the rumor existed" -- canonical MVE default per Varn EC4.
+    /// the rumor existed" — canonical MVE default per Varn EC4. A4.7
+    /// EC10 extension : cross-layer-projected cells also stay partial.
     /// </summary>
     KeepPartial = 0,
 
@@ -146,21 +205,26 @@ public enum RevealOnFail
 
 /// <summary>
 /// Pure-data record carrying one mission entry. Encoded against the
-/// A4.2 reveal grammar. Used by <see cref="HalfgateMissionAuthoring"/>
-/// for the hardcoded tutorial mission ; will be re-used as the DTO shape
-/// when E2.6 wires the ML mission generator.
+/// A4.2 reveal grammar as amended by A4.7. Used by
+/// <see cref="HalfgateMissionAuthoring"/> for the hardcoded tutorial
+/// mission ; will be re-used as the DTO shape when E2.6 wires the ML
+/// mission generator.
 /// </summary>
 /// <param name="MissionId">Stable mission identifier.</param>
 /// <param name="DisplayName">Player-facing title (Pratchett-tone,
 /// 1 line, ~30-50 char).</param>
 /// <param name="NarrativeHook">Single-line rumor hook (Pratchett-tone,
 /// ~60-140 char). Surfaced by the per-cell hover tooltip (EC6 path) for
-/// any partial cell included in <see cref="PopEffectTilesToPartial"/>.</param>
+/// any partial cell included in
+/// <see cref="PopEffectTilesToPartialLayer"/> (after R3 projection).</param>
 /// <param name="PopEffectPoiVisible">A4.2 :
 /// <c>pop_effect.poi_visible</c>.</param>
-/// <param name="PopEffectTilesToPartial">A4.2 :
-/// <c>pop_effect.tiles_to_partial</c>. Cells that transition fog ->
-/// partial when the mission pops.</param>
+/// <param name="PopEffectTilesToPartialLayer">A4.7 :
+/// <c>pop_effect.tiles_to_partial_layer : dict[layer, list[CellCoord]]</c>.
+/// REQUIRED under A4.7. Cells transition fog → partial when the mission
+/// pops ; auto-projection cascades to other layers via
+/// <see cref="TileRevealProjector"/>. Explicit cross-layer listing is
+/// forbidden (Varn-locked-spec violation per A4.7.8).</param>
 /// <param name="SuccessEffectRevealRule">A4.2 :
 /// <c>success_effect.reveal_rule</c>.</param>
 /// <param name="RevealOnFailRule">A4.2 : <c>reveal_on_fail.rule</c>.
@@ -170,6 +234,6 @@ public sealed record HalfgateMission(
     string DisplayName,
     string NarrativeHook,
     bool PopEffectPoiVisible,
-    IReadOnlyList<GridCoord> PopEffectTilesToPartial,
+    IReadOnlyDictionary<RevealLayer, IReadOnlyList<GridCoord>> PopEffectTilesToPartialLayer,
     RevealRule SuccessEffectRevealRule,
     RevealOnFail RevealOnFailRule);

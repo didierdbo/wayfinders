@@ -448,18 +448,19 @@ public partial class E2AreaMap : Control, IScreen
         _drillRequestedHandler = OnDrillRequested;
         _panComponent.DrillRequested += _drillRequestedHandler;
 
-        // -- E2.1a strict scope (2026-05-16, Didier lock).
-        // -- The iso 8x8 fog grid is the ONLY thing the player should see
-        // -- at E2.1a. Hide the two chrome CanvasLayers (DecorationLayer
-        // -- = banner + sub-banner + Compagnie panel + Contrats panel +
-        // -- bottom Journal panel + LayerIndicatorLabel ; ChromeLayer =
-        // -- "Quitter la cité" BackButton + BlockedIndicator) by setting
-        // -- their Visible to false. CanvasLayer.Visible propagates to
-        // -- every descendant, so we do not have to enumerate the inner
+        // -- E2.1a + E2.1b strict scope (2026-05-16, Didier lock).
+        // -- The iso 8x8 grid is the ONLY thing the player should see at
+        // -- E2.1a (all-fog) and E2.1b (all-partial via A4.7 projection).
+        // -- Hide the two chrome CanvasLayers (DecorationLayer = banner +
+        // -- sub-banner + Compagnie panel + Contrats panel + bottom
+        // -- Journal panel + LayerIndicatorLabel ; ChromeLayer = "Quitter
+        // -- la cité" BackButton + BlockedIndicator) by setting their
+        // -- Visible to false. CanvasLayer.Visible propagates to every
+        // -- descendant, so we do not have to enumerate the inner
         // -- Controls. Hide (not QueueFree) so flipping ScopeMode to
-        // -- "E2.1b" / "E2.1c" / "E2.2" dégèle the chrome progressively
-        // -- without re-binding any field reference -- _Ready already
-        // -- bound the labels and the back button to fields above.
+        // -- "E2.1c" / "E2.2" dégèle the chrome progressively without
+        // -- re-binding any field reference -- _Ready already bound the
+        // -- labels and the back button to fields above.
         // --
         // -- ESC ladder-up is NOT affected : SceneManager._UnhandledInput
         // -- maps ui_cancel to NavigateBack at the autoload layer (see
@@ -468,14 +469,14 @@ public partial class E2AreaMap : Control, IScreen
         // -- keyboard shortcut keeps working because the Control root
         // -- has mouse_filter = Ignore and no _Input handler on this
         // -- screen claims ui_cancel.
-        if (CurrentScopeMode == "E2.1a")
+        if (CurrentScopeMode == "E2.1a" || CurrentScopeMode == "E2.1b")
         {
             var decorationLayer = GetNode<CanvasLayer>("DecorationLayer");
             var chromeLayer = GetNode<CanvasLayer>("ChromeLayer");
             decorationLayer.Visible = false;
             chromeLayer.Visible = false;
             GD.Print(
-                "[E2AreaMap] E2.1a strict : hidden DecorationLayer + " +
+                $"[E2AreaMap] {CurrentScopeMode} strict : hidden DecorationLayer + " +
                 "ChromeLayer (banner, sub-banner, Compagnie panel, " +
                 "Contrats panel, Journal panel, LayerIndicator, " +
                 "BackButton, BlockedIndicator). ESC shortcut remains " +
@@ -613,10 +614,11 @@ public partial class E2AreaMap : Control, IScreen
         {
             BuildAreaGrid();
             // E2.1a strict scope (Didier lock 2026-05-16) : the tuto
-            // mission pop_effect (4 fog->partial flips + POI marker on)
-            // is dégelé in E2.1b. At E2.1a all 64 cells stay in Fog so
-            // the iso grid renders the E1 bitmap uniformly with nothing
-            // else on top.
+            // mission pop_effect is dégelé starting E2.1b. At E2.1a all
+            // 64 cells stay in Fog. At E2.1b the A4.7 R3 projection
+            // takes the 16 E1 footprint cells and writes the 64 E2
+            // cells fog -> partial -- TileRevealRenderController Tweens
+            // parchment_alpha 0 -> 0.55 over 300 ms per cell.
             if (ScopeMode != "E2.1a")
             {
                 ApplyTutorialMissionPopEffect();

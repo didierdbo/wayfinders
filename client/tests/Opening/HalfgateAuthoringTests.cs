@@ -10,7 +10,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// </summary>
 public sealed class HalfgateAuthoringTests
 {
-    // ----- Mission A4.2 schema -----
+    // ----- Mission A4.2 + A4.7 schema -----
 
     [Fact]
     public void Tutorial_mission_id_is_locked()
@@ -20,17 +20,58 @@ public sealed class HalfgateAuthoringTests
     }
 
     [Fact]
-    public void Tutorial_mission_uses_A4_pop_effect_grammar()
+    public void Tutorial_mission_uses_A4_7_pop_effect_layer_grammar()
     {
-        // A4.2 lock : pop_effect.poi_visible = true ; tiles_to_partial =
-        // the central footprint (4 cells). The A3.2 fields reveal_level
-        // / reveal_tile_count are SUPERSEDED and must not appear in this
+        // A4.7 lock : pop_effect.poi_visible = true ;
+        // tiles_to_partial_layer is the new REQUIRED field replacing
+        // the flat tiles_to_partial list. The A3.2 fields reveal_level /
+        // reveal_tile_count are SUPERSEDED and must not appear in this
         // record's shape -- the record type itself enforces that
         // (no such fields exist).
         var m = HalfgateMissionAuthoring.Tutorial;
         Assert.True(m.PopEffectPoiVisible);
-        Assert.Equal(4, m.PopEffectTilesToPartial.Count);
-        Assert.Equal(AreaGridLogic.CentralPoiFootprint(), m.PopEffectTilesToPartial);
+        Assert.NotNull(m.PopEffectTilesToPartialLayer);
+
+        // The tuto mission lists its cells at the E1 layer (the 4x4
+        // Halfgate footprint). Auto-projection cascades to E2 at write
+        // time per A4.7.1 Q1 (Varn lock 2026-05-16).
+        Assert.True(m.PopEffectTilesToPartialLayer.ContainsKey(RevealLayer.E1));
+        Assert.Equal(16, m.PopEffectTilesToPartialLayer[RevealLayer.E1].Count);
+        Assert.Equal(
+            HalfgateMissionAuthoring.HalfgateE1Footprint,
+            m.PopEffectTilesToPartialLayer[RevealLayer.E1]);
+    }
+
+    [Fact]
+    public void Tutorial_mission_does_not_list_cells_at_other_layers()
+    {
+        // A4.7.8 anti-drift : explicit cross-layer listing in a single
+        // mission's tiles_to_partial is a Varn-locked-spec violation.
+        // The tuto mission must list ONLY the E1 layer ; E2 (and any
+        // future E3) cells are produced by auto-projection.
+        var m = HalfgateMissionAuthoring.Tutorial;
+        Assert.Single(m.PopEffectTilesToPartialLayer);
+        Assert.False(m.PopEffectTilesToPartialLayer.ContainsKey(RevealLayer.E2));
+        Assert.False(m.PopEffectTilesToPartialLayer.ContainsKey(RevealLayer.E3));
+    }
+
+    [Fact]
+    public void Tutorial_mission_e1_footprint_is_a_4x4_block()
+    {
+        // A4.7.6 worked example : the Halfgate footprint at E1 is 4x4
+        // (= 16 cells). At pop time R3 projection produces 4x4 * 4 = 64
+        // E2 cells -- exactly the full E2 8x8 Halfgate grid.
+        var cells = HalfgateMissionAuthoring.HalfgateE1Footprint;
+        Assert.Equal(16, cells.Count);
+        Assert.Equal(16, cells.Distinct().Count());
+
+        // The block is 4 wide x 4 tall.
+        int minCol = cells.Min(c => c.Col);
+        int maxCol = cells.Max(c => c.Col);
+        int minRow = cells.Min(c => c.Row);
+        int maxRow = cells.Max(c => c.Row);
+        Assert.Equal(3, maxCol - minCol);
+        Assert.Equal(3, maxRow - minRow);
     }
 
     [Fact]
@@ -47,8 +88,9 @@ public sealed class HalfgateAuthoringTests
     public void Tutorial_mission_fail_rule_is_keep_partial()
     {
         // A4.2 EC4 lock : the MVE default for reveal_on_fail.rule is
-        // keep_partial for ALL mission types. Any drift here breaks the
-        // EC4 contract.
+        // keep_partial for ALL mission types. A4.7 EC10 extends this :
+        // the cross-layer-projected cells also stay partial. Any drift
+        // here breaks the EC4 / EC10 contract.
         Assert.Equal(RevealOnFail.KeepPartial,
             HalfgateMissionAuthoring.Tutorial.RevealOnFailRule);
     }

@@ -315,4 +315,18 @@
     <Compile Include="..\scripts\screens\HalfgateRumorHooks.cs" Link="src\HalfgateRumorHooks.cs" />
   </ItemGroup>
 
+  <!-- AMENDMENT A4.7 cross-layer reveal projection (Varn-lock 2026-05-16):
+       RevealLayer enum (E1/E2/E3 closed lookup), LayerRatioMatrix
+       (e1_to_e2=2, e2_to_e3=2 placeholder), TileRevealProjector (R3
+       top-down + ResolveParentCoord inverse formula). Godot-free pure-C#
+       seam ; xUnit pins the 2x2 block projection, the no-downgrade
+       clamp (EC1/EC2/EC10/EC11), and the locked integer ratios. Godot-
+       bound projection wiring at write time lives in E2AreaMap.Configure
+       and is validated via the E2.1b smoke checklist. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\RevealLayer.cs" Link="src\RevealLayer.cs" />
+    <Compile Include="..\scripts\screens\LayerRatioMatrix.cs" Link="src\LayerRatioMatrix.cs" />
+    <Compile Include="..\scripts\screens\TileRevealProjector.cs" Link="src\TileRevealProjector.cs" />
+  </ItemGroup>
+
 </Project>
