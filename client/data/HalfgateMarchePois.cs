@@ -6,7 +6,7 @@ namespace Wayfinders.Client.Data;
 /// Top-level Resource holding the list of <see cref="PoiDefinition"/>
 /// entries for the E5 District Map (Halfgate, quartier du marché).
 /// Authored as <c>res://data/halfgate_marche_pois.tres</c>, loaded once
-/// at <see cref="Wayfinders.Client.Scenes.Screens.E5DistrictMap"/>'s
+/// at <see cref="Wayfinders.Client.Scenes.Screens.E3DistrictMap"/>'s
 /// <c>_Ready</c>.
 ///
 /// <para>

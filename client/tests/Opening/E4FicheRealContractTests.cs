@@ -24,7 +24,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// renders centered, TabContainer switches between onglets) is covered
 /// by the Godot manual checklist (J5 closeout §4). The xUnit assembly
 /// cannot load Godot Resource subclasses (OpeningStrings, PoiDefinition)
-/// nor Control / Node descendants (E4CharacterSheet, E5DistrictMap),
+/// nor Control / Node descendants (E4CharacterSheet, E3DistrictMap),
 /// so the visual rendering is intentionally outside the test surface.
 /// Same boundary as J4's <see cref="E4ModalContractTests"/>.
 /// </para>

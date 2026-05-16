@@ -142,7 +142,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// screen.
 /// </para>
 /// </summary>
-public partial class E5DistrictMap : Control, IScreen
+public partial class E3DistrictMap : Control, IScreen
 {
     public string ScreenId => "E3_DISTRICT";
 
@@ -335,7 +335,7 @@ public partial class E5DistrictMap : Control, IScreen
         // / shows wrong values, giving an immediate visible diagnostic
         // before any user input.
         GD.Print(
-            $"[E5DistrictMap] ready, {_poiHandlers.Count} POI spawned, " +
+            $"[E3DistrictMap] ready, {_poiHandlers.Count} POI spawned, " +
             $"world image={_panComponent.WorldImageSize}, " +
             $"camera initialCenter={initialCenter}, " +
             $"climb wired={_climbRequestedHandler is not null}");
@@ -499,7 +499,7 @@ public partial class E5DistrictMap : Control, IScreen
         var poi = FindPoi(poiId);
         if (poi is null)
         {
-            GD.PushWarning($"[E5DistrictMap] POI clicked but no entry found: {poiId}");
+            GD.PushWarning($"[E3DistrictMap] POI clicked but no entry found: {poiId}");
             return;
         }
 
@@ -507,13 +507,13 @@ public partial class E5DistrictMap : Control, IScreen
         switch (result.Outcome)
         {
             case PoiDispatchOutcome.NavigateToScreen:
-                GD.Print($"[E5DistrictMap] POI clicked: {poiId} ({poi.Kind}) -> navigating to {result.TargetScreenId}");
+                GD.Print($"[E3DistrictMap] POI clicked: {poiId} ({poi.Kind}) -> navigating to {result.TargetScreenId}");
                 var sceneManagerNav = GetNode<SceneManager>("/root/SceneManager");
                 await sceneManagerNav.NavigateTo(result.TargetScreenId!);
                 break;
 
             case PoiDispatchOutcome.OpenModal:
-                GD.Print($"[E5DistrictMap] POI clicked: {poiId} ({poi.Kind}) -> opening modal {result.ModalId} for npc {result.NpcId}");
+                GD.Print($"[E3DistrictMap] POI clicked: {poiId} ({poi.Kind}) -> opening modal {result.ModalId} for npc {result.NpcId}");
                 var sceneManagerModal = GetNode<SceneManager>("/root/SceneManager");
                 var ctx = new ScreenContext
                 {
@@ -528,7 +528,7 @@ public partial class E5DistrictMap : Control, IScreen
                 break;
 
             case PoiDispatchOutcome.ShowBlockedIndicator:
-                GD.Print($"[E5DistrictMap] POI clicked: {poiId} ({poi.Kind}) -> blocked, {result.IndicatorTextKey}");
+                GD.Print($"[E3DistrictMap] POI clicked: {poiId} ({poi.Kind}) -> blocked, {result.IndicatorTextKey}");
                 ShowBlockedFlash(result.IndicatorTextKey);
                 break;
         }
@@ -629,7 +629,7 @@ public partial class E5DistrictMap : Control, IScreen
             && raw is Vector2 originCoord)
         {
             GD.Print(
-                $"[E5DistrictMap] OnEnter: OriginCoord = ({originCoord.X:F1}, {originCoord.Y:F1}) " +
+                $"[E3DistrictMap] OnEnter: OriginCoord = ({originCoord.X:F1}, {originCoord.Y:F1}) " +
                 "(logged for traceability ; not used for L3 camera focus this slice)");
         }
         return Task.CompletedTask;

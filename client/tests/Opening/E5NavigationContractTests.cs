@@ -6,7 +6,7 @@ namespace Wayfinders.Client.Tests.Opening;
 
 /// <summary>
 /// J5 contract tests for the E5 District Map promotion (D-J5-08 +
-/// D-J5-10 reuse). The Godot-side <c>E5DistrictMap</c> cannot be loaded
+/// D-J5-10 reuse). The Godot-side <c>E3DistrictMap</c> cannot be loaded
 /// from xUnit, so these tests assert on a fake harness mirroring the
 /// E3-shape integration:
 /// <list type="bullet">
@@ -69,7 +69,7 @@ public sealed class E5NavigationContractTests
     }
 
     /// <summary>
-    /// Reproduces the E5DistrictMap.OnPoiPressed dispatch shape without
+    /// Reproduces the E3DistrictMap.OnPoiPressed dispatch shape without
     /// the Godot context. Same code path as the Godot-side handler
     /// (and identical to the E3 fake) -- the dispatcher is the shared
     /// engine across both screens.
@@ -115,7 +115,7 @@ public sealed class E5NavigationContractTests
     {
         var nav = new FakeE5Navigator();
 
-        // E5DistrictMap.OnBackPressed body equivalent. SceneManager
+        // E3DistrictMap.OnBackPressed body equivalent. SceneManager
         // pops the navigation stack -- top was E5, new top is E3.
         await nav.NavigateBack();
 

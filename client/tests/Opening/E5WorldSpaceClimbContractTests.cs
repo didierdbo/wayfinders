@@ -6,7 +6,7 @@ namespace Wayfinders.Client.Tests.Opening;
 
 /// <summary>
 /// Contract tests for the E5 District Map world-space migration in
-/// Phase 9 slice 5 (2026-05-08). The Godot-side <c>E5DistrictMap</c>
+/// Phase 9 slice 5 (2026-05-08). The Godot-side <c>E3DistrictMap</c>
 /// cannot be loaded from xUnit (no engine), so these tests assert on a
 /// fake harness that mimics the slice 5 climb pipeline (
 /// <c>MapPan2DComponent.ClimbRequested</c> signal -&gt; screen handler
@@ -35,7 +35,7 @@ namespace Wayfinders.Client.Tests.Opening;
 /// public surface ; the E5 climb handler is reproduced inline (fake
 /// <c>OnClimbRequested</c>) so the signal-to-NavigateBack-to-lock-release
 /// wiring is testable hors-Godot. Same code path as the real
-/// <c>E5DistrictMap.OnClimbRequested</c> body.
+/// <c>E3DistrictMap.OnClimbRequested</c> body.
 /// </para>
 /// </summary>
 public sealed class E5WorldSpaceClimbContractTests
@@ -43,7 +43,7 @@ public sealed class E5WorldSpaceClimbContractTests
     /// <summary>
     /// Stable payload key used by E3 to thread the L2 cursor world
     /// position into E5's <see cref="ScreenContext.Payload"/>. Mirrors
-    /// the const on the Godot-side <c>E5DistrictMap.OriginCoordPayloadKey</c>
+    /// the const on the Godot-side <c>E3DistrictMap.OriginCoordPayloadKey</c>
     /// (and the equivalent inline string at E3's drill site) --
     /// duplicated here so the xUnit assembly does not need to compile-
     /// include the Godot screen file.
@@ -83,7 +83,7 @@ public sealed class E5WorldSpaceClimbContractTests
     }
 
     /// <summary>
-    /// Reproduces the body of <c>E5DistrictMap.OnClimbRequested</c>
+    /// Reproduces the body of <c>E3DistrictMap.OnClimbRequested</c>
     /// without the Godot context : await NavigateBack, release the
     /// transition lock in finally. Same shape as E3's slice-4 climb
     /// handler.

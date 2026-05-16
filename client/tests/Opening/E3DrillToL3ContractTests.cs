@@ -54,7 +54,7 @@ public sealed class E3DrillToL3ContractTests
     /// <summary>
     /// Stable payload key used by E3 to thread the L2 cursor position
     /// into E5's <see cref="ScreenContext.Payload"/>. Mirrors the const
-    /// on the Godot-side <c>E5DistrictMap.OriginCoordPayloadKey</c> --
+    /// on the Godot-side <c>E3DistrictMap.OriginCoordPayloadKey</c> --
     /// duplicated here so the xUnit assembly does not need to compile-include
     /// the Godot screen file. Same duplication ceremony as the
     /// <c>"E4.NpcId"</c> and <c>"E2.OriginCoord"</c> mirrors.

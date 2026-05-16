@@ -80,10 +80,10 @@ namespace Wayfinders.Client.Services;
 public partial class OpeningBootstrap : Node
 {
     private const string E1ScenePath = "res://scenes/screens/E1Title.tscn";
-    private const string E2ScenePath = "res://scenes/screens/E1WorldMap.tscn";
-    private const string E3ScenePath = "res://scenes/screens/E2AreaMap.tscn";
+    private const string WorldScenePath = "res://scenes/screens/E1WorldMap.tscn";
+    private const string AreaScenePath = "res://scenes/screens/E2AreaMap.tscn";
     private const string E4ScenePath = "res://scenes/screens/E4CharacterSheet.tscn";
-    private const string E5ScenePath = "res://scenes/screens/E5DistrictMap.tscn";
+    private const string DistrictScenePath = "res://scenes/screens/E3DistrictMap.tscn";
 
     // J2 -- the two stub modals reachable from E1.
     private const string OptionsModalScenePath = "res://scenes/modals/OptionsModal.tscn";
@@ -147,9 +147,9 @@ public partial class OpeningBootstrap : Node
         }
 
         sceneManager.RegisterScreen("E1_TITLE", GD.Load<PackedScene>(E1ScenePath));
-        sceneManager.RegisterScreen("E1_WORLD", GD.Load<PackedScene>(E2ScenePath));
-        sceneManager.RegisterScreen("E2_AREA", GD.Load<PackedScene>(E3ScenePath));
-        sceneManager.RegisterScreen("E3_DISTRICT", GD.Load<PackedScene>(E5ScenePath));
+        sceneManager.RegisterScreen("E1_WORLD", GD.Load<PackedScene>(WorldScenePath));
+        sceneManager.RegisterScreen("E2_AREA", GD.Load<PackedScene>(AreaScenePath));
+        sceneManager.RegisterScreen("E3_DISTRICT", GD.Load<PackedScene>(DistrictScenePath));
 
         sceneManager.RegisterModal("E4_CHARACTER_SHEET", GD.Load<PackedScene>(E4ScenePath));
         sceneManager.RegisterModal("OPTIONS_MODAL", GD.Load<PackedScene>(OptionsModalScenePath));

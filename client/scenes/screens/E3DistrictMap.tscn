@@ -1,6 +1,6 @@
 [gd_scene load_steps=5 format=3 uid="uid://ce5dstrct0001"]
 
-[ext_resource type="Script" path="res://scenes/screens/E5DistrictMap.cs" id="1_e5dst"]
+[ext_resource type="Script" path="res://scenes/screens/E3DistrictMap.cs" id="1_e5dst"]
 [ext_resource type="PackedScene" uid="uid://cwf_mappan2d0001" path="res://components/MapPan2DComponent.tscn" id="2_mappan"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panelE5"]
@@ -39,7 +39,7 @@ content_margin_top = 10.0
 content_margin_right = 18.0
 content_margin_bottom = 10.0
 
-[node name="E5DistrictMap" type="Control"]
+[node name="E3DistrictMap" type="Control"]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0

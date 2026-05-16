@@ -115,9 +115,9 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///         traceability ; not consumed visually.</item>
 ///   <item><b>E3 -&gt; E5</b> (slice 5) : payload key
 ///         <c>"E3.OriginCoord"</c>
-///         (<see cref="E5DistrictMap.OriginCoordPayloadKey"/>), value
+///         (<see cref="E3DistrictMap.OriginCoordPayloadKey"/>), value
 ///         <see cref="Vector2"/> = the L2 image-space cursor position
-///         at drill time. Logged in <see cref="E5DistrictMap.OnEnter"/>
+///         at drill time. Logged in <see cref="E3DistrictMap.OnEnter"/>
 ///         for traceability ; not consumed visually for the same
 ///         reason as the L1→L2 hop : the L2-image-position-to-L3-image-position
 ///         mapping is undefined for the MVP single-quartier.</item>
@@ -647,7 +647,7 @@ public partial class E2AreaMap : Control, IScreen
         {
             Payload = new Dictionary<string, object>
             {
-                [E5DistrictMap.OriginCoordPayloadKey] = cursorWorld,
+                [E3DistrictMap.OriginCoordPayloadKey] = cursorWorld,
             },
         };
 
