@@ -11,13 +11,13 @@ namespace Wayfinders.Client.Tests.Opening;
 /// <para>
 /// Surface covered:
 /// <list type="bullet">
-///   <item>Known NPC id (kira / dorn) -&gt; correct display name +
-///         portrait key composition.</item>
+///   <item>Known NPC id (kira / dorn / vell) -&gt; correct display name
+///         + portrait key composition.</item>
 ///   <item>Unknown / null / empty NPC id -&gt; default fallback name +
 ///         default portrait key (cohérence J3/J4 blocked wording).</item>
 ///   <item>Per-state portrait composition: stateful entry (Kira) gets
-///         the suffix appended ; stateless entry (Dorn) ignores the
-///         state argument.</item>
+///         the suffix appended ; stateless entries (Dorn, Vell) ignore
+///         the state argument.</item>
 ///   <item><see cref="NpcPortraitState.ToFrenchLowercase"/> mapping
 ///         for the Varn E4.N subtitle template substitution (J5 always
 ///         feeds <c>calme</c>).</item>
@@ -48,6 +48,20 @@ public sealed class NpcCatalogTests
         // Dorn has a single portrait in J5 (no per-state variants
         // shipped) -- stateless flag drives LookupPortraitKey to return
         // the bare base, no suffix.
+        Assert.False(entry.HasPerStatePortraits);
+    }
+
+    [Fact]
+    public void Resolve_known_npc_vell_is_stateless()
+    {
+        // Vell joins the M1 roster (Varn §A.8.D3, district affinity
+        // littoral). Stateless single portrait like Dorn -- Mira ships
+        // only e4.portrait.vell.calm base for M1, per-state variants
+        // deferred to post-MVP if narrative beats demand them.
+        var entry = NpcCatalog.Resolve("vell");
+
+        Assert.Equal("Vell", entry.DisplayName);
+        Assert.Equal("e4.portrait.vell", entry.PortraitKeyBase);
         Assert.False(entry.HasPerStatePortraits);
     }
 
@@ -126,6 +140,20 @@ public sealed class NpcCatalogTests
     }
 
     [Fact]
+    public void LookupPortraitKey_stateless_vell_ignores_state_argument()
+    {
+        // Same contract as Dorn -- stateless flag drives the catalog
+        // to return the bare base for every state argument. When Mira
+        // ships per-state Vell variants, flip HasPerStatePortraits and
+        // this test surfaces the change.
+        var keyCalm = NpcCatalog.LookupPortraitKey("vell", NpcPortraitState.Calm);
+        var keyWounded = NpcCatalog.LookupPortraitKey("vell", NpcPortraitState.Wounded);
+
+        Assert.Equal("e4.portrait.vell", keyCalm);
+        Assert.Equal("e4.portrait.vell", keyWounded);
+    }
+
+    [Fact]
     public void LookupPortraitKey_unknown_npc_returns_default_key_no_suffix()
     {
         // Unknown NPCs return the default key, not "<default>.alert".
@@ -139,6 +167,7 @@ public sealed class NpcCatalogTests
     {
         Assert.Equal("Kira", NpcCatalog.LookupDisplayName("kira"));
         Assert.Equal("Dorn", NpcCatalog.LookupDisplayName("dorn"));
+        Assert.Equal("Vell", NpcCatalog.LookupDisplayName("vell"));
         Assert.Equal(NpcCatalog.DefaultDisplayName, NpcCatalog.LookupDisplayName("inconnu"));
     }
 
@@ -156,9 +185,9 @@ public sealed class NpcCatalogTests
     [Fact]
     public void LookupFicheNumber_known_npc_kira_returns_001()
     {
-        // J5 NPC -> fiche cadastrale number map. Used by E4 modal title
-        // interpolation. Kira and Dorn pre-numbered ; future NPCs need
-        // an entry to escape the generic "000" stamp.
+        // M1 NPC -> fiche cadastrale number map. Used by E4 modal title
+        // interpolation. Kira / Dorn / Vell pre-numbered ; future NPCs
+        // need an entry to escape the generic "000" stamp.
         Assert.Equal("001", NpcCatalog.LookupFicheNumber("kira"));
     }
 
@@ -169,6 +198,14 @@ public sealed class NpcCatalogTests
         // the right NPC at a glance. The J4 stub hardcoded "001" for
         // every modal open.
         Assert.Equal("002", NpcCatalog.LookupFicheNumber("dorn"));
+    }
+
+    [Fact]
+    public void LookupFicheNumber_known_npc_vell_returns_003()
+    {
+        // Vell joins the roster at fiche n°003 (Varn §A.8.D3 M1 lock,
+        // district affinity littoral).
+        Assert.Equal("003", NpcCatalog.LookupFicheNumber("vell"));
     }
 
     [Fact]

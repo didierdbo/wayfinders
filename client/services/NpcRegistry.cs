@@ -44,7 +44,7 @@ namespace Wayfinders.Client.Services;
 /// lazily : <see cref="GetOrCreateState"/> returns the existing entry
 /// or materialises a fresh default-shaped one and caches it. <b>Never
 /// despawned</b> : entries persist for the whole session. Memory cost
-/// is bounded by <see cref="NpcCatalog.Count"/> (currently 2 ; M2
+/// is bounded by <see cref="NpcCatalog.Count"/> (currently 3 ; M2
 /// scales to ~30-50). M1 keeps everything in-memory only ; M2 step 3
 /// snapshots to disk via the save system.
 /// </para>

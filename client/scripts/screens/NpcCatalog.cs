@@ -29,9 +29,15 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// </para>
 ///
 /// <para>
-/// <b>J5 contents.</b> Two entries: <c>kira</c> (stateful 3-portrait,
-/// Mira §6 E4.2) + <c>dorn</c> (stateless single portrait). Plus the
-/// unknown-id fallback, returned as <see cref="NpcCatalogEntry.Default"/>.
+/// <b>M1 roster (Varn §A.8.D3, locked 2026-05-17).</b> Three entries:
+/// <c>kira</c> (stateful 3-portrait, Mira §6 E4.2, district affinity
+/// <c>gateway</c>) + <c>dorn</c> (stateless single portrait, district
+/// affinity <c>intramuros</c>) + <c>vell</c> (stateless single portrait,
+/// district affinity <c>littoral</c>). Plus the unknown-id fallback,
+/// returned as <see cref="NpcCatalogEntry.Default"/>. The asset for
+/// <c>e4.portrait.vell.calm</c> is owned by Mira and may not be present
+/// at the moment the entry lands here -- the AssetResolver falls back
+/// to the default parchment placeholder until the file ships.
 /// </para>
 /// </summary>
 public static class NpcCatalog
@@ -59,10 +65,14 @@ public static class NpcCatalog
             DisplayName: "Dorn",
             PortraitKeyBase: "e4.portrait.dorn",
             HasPerStatePortraits: false),
+        ["vell"] = new NpcCatalogEntry(
+            DisplayName: "Vell",
+            PortraitKeyBase: "e4.portrait.vell",
+            HasPerStatePortraits: false),
     };
 
     /// <summary>
-    /// J5 known NPC -> fiche cadastrale number map. Used by the
+    /// M1 known NPC -> fiche cadastrale number map. Used by the
     /// E4 modal title interpolation. Unknown NPCs fall back to "000"
     /// so missing registry entries are visible at a glance.
     /// </summary>
@@ -70,6 +80,7 @@ public static class NpcCatalog
     {
         ["kira"] = "001",
         ["dorn"] = "002",
+        ["vell"] = "003",
     };
 
     /// <summary>Number of registered NPCs (excludes the fallback).</summary>
@@ -94,8 +105,8 @@ public static class NpcCatalog
 
     /// <summary>
     /// Compose the AssetResolver key for the NPC's portrait in the
-    /// requested state. Stateless NPCs (Dorn, default) ignore the
-    /// state argument and return the bare key base. Stateful NPCs
+    /// requested state. Stateless NPCs (Dorn, Vell, default) ignore
+    /// the state argument and return the bare key base. Stateful NPCs
     /// (Kira) suffix the state lowercased.
     /// </summary>
     public static string LookupPortraitKey(string? npcId, NpcPortraitState state)

@@ -69,6 +69,18 @@ public sealed class E4FicheRealContractTests
     }
 
     [Fact]
+    public void Title_interpolation_building_blocks_for_vell()
+    {
+        // For Vell (Varn §A.8.D3 M1 roster, district affinity littoral):
+        // ficheNumber = "003", displayName = "Vell" ->
+        // title = "Fiche cadastrale n°003 — Sujet : Vell."
+        // Stateless single portrait (Mira ships e4.portrait.vell.calm
+        // base only ; per-state variants deferred).
+        Assert.Equal("003", NpcCatalog.LookupFicheNumber("vell"));
+        Assert.Equal("Vell", NpcCatalog.LookupDisplayName("vell"));
+    }
+
+    [Fact]
     public void Title_interpolation_building_blocks_for_unknown_npc()
     {
         // Unknown NPCs surface as "Inconnu" with the "000" stamp so
@@ -89,11 +101,12 @@ public sealed class E4FicheRealContractTests
     }
 
     [Fact]
-    public void NpcCatalog_count_is_two_in_J5()
+    public void NpcCatalog_count_is_three_in_M1()
     {
-        // Sanity: J5 ships exactly Kira + Dorn. When J6+ adds an entry,
-        // this test reminds the author to also extend the manual
-        // checklist + the dispatch tests.
-        Assert.Equal(2, NpcCatalog.Count);
+        // Sanity: M1 ships Kira + Dorn + Vell (Varn §A.8.D3 roster
+        // locked 2026-05-17). When M2+ adds an entry, this test reminds
+        // the author to also extend the manual checklist + the dispatch
+        // tests.
+        Assert.Equal(3, NpcCatalog.Count);
     }
 }

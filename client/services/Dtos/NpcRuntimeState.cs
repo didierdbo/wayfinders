@@ -42,7 +42,7 @@ namespace Wayfinders.Client.Services.Dtos;
 /// <see cref="Wayfinders.Client.Services.NpcRegistry.GetOrCreateState"/>
 /// — the first read/mutation of an NpcId materialises a default-shaped
 /// entry. <b>Never despawned</b> : entries persist for the session.
-/// Memory cost is bounded by <c>NpcCatalog.Count</c> (currently 2 ;
+/// Memory cost is bounded by <c>NpcCatalog.Count</c> (currently 3 ;
 /// M2 scales to ~30-50). M1 keeps everything in-memory only ; M2 step 3
 /// snapshots to disk via the save system.
 /// </para>
