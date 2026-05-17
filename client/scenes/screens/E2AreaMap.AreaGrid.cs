@@ -346,6 +346,32 @@ public partial class E2AreaMap
     private const int RecruitPanelCanvasLayerIndex = 110;
 
     /// <summary>
+    /// E2.2 step 5 (2026-05-17) -- the Compagnie panel (slide-in
+    /// gauche, mirror of the recruit panel). Lazy-instantiated on the
+    /// first mission row click and co-triggered with the recruit panel,
+    /// so the player sees both panels simultaneously (the recruit
+    /// panel on the right, the Compagnie on the left -- the étape 6
+    /// drag&amp;drop seam between them). Kept alive between clicks ;
+    /// freed in <see cref="TearDownAreaGrid"/> alongside the recruit
+    /// panel.
+    /// </summary>
+    private CompanyPanel? _companyPanel;
+
+    /// <summary>
+    /// E2.2 step 5 (2026-05-17) -- CanvasLayer hosting the Compagnie
+    /// panel. Index = 111 (one above the recruit panel's 110) so
+    /// the drop target (Compagnie) sits above the drag source (recruit)
+    /// when étape 6 lands the drag preview rendering.
+    /// </summary>
+    private CanvasLayer? _companyPanelCanvasLayer;
+
+    /// <summary>
+    /// E2.2 step 5 (2026-05-17) -- CanvasLayer index for the Compagnie
+    /// panel. Locked at 111 (recruit panel = 110, tooltip = 100).
+    /// </summary>
+    private const int CompanyPanelCanvasLayerIndex = 111;
+
+    /// <summary>
     /// Per-cell base-tile Sprite2D, keyed by grid coord. At E2.1a the
     /// ShaderMaterial slot is empty (no parchment overlay) ; from E2.1b
     /// onward each sprite carries its per-cell ShaderMaterial with the
@@ -938,6 +964,15 @@ public partial class E2AreaMap
         }
 
         EnsureRecruitPanel().ShowForMission(mission);
+
+        // E2.2 step 5 (2026-05-17) co-trigger : slide the Compagnie
+        // panel in from the LEFT in parallel. Both panels become
+        // visible simultaneously so the player sees the drag&drop seam
+        // (recruit -> compagnie) that étape 6 will activate. Closures
+        // are INDEPENDENT (X / ESC each close only one panel) ; ESC is
+        // routed to the focused panel via SetInputAsHandled in
+        // CompanyPanel._UnhandledInput.
+        EnsureCompanyPanel().SlideIn();
     }
 
     /// <summary>
@@ -964,6 +999,34 @@ public partial class E2AreaMap
         _recruitPanel = panelScene.Instantiate<MissionRecruitPanel>();
         _recruitPanelCanvasLayer.AddChild(_recruitPanel);
         return _recruitPanel;
+    }
+
+    /// <summary>
+    /// E2.2 step 5 (2026-05-17) -- lazy-instantiate the Compagnie panel
+    /// + its dedicated CanvasLayer (index 111, one above the recruit
+    /// panel's 110). Subsequent calls return the same instance.
+    /// The panel manages its own slide tween + ESC / X close paths
+    /// internally ; v1 hosts a static iso socle (étape 5) ; étape 6
+    /// wires the drag&amp;drop drop target.
+    /// </summary>
+    private CompanyPanel EnsureCompanyPanel()
+    {
+        if (_companyPanel is not null && IsInstanceValid(_companyPanel))
+        {
+            return _companyPanel;
+        }
+
+        _companyPanelCanvasLayer = new CanvasLayer
+        {
+            Name = "CompanyPanelCanvasLayer",
+            Layer = CompanyPanelCanvasLayerIndex,
+        };
+        AddChild(_companyPanelCanvasLayer);
+
+        var panelScene = GD.Load<PackedScene>("res://scenes/ui/CompanyPanel.tscn");
+        _companyPanel = panelScene.Instantiate<CompanyPanel>();
+        _companyPanelCanvasLayer.AddChild(_companyPanel);
+        return _companyPanel;
     }
 
     /// <summary>
@@ -1450,6 +1513,21 @@ public partial class E2AreaMap
             _recruitPanelCanvasLayer.QueueFree();
         }
         _recruitPanelCanvasLayer = null;
+
+        // E2.2 step 5 (2026-05-17) -- free the Compagnie panel + its
+        // CanvasLayer alongside the recruit panel so a subsequent
+        // Configure re-instantiates a fresh pair against the new
+        // area-grid context.
+        if (_companyPanel is not null && IsInstanceValid(_companyPanel))
+        {
+            _companyPanel.QueueFree();
+        }
+        _companyPanel = null;
+        if (_companyPanelCanvasLayer is not null && IsInstanceValid(_companyPanelCanvasLayer))
+        {
+            _companyPanelCanvasLayer.QueueFree();
+        }
+        _companyPanelCanvasLayer = null;
 
         _areaGridRevealController = null;
         _areaGridTileShader = null;
