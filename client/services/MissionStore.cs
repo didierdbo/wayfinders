@@ -504,6 +504,31 @@ public partial class MissionStore : Node
     public IReadOnlyList<EmergentMissionDto> GetMissionsForLayer(string layerPrefix)
         => MissionStoreLogic.GetMissionsForLayer(_activeMissions, layerPrefix);
 
+    /// <summary>
+    /// Resolve a single mission by its
+    /// <see cref="EmergentMissionDto.Id"/>. Returns <c>null</c> when no
+    /// active mission carries that id (poll race, mission already
+    /// resolved server-side, drift). Used by the E2.2 recruit panel
+    /// slide-in (step 3+4, 2026-05-17) to fetch the live DTO from a
+    /// tooltip row click without re-projecting the whole cache.
+    ///
+    /// <para>
+    /// <b>Main-thread only.</b> Same discipline as the rest of this
+    /// autoload's read surface : the cache is mutated on the main
+    /// thread via <c>CallDeferred</c>, so a main-thread read sees a
+    /// consistent snapshot.
+    /// </para>
+    /// </summary>
+    public EmergentMissionDto? GetById(string? missionId)
+    {
+        if (string.IsNullOrEmpty(missionId)) return null;
+        for (var i = 0; i < _activeMissions.Count; i++)
+        {
+            if (_activeMissions[i].Id == missionId) return _activeMissions[i];
+        }
+        return null;
+    }
+
     private static string FailureMessageOf(ApiError err) => err switch
     {
         ApiError.NotReachable nr => nr.Reason,

@@ -368,4 +368,18 @@
     <Compile Include="..\services\Dtos\NpcRuntimeState.cs" Link="src\NpcRuntimeState.cs" />
   </ItemGroup>
 
+  <!-- E2.2 step 3+4 (2026-05-17): recruit panel slide-in.
+       IsoCharacterPaletteLogic = per-NPC unit tint table consumed by the
+       IsoCharacterPlaceholder Control's procedural _Draw.
+       MissionRecruitPanelLogic = projection of EmergentMissionDto to the
+       structured panel payload (header / district / hook / npcId) + the
+       Accept vs Decline action routing pin against the §A.8.D5 endpoint
+       suffixes. The Godot-bound MissionRecruitPanel + IsoCharacterPlaceholder
+       Controls live in the client csproj only ; xUnit pins the contract
+       here, integration validated via the F6 smoke. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\IsoCharacterPaletteLogic.cs" Link="src\IsoCharacterPaletteLogic.cs" />
+    <Compile Include="..\scripts\screens\MissionRecruitPanelLogic.cs" Link="src\MissionRecruitPanelLogic.cs" />
+  </ItemGroup>
+
 </Project>

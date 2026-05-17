@@ -4,6 +4,7 @@ using System.Linq;
 using Godot;
 using Wayfinders.Client.Scripts.Screens;
 using Wayfinders.Client.Services;
+using Wayfinders.Client.Scenes.Ui;
 
 namespace Wayfinders.Client.Scenes.Screens;
 
@@ -316,6 +317,33 @@ public partial class E2AreaMap
     /// populated from E2.2 step 1 (2026-05-17) onward.
     /// </summary>
     private readonly Dictionary<string, (Action mouseEntered, Action mouseExited)> _e2MarkerHandlers = new();
+
+    /// <summary>
+    /// E2.2 step 3+4 (2026-05-17) -- the recruit mission panel
+    /// (slide-in droite). Lazy-instantiated on the first mission row
+    /// click ; kept alive between clicks so re-opening is a content
+    /// swap instead of a fresh instance. Hosted inside
+    /// <see cref="_recruitPanelCanvasLayer"/> at layer = 110 so the
+    /// panel sits above every screen chrome layer AND above the
+    /// HoverTooltipController canvas layer (= 100). Freed in
+    /// <see cref="TearDownAreaGrid"/> alongside the rest of the
+    /// area-grid tree.
+    /// </summary>
+    private MissionRecruitPanel? _recruitPanel;
+
+    /// <summary>
+    /// E2.2 step 3+4 (2026-05-17) -- CanvasLayer hosting the recruit
+    /// panel. Layer = 110 so the panel renders above the mission
+    /// tooltip (layer = 100). Lazy-instantiated alongside the panel.
+    /// </summary>
+    private CanvasLayer? _recruitPanelCanvasLayer;
+
+    /// <summary>
+    /// E2.2 step 3+4 (2026-05-17) -- CanvasLayer index for the
+    /// recruit panel. Locked above the HoverTooltipController's
+    /// layer = 100 so the panel sits above any open mission tooltip.
+    /// </summary>
+    private const int RecruitPanelCanvasLayerIndex = 110;
 
     /// <summary>
     /// Per-cell base-tile Sprite2D, keyed by grid coord. At E2.1a the
@@ -889,9 +917,53 @@ public partial class E2AreaMap
     /// </summary>
     private void OnMissionRowClicked(string missionId)
     {
-        GD.Print(
-            $"[E2AreaMap] OnMissionRowClicked : missionId='{missionId}' " +
-            $"(step 2 scaffold -- no panel yet, slide-in lands at step 3).");
+        // E2.2 step 3+4 (2026-05-17) -- swap the step 2 log for the
+        // recruit panel slide-in. Resolve the live mission DTO from
+        // MissionStore (the authoritative client-side cache, polled
+        // every WorldSimTick.TickAdvanced) ; if the lookup fails the
+        // mission was cleared between tooltip-build and click (race
+        // with another action or with a poll). Log + bail rather than
+        // open a panel with no mission.
+        var missionStore = GetNodeOrNull<MissionStore>("/root/MissionStore");
+        if (missionStore is null)
+        {
+            GD.PushWarning($"[E2AreaMap] OnMissionRowClicked id='{missionId}' : MissionStore autoload missing");
+            return;
+        }
+        var mission = missionStore.GetById(missionId);
+        if (mission is null)
+        {
+            GD.Print($"[E2AreaMap] OnMissionRowClicked id='{missionId}' : mission not in store (race ?) -- no-op");
+            return;
+        }
+
+        EnsureRecruitPanel().ShowForMission(mission);
+    }
+
+    /// <summary>
+    /// E2.2 step 3+4 -- lazy-instantiate the recruit panel + its
+    /// dedicated CanvasLayer. Subsequent calls return the same
+    /// instance. The panel manages its own slide tween + button
+    /// wiring + accept/decline endpoints internally.
+    /// </summary>
+    private MissionRecruitPanel EnsureRecruitPanel()
+    {
+        if (_recruitPanel is not null && IsInstanceValid(_recruitPanel))
+        {
+            return _recruitPanel;
+        }
+
+        _recruitPanelCanvasLayer = new CanvasLayer
+        {
+            Name = "RecruitPanelCanvasLayer",
+            Layer = RecruitPanelCanvasLayerIndex,
+        };
+        AddChild(_recruitPanelCanvasLayer);
+
+        var panelScene = GD.Load<PackedScene>("res://scenes/ui/MissionRecruitPanel.tscn");
+        _recruitPanel = panelScene.Instantiate<MissionRecruitPanel>();
+        _recruitPanelCanvasLayer.AddChild(_recruitPanel);
+        return _recruitPanel;
     }
 
     /// <summary>
@@ -1363,6 +1435,21 @@ public partial class E2AreaMap
             }
         }
         _missionStoreChangedHandler = null;
+
+        // E2.2 step 3+4 (2026-05-17) -- free the recruit panel + its
+        // CanvasLayer so a pending accept/decline POST observes its
+        // shutdown CTS firing, and a subsequent Configure re-instantiates
+        // a fresh panel against the new area-grid context.
+        if (_recruitPanel is not null && IsInstanceValid(_recruitPanel))
+        {
+            _recruitPanel.QueueFree();
+        }
+        _recruitPanel = null;
+        if (_recruitPanelCanvasLayer is not null && IsInstanceValid(_recruitPanelCanvasLayer))
+        {
+            _recruitPanelCanvasLayer.QueueFree();
+        }
+        _recruitPanelCanvasLayer = null;
 
         _areaGridRevealController = null;
         _areaGridTileShader = null;
