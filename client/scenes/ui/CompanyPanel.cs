@@ -33,8 +33,11 @@ namespace Wayfinders.Client.Scenes.Ui;
 /// <list type="bullet">
 ///   <item>The central socle is configured as
 ///         <see cref="IsoSocketPlaceholder.DropTargetRole.CompanyHost"/>
-///         so it accepts the forward drop from the recruit panel +
-///         hosts the reverse drag back.</item>
+///         so it accepts the reverse drag back to the recruit panel.
+///         The FORWARD drop is hosted by the sibling
+///         <see cref="SocleDropZone"/> Control whose rect extends
+///         ~232 px above the socle (= the ghost-base-hit-test routing
+///         fix, Didier UX bug 2 résiduel, 2026-05-17 soir).</item>
 ///   <item>The panel forwards the socle's
 ///         <see cref="IsoSocketPlaceholder.OccupancyChangedEventHandler"/>
 ///         to its own <see cref="OccupancyChangedEventHandler"/>
@@ -78,12 +81,25 @@ public partial class CompanyPanel : Control
     private const float OpenTweenSeconds = 0.30f;
     private const float CloseTweenSeconds = 0.20f;
 
+    /// <summary>Socle visual rect, px. Locked at 280 x 240 -- the
+    /// rhombus' visible width + a tall enough band for the occupant
+    /// silhouette + name label.</summary>
+    private const float SocleWidthPx = 280f;
+    private const float SocleHeightPx = 240f;
+
+    /// <summary>The M1 roster fed to the drop zone for the npc-id gate.
+    /// Same set as IsoSocketPlaceholder.RosterM1 -- staying in lock-step
+    /// is a runtime invariant the recruit-cascade tests already pin.</summary>
+    private static readonly System.Collections.Generic.HashSet<string> RosterM1 =
+        new() { "kira", "dorn", "vell" };
+
     private static readonly Color ParchmentBg = new(0.91f, 0.85f, 0.72f, 0.97f);
     private static readonly Color ParchmentBorder = new(0.18f, 0.14f, 0.11f, 1f);
 
     private PanelContainer? _panelContainer;
     private Label? _headerLabel;
     private IsoSocketPlaceholder? _socle;
+    private SocleDropZone? _socleDropZone;
     private Button? _closeButton;
     private Tween? _slideTween;
 
@@ -225,6 +241,11 @@ public partial class CompanyPanel : Control
     /// company-panel-owned socle on the reverse path).</summary>
     public IsoSocketPlaceholder? Socle => _socle;
 
+    /// <summary>Expose the drop zone so a future debug CLI flag (or
+    /// smoke harness) can toggle its <see cref="SocleDropZone.DebugVisible"/>
+    /// without recompile.</summary>
+    public SocleDropZone? DropZone => _socleDropZone;
+
     // -------------------------------------------------------------------
     // Internal -- scene tree build
     // -------------------------------------------------------------------
@@ -297,6 +318,28 @@ public partial class CompanyPanel : Control
         _closeButton.Pressed += OnClosePressed;
         headerRow.AddChild(_closeButton);
 
+        // Compute the drop-zone geometry from the pure-C# helper so a
+        // future tweak (extra margin, iso body height drift) fans out
+        // from a single anchor. The above-band catches every cursor
+        // position the ghost-base arithmetic might want to test : a
+        // click at the very TOP of a silhouette puts the ghost base
+        // ~232 px below the cursor ; the drop zone must extend at least
+        // that far above the socle rhombus for the forward drop to
+        // route through _CanDropData. See SocleDropZoneGeometryLogic
+        // for the why + xUnit pins.
+        var aboveBandPx = SocleDropZoneGeometryLogic.ComputeAboveSocleBandPx(
+            IsoSocketCharacterPlacementLogic.OccupantPaddingPx,
+            IsoSocketCharacterPlacementLogic.CompactIsoBodyHeight,
+            SocleDropZoneGeometryLogic.DefaultExtraMarginYpx);
+        var (zoneW, zoneH) = SocleDropZoneGeometryLogic.ComputeDropZoneSize(
+            SocleWidthPx, SocleHeightPx,
+            aboveBandPx,
+            SocleDropZoneGeometryLogic.DefaultExtraMarginXpx);
+
+        // CenterContainer centres the drop zone horizontally in the
+        // panel content rect. The drop zone itself is the non-container
+        // Control that hosts the socle as a child + owns the forward
+        // _CanDropData / _DropData hooks.
         var socleWrapper = new CenterContainer
         {
             Name = "SocleWrapper",
@@ -305,21 +348,39 @@ public partial class CompanyPanel : Control
         };
         rootVbox.AddChild(socleWrapper);
 
+        _socleDropZone = new SocleDropZone
+        {
+            Name = "SocleDropZone",
+        };
+        _socleDropZone.CustomMinimumSize = new Vector2(zoneW, zoneH);
+        socleWrapper.AddChild(_socleDropZone);
+
         _socle = new IsoSocketPlaceholder
         {
             Name = "IsoSocket",
         };
-        // Slightly larger landing surface than the cmin default + a
-        // tall enough vertical band to host the occupant silhouette
-        // + the name label below.
-        _socle.CustomMinimumSize = new Vector2(280, 240);
+        _socle.CustomMinimumSize = new Vector2(SocleWidthPx, SocleHeightPx);
+        _socle.Size = new Vector2(SocleWidthPx, SocleHeightPx);
+        // Socle sits at the BOTTOM of the drop zone : (extraMarginX,
+        // aboveBandPx). The above-band sits on top, catching the
+        // top-click drag case.
+        _socle.Position = new Vector2(SocleDropZoneGeometryLogic.DefaultExtraMarginXpx, aboveBandPx);
         // Étape 6 : flip the socle from decorative to drop target +
-        // reverse drag source. MouseFilter is reconciled inside.
+        // reverse drag source. MouseFilter is reconciled inside (follows
+        // occupancy : Ignore when empty so the drop zone wins the forward
+        // route, Stop when occupied so the socle wins the reverse-drag
+        // route). See SocleMouseFilterLogic for the truth table.
         _socle.SetDropTargetRole(IsoSocketPlaceholder.DropTargetRole.CompanyHost);
         // Re-emit the socle's occupancy changes at the panel level so
         // the owner (E2AreaMap) subscribes once at one layer up.
         _socle.OccupancyChanged += OnSocleOccupancyChanged;
-        socleWrapper.AddChild(_socle);
+        _socleDropZone.AddChild(_socle);
+
+        // Wire the drop zone to the socle now that both are in the tree.
+        _socleDropZone.Configure(
+            _socle,
+            socleOffsetYInZone: aboveBandPx,
+            knownNpcIds: RosterM1);
     }
 
     // -------------------------------------------------------------------

@@ -13,11 +13,12 @@ namespace Wayfinders.Client.Scenes.Ui;
 /// <para>
 /// <b>What this is.</b> A single parchment-cream rhombus with an umber
 /// outline, drawn procedurally by <see cref="_Draw"/> using vertices
-/// from <see cref="IsoSocketGeometryLogic"/>. At étape 6 it also acts
-/// as a drag-drop target (forward path : drop the recruit panel's
-/// character onto here) AND as a drag source (reverse path : drag the
-/// occupant back to the recruit panel), with a terracotta rim glow
-/// affordance pulsing while any drag is in progress on the viewport.
+/// from <see cref="IsoSocketGeometryLogic"/>. At étape 6 it ALSO acts
+/// as a drag SOURCE for the reverse path (player clic-drag the occupant
+/// back to the recruit panel) and renders the rim glow affordance while
+/// any drag is in progress on the viewport. The forward DROP path is
+/// owned by the sibling <see cref="SocleDropZone"/> -- not this Control.
+/// See "Drop discipline" below for the why.
 /// </para>
 ///
 /// <para>
@@ -46,21 +47,42 @@ namespace Wayfinders.Client.Scenes.Ui;
 /// </para>
 ///
 /// <para>
-/// <b>Drop discipline (memo feedback_godot_rendering_input_traps trap
-/// "MouseFilter on drop target").</b> When configured as a drop target
-/// via <see cref="SetDropTargetRole"/>, MouseFilter flips from Ignore
-/// to Stop -- Godot will NOT route _CanDropData / _DropData to a
-/// Control whose mouse filter blocks events. The setter is called
-/// once by the owning CompanyPanel.
+/// <b>Drop discipline (Didier UX bug 2 résiduel, 2026-05-17 soir).</b>
+/// The forward <c>_CanDropData</c> / <c>_DropData</c> hooks USED TO live
+/// here, but were silently never called when the player clicked the top
+/// of a perso silhouette (the cursor stayed glued ~232 px above the
+/// socle's rect for the whole drag ; Godot only routes drop hooks to
+/// the Control whose rect contains the cursor). Option 1 of the fix
+/// (chosen 2026-05-17 PM, see <see cref="SocleDropZone"/> doc) MOVED
+/// those hooks onto the sibling <see cref="SocleDropZone"/> Control
+/// whose rect extends far enough above to catch every cursor position
+/// the ghost-base arithmetic might want to test. The actual hit-test
+/// logic in <see cref="IsoDropHitTestLogic"/> is unchanged ; only the
+/// routing site moved.
+/// </para>
+///
+/// <para>
+/// <b>MouseFilter follows occupancy (companion of the option-1 fix).</b>
+/// To let the drop zone win the FORWARD route while still letting the
+/// socle win the REVERSE-drag route, the socle's MouseFilter is dynamic :
+/// <list type="bullet">
+///   <item>Empty + CompanyHost -> Ignore (forward click passes through to drop zone).</item>
+///   <item>Occupied + CompanyHost -> Stop (reverse-drag click stops at the socle).</item>
+///   <item>Decorative -> Ignore (legacy decorative behaviour).</item>
+/// </list>
+/// Pure-C# truth table in <see cref="SocleMouseFilterLogic"/>, pinned
+/// by xUnit so a regression to "Stop unconditionally" (= re-introduce
+/// bug 2) or "Ignore unconditionally" (= kill reverse drag) surfaces red.
 /// </para>
 ///
 /// <para>
 /// <b>Ghost-base hit-test (Didier UX bug 2, 2026-05-17 PM).</b> The
-/// drop accept gate uses the GHOST BASE Y (= cursor.Y + pickup_offset_y
-/// from the drag payload), not the cursor Y alone. Combined with the
-/// sticky-to-click drag preview, the player drops by aligning the
-/// ghost's "pieds" with the socle, not by chasing the cursor down to
-/// the rhombus. See <see cref="IsoDropHitTestLogic"/>.
+/// drop accept gate (now in <see cref="SocleDropZone._CanDropData"/>)
+/// uses the GHOST BASE Y (= cursor.Y + pickup_offset_y from the drag
+/// payload), not the cursor Y alone. Combined with the sticky-to-click
+/// drag preview, the player drops by aligning the ghost's "pieds" with
+/// the socle, not by chasing the cursor down to the rhombus. See
+/// <see cref="IsoDropHitTestLogic"/>.
 /// </para>
 ///
 /// <para>
@@ -151,9 +173,9 @@ public partial class IsoSocketPlaceholder : Control
     public override void _Ready()
     {
         CustomMinimumSize = DefaultMinSize;
-        // Default = decorative ; SetDropTargetRole flips to Stop when
-        // the owning panel configures the socle as a drop target.
-        MouseFilter = ResolveMouseFilter();
+        // Default = decorative ; SetDropTargetRole flips role, occupancy
+        // setters keep MouseFilter in sync via ReconcileMouseFilter.
+        ReconcileMouseFilter();
         // Need _Process for the rim glow pulse animation.
         SetProcess(true);
     }
@@ -166,7 +188,7 @@ public partial class IsoSocketPlaceholder : Control
     public void SetDropTargetRole(DropTargetRole role)
     {
         _role = role;
-        MouseFilter = ResolveMouseFilter();
+        ReconcileMouseFilter();
     }
 
     /// <summary>
@@ -198,6 +220,10 @@ public partial class IsoSocketPlaceholder : Control
         if (string.IsNullOrEmpty(npcId)) _confirmedOccupancy = false;
 
         RebuildOccupantChildren();
+        // MouseFilter follows occupancy : empty -> Ignore (drop zone
+        // wins forward route) ; occupied -> Stop (socle wins reverse
+        // route). See SocleMouseFilterLogic.
+        ReconcileMouseFilter();
         EmitSignal(SignalName.OccupancyChanged, npcId ?? string.Empty);
         QueueRedraw();
     }
@@ -280,51 +306,6 @@ public partial class IsoSocketPlaceholder : Control
 
         EmitSignal(SignalName.ReverseDragStarted, _occupiedNpcId);
         return payload;
-    }
-
-    /// <summary>
-    /// Godot drop-target hook -- accept the forward drop from the
-    /// recruit panel's IsoCharacterPlaceholder. Forwards the payload
-    /// shape to <see cref="IsoSocketDropLogic.CanAccept"/>, then gates
-    /// on the GHOST BASE Y (cursor + pickup_offset_y from the payload)
-    /// falling within the socle's vertical bounds (plus tolerance).
-    /// The base-Y gate is what makes "drop where the ghost lands"
-    /// feel right -- the cursor can sit anywhere on the socle rect,
-    /// the accept follows the silhouette's pieds.
-    /// </summary>
-    public override bool _CanDropData(Vector2 atPosition, Variant data)
-    {
-        if (_role != DropTargetRole.CompanyHost) return false;
-        // Once confirmed, the socle is locked -- no further drops.
-        if (_confirmedOccupancy) return false;
-        var payload = TryReadDragPayload(data);
-        var decision = IsoSocketDropLogic.CanAccept(payload, RosterM1);
-        if (decision != IsoSocketDropLogic.DropDecision.Accept) return false;
-        // Ghost-base hit-test : effectiveBaseY must fall within the
-        // socle Control's vertical bounds (plus tolerance) so a click
-        // far above the rhombus still accepts iff the ghost's pieds
-        // visibly land on the socle. Pinned by
-        // IsoDropHitTestLogicTests.IsBaseWithinSocketHeight_*.
-        var effectiveBaseY = IsoDropHitTestLogic.ComputeEffectiveBaseY(
-            atPosition.Y, payload!.PickupOffsetY);
-        return IsoDropHitTestLogic.IsBaseWithinSocketHeight(
-            effectiveBaseY, Size.Y, IsoDropHitTestLogic.DefaultBaseToleranceYpx);
-    }
-
-    /// <summary>
-    /// Godot drop-target hook -- consume the forward drop, set the
-    /// occupant, emit <see cref="OccupancyChangedEventHandler"/>. The
-    /// occupant's resting position is rhombus-driven (computed by
-    /// <see cref="IsoSocketCharacterPlacementLogic.ComputeOccupantPosition"/>),
-    /// NOT cursor-driven : once the drop accepts, the perso snaps to
-    /// the rhombus centre regardless of the exact drop point.
-    /// </summary>
-    public override void _DropData(Vector2 atPosition, Variant data)
-    {
-        _ = atPosition;
-        var payload = TryReadDragPayload(data);
-        if (payload is null) return;
-        SetOccupiedNpc(payload.NpcId);
     }
 
     public override void _Draw()
@@ -460,35 +441,19 @@ public partial class IsoSocketPlaceholder : Control
         _occupantNameLabel = null;
     }
 
-    private MouseFilterEnum ResolveMouseFilter()
-        => _role == DropTargetRole.Decorative
-            ? MouseFilterEnum.Ignore
-            : MouseFilterEnum.Stop;
-
-    private static readonly System.Collections.Generic.HashSet<string> RosterM1 =
-        new() { "kira", "dorn", "vell" };
-
-    private static DragPayload? TryReadDragPayload(Variant data)
+    /// <summary>Recompute MouseFilter from current role + occupancy via
+    /// the pure-C# truth table in <see cref="SocleMouseFilterLogic"/>.
+    /// Called whenever role or occupancy changes.</summary>
+    private void ReconcileMouseFilter()
     {
-        if (data.VariantType != Variant.Type.Dictionary) return null;
-        var dict = data.AsGodotDictionary();
-        string? npcId = null, missionId = null, source = null;
-        float pickupOffsetY = 0f;
-        if (dict.TryGetValue(IsoSocketDropLogic.PayloadKeyNpcId, out var nv))
-            npcId = nv.AsString();
-        if (dict.TryGetValue(IsoSocketDropLogic.PayloadKeyMissionId, out var mv))
-            missionId = mv.AsString();
-        if (dict.TryGetValue(IsoSocketDropLogic.PayloadKeySource, out var sv))
-            source = sv.AsString();
-        if (dict.TryGetValue(IsoSocketDropLogic.PayloadKeyPickupOffsetY, out var pv))
-            pickupOffsetY = (float)pv.AsDouble();
-        return new DragPayload(
-            NpcId: npcId ?? string.Empty,
-            MissionId: missionId ?? string.Empty,
-            Source: source ?? string.Empty)
-        {
-            PickupOffsetY = pickupOffsetY,
-        };
+        var logicalRole = _role == DropTargetRole.CompanyHost
+            ? SocleMouseFilterLogic.Role.CompanyHost
+            : SocleMouseFilterLogic.Role.Decorative;
+        var resolved = SocleMouseFilterLogic.Resolve(
+            logicalRole, occupied: !string.IsNullOrEmpty(_occupiedNpcId));
+        MouseFilter = resolved == SocleMouseFilterLogic.Filter.Stop
+            ? MouseFilterEnum.Stop
+            : MouseFilterEnum.Ignore;
     }
 
     private static Vector2[] ClosePolyline(Vector2[] polygon)
@@ -507,10 +472,13 @@ public partial class IsoSocketPlaceholder : Control
         /// (default ; legacy behaviour, decorative only).</summary>
         Decorative = 0,
 
-        /// <summary>Acts as the company panel's drop target (forward
-        /// path) AND drag source for the reverse path. MouseFilter
-        /// = Stop. _GetDragData fires on drag start when occupied ;
-        /// _CanDropData / _DropData accept the recruit_panel source.</summary>
+        /// <summary>Acts as the company panel's drag SOURCE for the
+        /// reverse path (forward drop now lives on the sibling
+        /// <see cref="SocleDropZone"/>, see option-1 fix doc). MouseFilter
+        /// follows occupancy via <see cref="SocleMouseFilterLogic"/> :
+        /// Ignore when empty (drop zone wins forward route), Stop when
+        /// occupied (socle wins reverse-drag route). <c>_GetDragData</c>
+        /// fires on drag start when occupied + unconfirmed.</summary>
         CompanyHost = 1,
     }
 }

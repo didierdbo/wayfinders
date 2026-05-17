@@ -433,4 +433,21 @@
     <Compile Include="..\scripts\screens\IsoDropHitTestLogic.cs" Link="src\IsoDropHitTestLogic.cs" />
   </ItemGroup>
 
+  <!-- E2.2 etape 6 UX fix bug 2 residuel (2026-05-17 soir): drop hit-test
+       routing fix. The forward _CanDropData used to live on
+       IsoSocketPlaceholder, but Godot only routes drop hooks to the
+       Control whose rect contains the cursor. With sticky-to-click,
+       a top-click drag keeps the cursor ~232 px above the socle for
+       the whole drag, so _CanDropData was never called and the drop
+       silently refused. Option 1 of 4 (chosen 2026-05-17 PM): move
+       _CanDropData / _DropData onto a sibling SocleDropZone Control
+       whose rect extends ~248 px above the socle (= the SocleDropZone
+       Godot-bound class lives in client csproj only). The two pure-C#
+       helpers cherry-picked here drive the drop zones geometry +
+       MouseFilter truth table ; xUnit pins both. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\SocleDropZoneGeometryLogic.cs" Link="src\SocleDropZoneGeometryLogic.cs" />
+    <Compile Include="..\scripts\screens\SocleMouseFilterLogic.cs" Link="src\SocleMouseFilterLogic.cs" />
+  </ItemGroup>
+
 </Project>
