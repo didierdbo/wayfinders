@@ -1088,15 +1088,25 @@ public partial class M1Slice : Node2D
             mission, personaId, tickStarted: _currentTick);
         _gameState.ActiveMissions.Add(active);
 
-        // §A.8.D5 cascade — pop from MissionStore (the projection
+        // §A.8.D5 cascade R4 — pop from MissionStore (the projection
         // root). GameState.PendingMissions is now a read-only view ;
-        // the mutation lives on MissionStore.RemoveById. R5 layers
-        // the POST /api/missions/<id>/accept call on top of this so
-        // the server's authoritative list stays in sync via the
-        // next poll.
+        // the mutation lives on MissionStore.RemoveById. The server's
+        // /accept endpoint transitions the mission from pending to
+        // accepted (it stays in /api/missions/active) ; the local
+        // RemoveById gives the player an immediate UX response
+        // (mission leaves the panel). A future M2 refactor will
+        // resync against the polled snapshot when the recruit panel
+        // (E2.3+) becomes the canonical accept surface.
         var removed = _missionStore?.RemoveById(mission.Id) ?? false;
         var poppedId = removed ? mission.Id : null;
         Log($"[ACTIVE START] mission={mission.Id} persona={personaId} tickStarted={active.TickStarted} tickDue={active.TickDue} (removed from store : {poppedId ?? "(not present)"})");
+
+        // §A.8.D5 cascade R5 — fire the /api/missions/<id>/accept
+        // server transition fire-and-forget. The server moves the
+        // mission to the accepted state ; subsequent polls reflect
+        // this on /api/missions/active. Idempotent on retry so a
+        // duplicate fire from a future re-entrancy is safe.
+        _ = FireMissionAcceptAsync(mission.Id);
 
         // Flip the persona's visual indicator (NPC autonomy : the
         // persona Node3D is NOT re-parented).
@@ -1811,6 +1821,17 @@ public partial class M1Slice : Node2D
         if (_gameState.PendingMissions.Count == 0) return;
 
         var mission = _gameState.PendingMissions[0];
+
+        // §A.8.D5 R5 — fire the new /api/missions/<id>/decline
+        // endpoint BEFORE the legacy /api/world/mission/resolve path
+        // so the server's authoritative MissionStore sees the
+        // decline. The local RemoveById gives the player immediate
+        // UX feedback ; the legacy resolve still runs to produce
+        // tags + the M1 outcome wire (which is harmless on a decline
+        // — empty assigned_personas, outcome=failure).
+        _missionStore?.RemoveById(mission.Id);
+        _ = FireMissionDeclineAsync(mission.Id);
+
         var request = MissionPanelLogic.BuildDeclineRequest(mission, _currentTick);
         await ResolveAndApply(request, mission, isAffect: false);
     }
@@ -2194,6 +2215,77 @@ public partial class M1Slice : Node2D
         // re-entrancy via its per-navigation token (see SceneManager XML
         // doc, Risk #1 mitigation).
         _ = sceneManager.NavigateTo(PoiClickNavigateTo);
+    }
+
+
+    /// <summary>
+    /// §A.8.D5 R5 — fire-and-forget POST to
+    /// <c>/api/missions/&lt;id&gt;/accept</c>. The server moves the
+    /// mission to the accepted state ; subsequent polls reflect this
+    /// on <c>/api/missions/active</c>. Idempotent on retry so a
+    /// duplicate fire from a future re-entrancy is safe.
+    ///
+    /// <para>
+    /// <b>Screen-scoped CTS discipline (Varn §C).</b> The token is
+    /// <c>_screenCts.Token</c> so an in-flight accept abandons cleanly
+    /// when the scene unloads. Response is observed for logging only ;
+    /// the local cache has already been updated by
+    /// <see cref="MissionStore.RemoveById"/> at the call site.
+    /// </para>
+    /// </summary>
+    private async Task FireMissionAcceptAsync(string missionId)
+    {
+        if (_apiClient is null) return;
+        var result = await _apiClient.AcceptMissionAsync(missionId, _screenCts.Token).ConfigureAwait(false);
+        if (_screenCts.IsCancellationRequested) return;
+        switch (result)
+        {
+            case Result<MissionAcceptResponseDto, ApiError>.Success ok:
+                GD.PrintRaw($"[M1Slice] accept ack id={missionId} status={ok.Value.Status}\n");
+                break;
+            case Result<MissionAcceptResponseDto, ApiError>.Failure fail:
+                if (fail.Error is ApiError.ServerError serverErr && serverErr.StatusCode == 404)
+                {
+                    GD.PrintRaw($"[M1Slice] accept 404 id={missionId} (race with another action ? ignoring)\n");
+                }
+                else
+                {
+                    GD.PushWarning($"[M1Slice] accept failed id={missionId} : {fail.Error.GetType().Name}");
+                }
+                break;
+        }
+    }
+
+    /// <summary>
+    /// §A.8.D5 R5 — fire-and-forget POST to
+    /// <c>/api/missions/&lt;id&gt;/decline</c>. The server drops the
+    /// mission ; the local <see cref="MissionStore.RemoveById"/> call
+    /// at the OnDeclinePressed site gives the player immediate UX
+    /// feedback. The decline endpoint returns 404 on unknown id
+    /// (benign race) or 409 if already accepted (decline-after-accept
+    /// is gated server-side).
+    /// </summary>
+    private async Task FireMissionDeclineAsync(string missionId)
+    {
+        if (_apiClient is null) return;
+        var result = await _apiClient.DeclineMissionAsync(missionId, _screenCts.Token).ConfigureAwait(false);
+        if (_screenCts.IsCancellationRequested) return;
+        switch (result)
+        {
+            case Result<MissionDeclineResponseDto, ApiError>.Success ok:
+                GD.PrintRaw($"[M1Slice] decline ack id={missionId} status={ok.Value.Status}\n");
+                break;
+            case Result<MissionDeclineResponseDto, ApiError>.Failure fail:
+                if (fail.Error is ApiError.ServerError serverErr && (serverErr.StatusCode == 404 || serverErr.StatusCode == 409))
+                {
+                    GD.PrintRaw($"[M1Slice] decline {serverErr.StatusCode} id={missionId} (race ? ignoring)\n");
+                }
+                else
+                {
+                    GD.PushWarning($"[M1Slice] decline failed id={missionId} : {fail.Error.GetType().Name}");
+                }
+                break;
+        }
     }
 
     private sealed record PersonaVisual(

@@ -913,4 +913,329 @@ public partial class ApiClient : Node
             return (0, null, $"json: {ex.Message}");
         }
     }
+
+    /// <summary>
+    /// §A.8.D5 mission-action endpoints (Varn-lock 2026-05-17, Tess
+    /// commit 5131d5f). One POST per state transition on the server's
+    /// authoritative MissionStore. Distinct from the legacy
+    /// <see cref="ResolveMissionAsync"/> /
+    /// <see cref="ConcludeMissionAsync"/> outcome endpoints — those
+    /// stay wired for the M2-advance step 2b countdown pipeline ;
+    /// these four are the recruit cascade state transitions.
+    ///
+    /// <para>
+    /// <b>Idempotence (server contract).</b>
+    /// <list type="bullet">
+    ///   <item><c>/accept</c> is idempotent ; second call returns 200
+    ///         with no state change.</item>
+    ///   <item><c>/decline</c> 404 on unknown id, 409 if already
+    ///         accepted.</item>
+    ///   <item><c>/conclude</c> 404 on unknown id, 409 if not in
+    ///         accepted state.</item>
+    ///   <item><c>/resolve</c> same gates as <c>/conclude</c>.</item>
+    /// </list>
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Result semantics.</b> 4xx responses surface as
+    /// <see cref="ApiError.ServerError"/> with the FastAPI structured
+    /// detail body — callers can branch on <c>StatusCode</c> for the
+    /// 404 / 409 paths. Cancellation and transport errors mirror
+    /// every other ApiClient method exactly.
+    /// </para>
+    /// </summary>
+    /// <param name="missionId">Stable mission id from
+    /// <see cref="EmergentMissionDto.Id"/>.</param>
+    /// <param name="ct">Caller's cancellation token. Linked with the
+    /// autoload's shutdown token.</param>
+    public async Task<Result<MissionAcceptResponseDto, ApiError>> AcceptMissionAsync(
+        string missionId,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(missionId);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdownCts.Token);
+
+        try
+        {
+            var response = await _httpClient
+                .PostAsJsonAsync(
+                    $"/api/missions/{missionId}/accept",
+                    new MissionActionEmptyRequestDto(),
+                    ApiJsonContext.Default.MissionActionEmptyRequestDto,
+                    linkedCts.Token)
+                .ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                string? body = null;
+                try { body = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false); } catch { }
+                GD.PushWarning($"[ApiClient] /api/missions/{missionId}/accept returned {(int)response.StatusCode}");
+                return Result.Fail<MissionAcceptResponseDto, ApiError>(
+                    new ApiError.ServerError((int)response.StatusCode, body));
+            }
+
+            var ok = await response.Content
+                .ReadFromJsonAsync(
+                    ApiJsonContext.Default.MissionAcceptResponseDto,
+                    linkedCts.Token)
+                .ConfigureAwait(false);
+
+            if (ok is null)
+            {
+                return Result.Fail<MissionAcceptResponseDto, ApiError>(
+                    new ApiError.DeserializationError($"/api/missions/{missionId}/accept returned JSON null"));
+            }
+            return Result.Ok<MissionAcceptResponseDto, ApiError>(ok);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested || _shutdownCts.IsCancellationRequested)
+        {
+            return Result.Fail<MissionAcceptResponseDto, ApiError>(new ApiError.Cancelled());
+        }
+        catch (OperationCanceledException ex)
+        {
+            return Result.Fail<MissionAcceptResponseDto, ApiError>(
+                new ApiError.NotReachable($"timeout: {ex.Message}"));
+        }
+        catch (HttpRequestException ex)
+        {
+            return Result.Fail<MissionAcceptResponseDto, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Net.Http.HttpIOException ex)
+        {
+            return Result.Fail<MissionAcceptResponseDto, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            return Result.Fail<MissionAcceptResponseDto, ApiError>(
+                new ApiError.DeserializationError(ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// §A.8.D5 — <c>POST /api/missions/&lt;id&gt;/decline</c>.
+    /// Drops a pending mission server-side. Returns 404 if unknown,
+    /// 409 if already accepted (callers handle 409 by switching to
+    /// <see cref="ConcludeMissionByIdAsync"/> /
+    /// <see cref="ResolveMissionByIdAsync"/> if the mission has
+    /// already transitioned).
+    /// </summary>
+    public async Task<Result<MissionDeclineResponseDto, ApiError>> DeclineMissionAsync(
+        string missionId,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(missionId);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdownCts.Token);
+
+        try
+        {
+            var response = await _httpClient
+                .PostAsJsonAsync(
+                    $"/api/missions/{missionId}/decline",
+                    new MissionActionEmptyRequestDto(),
+                    ApiJsonContext.Default.MissionActionEmptyRequestDto,
+                    linkedCts.Token)
+                .ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                string? body = null;
+                try { body = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false); } catch { }
+                GD.PushWarning($"[ApiClient] /api/missions/{missionId}/decline returned {(int)response.StatusCode}");
+                return Result.Fail<MissionDeclineResponseDto, ApiError>(
+                    new ApiError.ServerError((int)response.StatusCode, body));
+            }
+
+            var ok = await response.Content
+                .ReadFromJsonAsync(
+                    ApiJsonContext.Default.MissionDeclineResponseDto,
+                    linkedCts.Token)
+                .ConfigureAwait(false);
+
+            if (ok is null)
+            {
+                return Result.Fail<MissionDeclineResponseDto, ApiError>(
+                    new ApiError.DeserializationError($"/api/missions/{missionId}/decline returned JSON null"));
+            }
+            return Result.Ok<MissionDeclineResponseDto, ApiError>(ok);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested || _shutdownCts.IsCancellationRequested)
+        {
+            return Result.Fail<MissionDeclineResponseDto, ApiError>(new ApiError.Cancelled());
+        }
+        catch (OperationCanceledException ex)
+        {
+            return Result.Fail<MissionDeclineResponseDto, ApiError>(
+                new ApiError.NotReachable($"timeout: {ex.Message}"));
+        }
+        catch (HttpRequestException ex)
+        {
+            return Result.Fail<MissionDeclineResponseDto, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Net.Http.HttpIOException ex)
+        {
+            return Result.Fail<MissionDeclineResponseDto, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            return Result.Fail<MissionDeclineResponseDto, ApiError>(
+                new ApiError.DeserializationError(ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// §A.8.D5 — <c>POST /api/missions/&lt;id&gt;/conclude</c>.
+    /// Concludes an accepted mission with a typed outcome
+    /// (success / failure / abandoned).
+    /// </summary>
+    /// <remarks>
+    /// Method name is <c>ByIdAsync</c> to disambiguate from the
+    /// legacy <see cref="ConcludeMissionAsync"/> which posts to
+    /// the M2-advance step 2 <c>/api/world/mission/conclude</c>
+    /// endpoint with a full company snapshot. The §A.8.D5 endpoint
+    /// posts only the outcome string ; the server's MissionStore
+    /// owns the rest of the state.
+    /// </remarks>
+    public async Task<Result<MissionConcludeActionResponseDto, ApiError>> ConcludeMissionByIdAsync(
+        string missionId,
+        string outcome,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(missionId);
+        ArgumentException.ThrowIfNullOrEmpty(outcome);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdownCts.Token);
+
+        try
+        {
+            var response = await _httpClient
+                .PostAsJsonAsync(
+                    $"/api/missions/{missionId}/conclude",
+                    new MissionConcludeActionRequestDto(outcome),
+                    ApiJsonContext.Default.MissionConcludeActionRequestDto,
+                    linkedCts.Token)
+                .ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                string? body = null;
+                try { body = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false); } catch { }
+                GD.PushWarning($"[ApiClient] /api/missions/{missionId}/conclude returned {(int)response.StatusCode}");
+                return Result.Fail<MissionConcludeActionResponseDto, ApiError>(
+                    new ApiError.ServerError((int)response.StatusCode, body));
+            }
+
+            var ok = await response.Content
+                .ReadFromJsonAsync(
+                    ApiJsonContext.Default.MissionConcludeActionResponseDto,
+                    linkedCts.Token)
+                .ConfigureAwait(false);
+
+            if (ok is null)
+            {
+                return Result.Fail<MissionConcludeActionResponseDto, ApiError>(
+                    new ApiError.DeserializationError($"/api/missions/{missionId}/conclude returned JSON null"));
+            }
+            return Result.Ok<MissionConcludeActionResponseDto, ApiError>(ok);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested || _shutdownCts.IsCancellationRequested)
+        {
+            return Result.Fail<MissionConcludeActionResponseDto, ApiError>(new ApiError.Cancelled());
+        }
+        catch (OperationCanceledException ex)
+        {
+            return Result.Fail<MissionConcludeActionResponseDto, ApiError>(
+                new ApiError.NotReachable($"timeout: {ex.Message}"));
+        }
+        catch (HttpRequestException ex)
+        {
+            return Result.Fail<MissionConcludeActionResponseDto, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Net.Http.HttpIOException ex)
+        {
+            return Result.Fail<MissionConcludeActionResponseDto, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            return Result.Fail<MissionConcludeActionResponseDto, ApiError>(
+                new ApiError.DeserializationError(ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// §A.8.D5 — <c>POST /api/missions/&lt;id&gt;/resolve</c>.
+    /// Concludes an accepted mission with a typed
+    /// <c>resolution_outcome_type</c>. Distinct from
+    /// <see cref="ConcludeMissionByIdAsync"/> so the recruit panel
+    /// resolution-outcome contract can diverge at M2+ from the basic
+    /// conclude outcome vocabulary.
+    /// </summary>
+    /// <remarks>
+    /// Method name is <c>ByIdAsync</c> to disambiguate from the
+    /// legacy <see cref="ResolveMissionAsync"/> which posts to the
+    /// M1 outcome <c>/api/world/mission/resolve</c> endpoint.
+    /// </remarks>
+    public async Task<Result<MissionResolveActionResponseDto, ApiError>> ResolveMissionByIdAsync(
+        string missionId,
+        string resolutionOutcomeType,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(missionId);
+        ArgumentException.ThrowIfNullOrEmpty(resolutionOutcomeType);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdownCts.Token);
+
+        try
+        {
+            var response = await _httpClient
+                .PostAsJsonAsync(
+                    $"/api/missions/{missionId}/resolve",
+                    new MissionResolveActionRequestDto(resolutionOutcomeType),
+                    ApiJsonContext.Default.MissionResolveActionRequestDto,
+                    linkedCts.Token)
+                .ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                string? body = null;
+                try { body = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false); } catch { }
+                GD.PushWarning($"[ApiClient] /api/missions/{missionId}/resolve returned {(int)response.StatusCode}");
+                return Result.Fail<MissionResolveActionResponseDto, ApiError>(
+                    new ApiError.ServerError((int)response.StatusCode, body));
+            }
+
+            var ok = await response.Content
+                .ReadFromJsonAsync(
+                    ApiJsonContext.Default.MissionResolveActionResponseDto,
+                    linkedCts.Token)
+                .ConfigureAwait(false);
+
+            if (ok is null)
+            {
+                return Result.Fail<MissionResolveActionResponseDto, ApiError>(
+                    new ApiError.DeserializationError($"/api/missions/{missionId}/resolve returned JSON null"));
+            }
+            return Result.Ok<MissionResolveActionResponseDto, ApiError>(ok);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested || _shutdownCts.IsCancellationRequested)
+        {
+            return Result.Fail<MissionResolveActionResponseDto, ApiError>(new ApiError.Cancelled());
+        }
+        catch (OperationCanceledException ex)
+        {
+            return Result.Fail<MissionResolveActionResponseDto, ApiError>(
+                new ApiError.NotReachable($"timeout: {ex.Message}"));
+        }
+        catch (HttpRequestException ex)
+        {
+            return Result.Fail<MissionResolveActionResponseDto, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Net.Http.HttpIOException ex)
+        {
+            return Result.Fail<MissionResolveActionResponseDto, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            return Result.Fail<MissionResolveActionResponseDto, ApiError>(
+                new ApiError.DeserializationError(ex.Message));
+        }
+    }
+
 }

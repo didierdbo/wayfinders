@@ -116,6 +116,18 @@ namespace Wayfinders.Client.Services.Dtos;
 [JsonSerializable(typeof(CharacterStateWireDto))]
 [JsonSerializable(typeof(IList<CharacterStateWireDto>))]
 [JsonSerializable(typeof(IList<RollBreakdownEntryDto>))]
+// §A.8.D5 mission action endpoints (Varn-lock 2026-05-17 + Tess
+// commit 5131d5f). POST /api/missions/<id>/{accept,decline,conclude,resolve}
+// — minimal request bodies + status-shaped responses. See
+// MissionActionDtos.cs for the records and the closed-lookup
+// constants.
+[JsonSerializable(typeof(MissionActionEmptyRequestDto))]
+[JsonSerializable(typeof(MissionAcceptResponseDto))]
+[JsonSerializable(typeof(MissionDeclineResponseDto))]
+[JsonSerializable(typeof(MissionConcludeActionRequestDto))]
+[JsonSerializable(typeof(MissionConcludeActionResponseDto))]
+[JsonSerializable(typeof(MissionResolveActionRequestDto))]
+[JsonSerializable(typeof(MissionResolveActionResponseDto))]
 internal sealed partial class ApiJsonContext : JsonSerializerContext
 {
     // Body intentionally empty — the source generator emits the

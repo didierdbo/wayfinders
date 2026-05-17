@@ -203,6 +203,7 @@
     <Compile Include="..\services\Dtos\UnitDto.cs" Link="src\UnitDto.cs" />
     <Compile Include="..\services\Dtos\ApiJsonContext.cs" Link="src\ApiJsonContext.cs" />
     <Compile Include="..\services\Dtos\WorldTickDtos.cs" Link="src\WorldTickDtos.cs" />
+    <Compile Include="..\services\Dtos\MissionActionDtos.cs" Link="src\MissionActionDtos.cs" />
   </ItemGroup>
 
   <!-- M1 mission-emergence (etape 4b / 2026-05-10): full CharacterState
