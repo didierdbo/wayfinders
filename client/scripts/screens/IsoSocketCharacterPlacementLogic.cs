@@ -6,8 +6,10 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// rhombus + the occupant <c>IsoCharacterPlaceholder</c>'s declared
 /// iso body height, returns the <c>(X, Y)</c> position to assign to
 /// the occupant child Control so that the BASE of the parallelepiped
-/// silhouette (the front-face bottom edge) lands exactly on the TOP
-/// apex of the socle rhombus, and the silhouette is centred
+/// silhouette (the front-face bottom edge) lands at the CENTER of the
+/// socle rhombus (the visual "pied" sinks into the middle of the
+/// losange, so the rhombus visibly serves as a base that the perso
+/// stands ON, not floats above), and the silhouette is centred
 /// horizontally over the socle.
 ///
 /// <para>
@@ -19,11 +21,16 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// 2026-05-17). The 7956c94 fix introduced this helper but used
 /// <c>occupantSize.Y - paddingPx</c> as the base offset, which still
 /// includes the label band + bottom padding slack ; the perso kept
-/// floating above the socle. The current cut takes the visible iso
+/// floating above the socle. The 3610b64 cut took the visible iso
 /// body height (D + H) directly via
 /// <see cref="CompactIsoBodyHeight"/> / <see cref="DefaultIsoBodyHeight"/>,
-/// decoupling the placement from any label / padding drift in the
-/// Control's cmin sizing.
+/// decoupling the placement from any label / padding drift -- but
+/// landed the base on the rhombus' TOP apex, which still reads as the
+/// perso standing in FRONT of the socle, not ON it. The current cut
+/// (UX bug 3, 2026-05-17 PM) targets the rhombus CENTER (= top apex
+/// + h/2) so the base visibly sinks into the middle of the losange,
+/// matching the locked POI "pion sur plateau" convention (memo
+/// project_wayfinders_pion_sur_plateau).
 /// </para>
 ///
 /// <para>
@@ -38,13 +45,13 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// </para>
 ///
 /// <para>
-/// <b>Y formula.</b> To align the base with the rhombus top apex at
-/// socket-local <c>y = rhombusTopY</c>, the occupant's Position.Y
-/// must satisfy <c>Position.Y + (paddingPx + isoBodyHeight) = rhombusTopY</c>
-/// in compact mode (no label band), or
-/// <c>Position.Y + (labelBandPx + paddingPx + isoBodyHeight) = rhombusTopY</c>
-/// in default mode. Since the placement helper is currently only used
-/// for the company socle's compact-mode occupant, callers pass
+/// <b>Y formula.</b> To land the base on the rhombus CENTER at
+/// socket-local <c>y = rhombusTopY + rhombusH / 2</c>, the occupant's
+/// <c>Position.Y</c> must satisfy
+/// <c>Position.Y + (paddingPx + isoBodyHeight) = rhombusTopY + rhombusH / 2</c>
+/// in compact mode (no label band), or with <c>labelBandPx</c> added
+/// to the padding term in default mode. The helper is currently only
+/// used for the company socle's compact-mode occupant, so callers pass
 /// <see cref="CompactIsoBodyHeight"/> and <see cref="OccupantPaddingPx"/>
 /// directly ; a future default-mode site would add <c>labelBandPx</c>
 /// to the padding argument.
@@ -89,12 +96,18 @@ public static class IsoSocketCharacterPlacementLogic
 
     /// <summary>
     /// Compute the occupant Control's <c>Position</c> so its parallelepiped
-    /// base sits on the socle rhombus' top apex.
+    /// base lands at the rhombus' vertical CENTER (= top apex + h/2).
     /// </summary>
     /// <param name="socketSizeX">Socle Control width (Size.X), px.</param>
     /// <param name="rhombusTopY">Y of the rhombus' top apex in the socle's
     /// local frame -- this is the <c>offY</c> the socle's <c>_Draw</c>
     /// computed.</param>
+    /// <param name="rhombusHeight">Rhombus' vertical extent (h, px) in
+    /// the socle's local frame -- this is the <c>h</c> the socle's
+    /// <c>_Draw</c> derived via <c>IsoSocketGeometryLogic.HeightFor(w)</c>.
+    /// The base lands at <c>rhombusTopY + rhombusHeight / 2</c> so the
+    /// perso visibly sinks into the middle of the losange (locked
+    /// 2026-05-17 PM, Didier UX bug 3).</param>
     /// <param name="occupantSizeX">Occupant Control width (Size.X), px.</param>
     /// <param name="isoBodyHeight">Vertical extent of the visible iso
     /// body (D + H) in the occupant's active rendering mode. Pass
@@ -108,6 +121,7 @@ public static class IsoSocketCharacterPlacementLogic
     public static (float X, float Y) ComputeOccupantPosition(
         float socketSizeX,
         float rhombusTopY,
+        float rhombusHeight,
         float occupantSizeX,
         float isoBodyHeight,
         float occupantPaddingPx)
@@ -120,7 +134,12 @@ public static class IsoSocketCharacterPlacementLogic
         // of paddingPx but this helper is only used by the compact
         // socle occupant path today.
         var baseYInOccupant = occupantPaddingPx + isoBodyHeight;
-        var y = rhombusTopY - baseYInOccupant;
+        // Target the rhombus' vertical CENTER (top apex + h/2) so the
+        // base sinks into the middle of the losange : the perso
+        // visibly stands ON the socle, not in front of it. Pinned by
+        // IsoSocketCharacterPlacementLogicTests.Base_lands_on_rhombus_center.
+        var targetBaseY = rhombusTopY + rhombusHeight * 0.5f;
+        var y = targetBaseY - baseYInOccupant;
         return (x, y);
     }
 }

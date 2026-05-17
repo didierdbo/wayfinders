@@ -39,6 +39,14 @@ namespace Wayfinders.Client.Scripts.Screens;
 ///         path at étape 6 ; future extensions (drag from roster,
 ///         drag from tactical scene) add a new constant + one test
 ///         pin.</item>
+///   <item><c>pickup_offset_y</c> -- float, the vertical distance (in
+///         preview-local pixels) between the click point and the ghost
+///         silhouette's base. Recorded at <c>_GetDragData</c> time and
+///         consumed by the drop target's hit-test via
+///         <see cref="IsoDropHitTestLogic.ComputeEffectiveBaseY"/> so
+///         the accept gate follows the GHOST BASE, not the cursor
+///         position (Didier sticky-to-click smoke 2026-05-17).
+///         Optional ; default 0 keeps legacy paths working.</item>
 /// </list>
 /// </para>
 ///
@@ -74,6 +82,11 @@ public static class IsoSocketDropLogic
 
     /// <summary>Payload-dictionary key for the drag source enum.</summary>
     public const string PayloadKeySource = "source";
+
+    /// <summary>Payload-dictionary key for the pickup-offset-Y (px,
+    /// preview-local). Optional in legacy callers ; reads default to
+    /// 0 when absent. See <see cref="DragPayload.PickupOffsetY"/>.</summary>
+    public const string PayloadKeyPickupOffsetY = "pickup_offset_y";
 
     /// <summary>
     /// Decide whether a drop should be accepted on the company socle.
@@ -174,8 +187,22 @@ public static class IsoSocketDropLogic
 /// received by <c>_CanDropData</c> / <c>_DropData</c>, then forwards
 /// to <see cref="IsoSocketDropLogic.CanAccept"/>. Keeps the test
 /// surface engine-free.
+///
+/// <para>
+/// <see cref="PickupOffsetY"/> is an init-only optional field (default
+/// 0). Added 2026-05-17 for the sticky-to-click drag preview + ghost-
+/// base hit-test fix. Legacy callers / tests that only set the three
+/// positional fields keep working unchanged (a 0 offset reads as "ghost
+/// base sits exactly at the cursor", i.e. the pre-fix behaviour).
+/// </para>
 /// </summary>
 public sealed record DragPayload(
     string NpcId,
     string MissionId,
-    string Source);
+    string Source)
+{
+    /// <summary>Pickup offset Y in preview-local pixels -- distance
+    /// from the click point down to the ghost silhouette's base.
+    /// See <see cref="IsoDropHitTestLogic.ComputePickupOffsetY"/>.</summary>
+    public float PickupOffsetY { get; init; }
+}

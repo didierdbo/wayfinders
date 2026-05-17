@@ -411,11 +411,26 @@
 
   <!-- E2.2 étape 6 fix (2026-05-17): placement helper that aligns the
        occupant character's parallelepiped BASE with the socle rhombus'
-       TOP apex. The Godot-bound _Draw + PositionOccupantChildren on
-       IsoSocketPlaceholder consume this helper ; xUnit pins the math.
+       vertical CENTER (re-anchored 2026-05-17 PM by Didier UX bug 3 -
+       was rhombus TOP apex before, perso looked like it was floating in
+       front of the socle). The Godot-bound _Draw + PositionOccupantChildren
+       on IsoSocketPlaceholder consume this helper ; xUnit pins the math.
        Pinned to catch drift in occupant padding / cmin sizing. -->
   <ItemGroup>
     <Compile Include="..\scripts\screens\IsoSocketCharacterPlacementLogic.cs" Link="src\IsoSocketCharacterPlacementLogic.cs" />
+  </ItemGroup>
+
+  <!-- E2.2 étape 6 UX fix bug 2 (2026-05-17 PM): drop hit-test by GHOST
+       BASE rather than cursor. Pure-C# helper for pickup-offset-Y
+       arithmetic + the inclusive socket-height tolerance window. Goes
+       hand-in-hand with the sticky-to-click drag preview (Didier UX
+       bug 1) and the rhombus-center placement (Didier UX bug 3) :
+       cursor stays at the click point, ghost base sinks into the
+       losange, accept gate follows the ghost not the cursor. The
+       Godot-bound _GetDragData / _CanDropData on both placeholders
+       consume the helper ; xUnit pins the arithmetic. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\IsoDropHitTestLogic.cs" Link="src\IsoDropHitTestLogic.cs" />
   </ItemGroup>
 
 </Project>

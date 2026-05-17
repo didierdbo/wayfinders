@@ -286,10 +286,30 @@ public partial class IsoCharacterPlaceholder : Control
     /// <c>default(Variant)</c> when the role is not a drag source or
     /// when the placeholder is currently greyed out -- Godot
     /// interprets that as "no drag from here".
+    ///
+    /// <para>
+    /// <b>Sticky-to-click preview + pickup-offset-Y (2026-05-17 UX
+    /// fix).</b> <paramref name="atPosition"/> is the click point in
+    /// source-Control-local coords. The preview is built compact-sized,
+    /// so the click point is rescaled into preview-local coords
+    /// (proportional, X and Y separately). The rescaled point is :
+    /// <list type="bullet">
+    ///   <item>passed to <see cref="BuildDragPreview"/> so the silhouette
+    ///         is positioned with the click point at the CanvasLayer
+    ///         origin -- the cursor visually stays on the head / torso /
+    ///         foot the player clicked, instead of snapping to the
+    ///         silhouette centre (Didier UX bug 1).</item>
+    ///   <item>fed to <see cref="IsoDropHitTestLogic.ComputePickupOffsetY"/>
+    ///         to derive the distance from the click point down to the
+    ///         ghost base, then written into the drag payload as
+    ///         <c>pickup_offset_y</c>. The drop target uses it to test
+    ///         whether the GHOST BASE (not the cursor) is over the
+    ///         socle rhombus (Didier UX bug 2).</item>
+    /// </list>
+    /// </para>
     /// </summary>
     public override Variant _GetDragData(Vector2 atPosition)
     {
-        _ = atPosition;
         if (_role != SourceRole.RecruitPanelHost) return default;
         // Greyed out = perso is on the socle ; reverse drag has to
         // start from the socle, not from the panel placeholder.
@@ -297,14 +317,21 @@ public partial class IsoCharacterPlaceholder : Control
         if (string.IsNullOrEmpty(_npcId)) return default;
         if (string.IsNullOrEmpty(_missionId)) return default;
 
+        var previewAtPosition = ScaleAtPositionToPreview(atPosition, Size);
+        var pickupOffsetY = IsoDropHitTestLogic.ComputePickupOffsetY(
+            previewAtPosition.Y,
+            PaddingPx,
+            CompactIsoBodyHeight);
+
         var payload = new Godot.Collections.Dictionary
         {
             [IsoSocketDropLogic.PayloadKeyNpcId] = _npcId,
             [IsoSocketDropLogic.PayloadKeyMissionId] = _missionId,
             [IsoSocketDropLogic.PayloadKeySource] = IsoSocketDropLogic.DragSourceRecruitPanel,
+            [IsoSocketDropLogic.PayloadKeyPickupOffsetY] = pickupOffsetY,
         };
 
-        SetDragPreview(BuildDragPreview(_npcId));
+        SetDragPreview(BuildDragPreview(_npcId, previewAtPosition));
         return payload;
     }
 
@@ -381,6 +408,24 @@ public partial class IsoCharacterPlaceholder : Control
     // -------------------------------------------------------------------
 
     /// <summary>
+    /// Rescale a source-Control-local click point into the compact
+    /// preview's local coords (proportional X + Y). Used by
+    /// <see cref="_GetDragData"/> and by the socle's reverse-drag
+    /// path so the preview offset + pickup offset are both in the
+    /// preview frame.
+    /// </summary>
+    internal static Vector2 ScaleAtPositionToPreview(Vector2 atPosition, Vector2 sourceSize)
+    {
+        if (sourceSize.X <= 0f || sourceSize.Y <= 0f)
+        {
+            return new Vector2(CompactMinSize.X * 0.5f, CompactMinSize.Y * 0.5f);
+        }
+        var scaleX = CompactMinSize.X / sourceSize.X;
+        var scaleY = CompactMinSize.Y / sourceSize.Y;
+        return new Vector2(atPosition.X * scaleX, atPosition.Y * scaleY);
+    }
+
+    /// <summary>
     /// Build the half-alpha compact silhouette wrapper handed to
     /// <see cref="Control.SetDragPreview"/>. The wrapper is a Control
     /// (Godot 4 requires a Control here) but the visible silhouette is
@@ -398,12 +443,20 @@ public partial class IsoCharacterPlaceholder : Control
     /// </para>
     ///
     /// <para>
-    /// Compact + centred-under-cursor (XCOM / Wartales idiom) ; the
-    /// wrapper's own rect stays zero-size + ignored by mouse so it does
-    /// not steal hover events from the drop targets underneath.
+    /// <b>Sticky-to-click (Didier UX bug 1, 2026-05-17 PM).</b> The
+    /// silhouette's <c>Position</c> is set to <c>-previewAtPosition</c>
+    /// so the preview-local click point lands exactly on the
+    /// CanvasLayer origin ; combined with <c>Overlay.Offset = mouse</c>
+    /// per frame, the cursor stays glued to whatever the player clicked
+    /// on (head / torso / foot), instead of snapping to the silhouette's
+    /// centre. The previous centred-under-cursor (XCOM / Wartales) cut
+    /// was rejected by Didier in favour of strict sticky-to-click ;
+    /// keep this site as the SINGLE seam where the convention is
+    /// enforced -- the reverse-drag from the socle reuses this builder
+    /// with the equivalent preview-local atPosition.
     /// </para>
     /// </summary>
-    internal static Control BuildDragPreview(string npcId)
+    internal static Control BuildDragPreview(string npcId, Vector2 previewAtPosition)
     {
         var wrapper = new DragPreviewFollowMouse
         {
@@ -428,10 +481,12 @@ public partial class IsoCharacterPlaceholder : Control
         silhouette.SetCompactMode(true);
         silhouette.SetNpc(npcId);
         var previewSize = CompactMinSize;
-        // Centre the silhouette on the CanvasLayer origin so the
-        // wrapper just has to slide the layer's Offset to land the
-        // silhouette's centre exactly under the cursor.
-        silhouette.Position = new Vector2(-previewSize.X * 0.5f, -previewSize.Y * 0.5f);
+        // Sticky-to-click : position the silhouette so the
+        // preview-local click point sits exactly at the CanvasLayer
+        // origin. Combined with Overlay.Offset = mouse per frame, the
+        // cursor stays on whatever the player clicked (head / torso /
+        // foot) instead of snapping to the silhouette centre.
+        silhouette.Position = new Vector2(-previewAtPosition.X, -previewAtPosition.Y);
         silhouette.Size = previewSize;
         overlay.AddChild(silhouette);
 
@@ -480,16 +535,22 @@ public partial class IsoCharacterPlaceholder : Control
         if (data.VariantType != Variant.Type.Dictionary) return null;
         var dict = data.AsGodotDictionary();
         string? npcId = null, missionId = null, source = null;
+        float pickupOffsetY = 0f;
         if (dict.TryGetValue(IsoSocketDropLogic.PayloadKeyNpcId, out var nv))
             npcId = nv.AsString();
         if (dict.TryGetValue(IsoSocketDropLogic.PayloadKeyMissionId, out var mv))
             missionId = mv.AsString();
         if (dict.TryGetValue(IsoSocketDropLogic.PayloadKeySource, out var sv))
             source = sv.AsString();
+        if (dict.TryGetValue(IsoSocketDropLogic.PayloadKeyPickupOffsetY, out var pv))
+            pickupOffsetY = (float)pv.AsDouble();
         return new DragPayload(
             NpcId: npcId ?? string.Empty,
             MissionId: missionId ?? string.Empty,
-            Source: source ?? string.Empty);
+            Source: source ?? string.Empty)
+        {
+            PickupOffsetY = pickupOffsetY,
+        };
     }
 
     private static Vector2[] Translate((float X, float Y)[] points, float dx, float dy)

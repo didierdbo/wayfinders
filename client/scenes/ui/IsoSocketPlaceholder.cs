@@ -55,6 +55,15 @@ namespace Wayfinders.Client.Scenes.Ui;
 /// </para>
 ///
 /// <para>
+/// <b>Ghost-base hit-test (Didier UX bug 2, 2026-05-17 PM).</b> The
+/// drop accept gate uses the GHOST BASE Y (= cursor.Y + pickup_offset_y
+/// from the drag payload), not the cursor Y alone. Combined with the
+/// sticky-to-click drag preview, the player drops by aligning the
+/// ghost's "pieds" with the socle, not by chasing the cursor down to
+/// the rhombus. See <see cref="IsoDropHitTestLogic"/>.
+/// </para>
+///
+/// <para>
 /// <b>Rim glow (étape 6 visual feedback).</b> Activates whenever
 /// <see cref="SetDropTargetGlow"/> is called with <c>true</c> (the
 /// owner subscribes to <see cref="Control._Notification"/> with
@@ -227,21 +236,38 @@ public partial class IsoSocketPlaceholder : Control
     /// the socle hosts an unconfirmed occupant. Returns the drag
     /// payload with source = company_socle so the recruit panel's
     /// IsoCharacterPlaceholder accepts the reverse drop.
+    ///
+    /// <para>
+    /// <b>Sticky-to-click + pickup-offset-Y (Didier UX bugs 1+2,
+    /// 2026-05-17 PM).</b> The reverse drag mirrors the forward path :
+    /// the click point inside the socle's full Control rect is
+    /// rescaled into compact-preview-local coords, the preview's
+    /// silhouette is positioned so the click point lands on the
+    /// CanvasLayer origin, and <c>pickup_offset_y</c> is written into
+    /// the payload so the recruit panel's drop target hit-tests
+    /// against the GHOST BASE.
+    /// </para>
     /// </summary>
     public override Variant _GetDragData(Vector2 atPosition)
     {
-        _ = atPosition;
         if (_role != DropTargetRole.CompanyHost) return default;
         if (string.IsNullOrEmpty(_occupiedNpcId)) return default;
         // Confirmed occupancy = the perso is committed ; no reverse
         // drag allowed (M1 has no recall UI -- spec 6.C).
         if (_confirmedOccupancy) return default;
 
+        var previewAtPosition = IsoCharacterPlaceholder.ScaleAtPositionToPreview(atPosition, Size);
+        var pickupOffsetY = IsoDropHitTestLogic.ComputePickupOffsetY(
+            previewAtPosition.Y,
+            IsoCharacterPlaceholder.PaddingPx,
+            IsoCharacterPlaceholder.CompactIsoBodyHeight);
+
         var payload = new Godot.Collections.Dictionary
         {
             [IsoSocketDropLogic.PayloadKeyNpcId] = _occupiedNpcId,
             [IsoSocketDropLogic.PayloadKeyMissionId] = string.Empty,
             [IsoSocketDropLogic.PayloadKeySource] = IsoSocketDropLogic.DragSourceCompanySocle,
+            [IsoSocketDropLogic.PayloadKeyPickupOffsetY] = pickupOffsetY,
         };
 
         // Shared drag-preview construction with the recruit panel's
@@ -249,8 +275,8 @@ public partial class IsoSocketPlaceholder : Control
         // Control that hosts a CanvasLayer at layer = 200 so the ghost
         // renders above the recruit panel (layer 110) and the company
         // panel (layer 111). See IsoCharacterPlaceholder.BuildDragPreview
-        // for the rationale.
-        SetDragPreview(IsoCharacterPlaceholder.BuildDragPreview(_occupiedNpcId));
+        // for the rationale + the sticky-to-click silhouette offset.
+        SetDragPreview(IsoCharacterPlaceholder.BuildDragPreview(_occupiedNpcId, previewAtPosition));
 
         EmitSignal(SignalName.ReverseDragStarted, _occupiedNpcId);
         return payload;
@@ -259,22 +285,39 @@ public partial class IsoSocketPlaceholder : Control
     /// <summary>
     /// Godot drop-target hook -- accept the forward drop from the
     /// recruit panel's IsoCharacterPlaceholder. Forwards the payload
-    /// shape to <see cref="IsoSocketDropLogic.CanAccept"/>.
+    /// shape to <see cref="IsoSocketDropLogic.CanAccept"/>, then gates
+    /// on the GHOST BASE Y (cursor + pickup_offset_y from the payload)
+    /// falling within the socle's vertical bounds (plus tolerance).
+    /// The base-Y gate is what makes "drop where the ghost lands"
+    /// feel right -- the cursor can sit anywhere on the socle rect,
+    /// the accept follows the silhouette's pieds.
     /// </summary>
     public override bool _CanDropData(Vector2 atPosition, Variant data)
     {
-        _ = atPosition;
         if (_role != DropTargetRole.CompanyHost) return false;
         // Once confirmed, the socle is locked -- no further drops.
         if (_confirmedOccupancy) return false;
         var payload = TryReadDragPayload(data);
         var decision = IsoSocketDropLogic.CanAccept(payload, RosterM1);
-        return decision == IsoSocketDropLogic.DropDecision.Accept;
+        if (decision != IsoSocketDropLogic.DropDecision.Accept) return false;
+        // Ghost-base hit-test : effectiveBaseY must fall within the
+        // socle Control's vertical bounds (plus tolerance) so a click
+        // far above the rhombus still accepts iff the ghost's pieds
+        // visibly land on the socle. Pinned by
+        // IsoDropHitTestLogicTests.IsBaseWithinSocketHeight_*.
+        var effectiveBaseY = IsoDropHitTestLogic.ComputeEffectiveBaseY(
+            atPosition.Y, payload!.PickupOffsetY);
+        return IsoDropHitTestLogic.IsBaseWithinSocketHeight(
+            effectiveBaseY, Size.Y, IsoDropHitTestLogic.DefaultBaseToleranceYpx);
     }
 
     /// <summary>
     /// Godot drop-target hook -- consume the forward drop, set the
-    /// occupant, emit <see cref="OccupancyChangedEventHandler"/>.
+    /// occupant, emit <see cref="OccupancyChangedEventHandler"/>. The
+    /// occupant's resting position is rhombus-driven (computed by
+    /// <see cref="IsoSocketCharacterPlacementLogic.ComputeOccupantPosition"/>),
+    /// NOT cursor-driven : once the drop accepts, the perso snaps to
+    /// the rhombus centre regardless of the exact drop point.
     /// </summary>
     public override void _DropData(Vector2 atPosition, Variant data)
     {
@@ -375,11 +418,12 @@ public partial class IsoSocketPlaceholder : Control
     {
         if (_occupantSilhouette is not null && IsInstanceValid(_occupantSilhouette))
         {
-            // Place the silhouette so its parallelepiped BASE lands on
-            // the rhombus' TOP apex (the perso visibly stands on the
-            // socle, not in front of it). Reads the iso body height
-            // (D + H, = 220 in compact) from the silhouette directly so
-            // a future cmin / padding / label-band tweak fans out
+            // Place the silhouette so its parallelepiped BASE lands at
+            // the rhombus' vertical CENTER (top apex + h/2) -- the
+            // perso visibly stands ON the socle, sinking into the
+            // middle of the losange. Reads the iso body height
+            // (D + H, = 220 in compact) from the silhouette directly
+            // so a future cmin / padding / label-band tweak fans out
             // without touching this site. Pinned by
             // IsoSocketCharacterPlacementLogicTests so any helper drift
             // surfaces loud at xUnit.
@@ -387,7 +431,7 @@ public partial class IsoSocketPlaceholder : Control
             var sh = _occupantSilhouette.CustomMinimumSize.Y;
             var isoBodyHeight = _occupantSilhouette.ActiveIsoBodyHeight;
             var (px, py) = IsoSocketCharacterPlacementLogic.ComputeOccupantPosition(
-                Size.X, rhombusOffsetY, sw, isoBodyHeight, IsoCharacterPlaceholder.PaddingPx);
+                Size.X, rhombusOffsetY, rhombusH, sw, isoBodyHeight, IsoCharacterPlaceholder.PaddingPx);
             _occupantSilhouette.Position = new Vector2(px, py);
             _occupantSilhouette.Size = new Vector2(sw, sh);
         }
@@ -429,16 +473,22 @@ public partial class IsoSocketPlaceholder : Control
         if (data.VariantType != Variant.Type.Dictionary) return null;
         var dict = data.AsGodotDictionary();
         string? npcId = null, missionId = null, source = null;
+        float pickupOffsetY = 0f;
         if (dict.TryGetValue(IsoSocketDropLogic.PayloadKeyNpcId, out var nv))
             npcId = nv.AsString();
         if (dict.TryGetValue(IsoSocketDropLogic.PayloadKeyMissionId, out var mv))
             missionId = mv.AsString();
         if (dict.TryGetValue(IsoSocketDropLogic.PayloadKeySource, out var sv))
             source = sv.AsString();
+        if (dict.TryGetValue(IsoSocketDropLogic.PayloadKeyPickupOffsetY, out var pv))
+            pickupOffsetY = (float)pv.AsDouble();
         return new DragPayload(
             NpcId: npcId ?? string.Empty,
             MissionId: missionId ?? string.Empty,
-            Source: source ?? string.Empty);
+            Source: source ?? string.Empty)
+        {
+            PickupOffsetY = pickupOffsetY,
+        };
     }
 
     private static Vector2[] ClosePolyline(Vector2[] polygon)
