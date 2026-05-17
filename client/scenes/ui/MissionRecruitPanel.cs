@@ -9,133 +9,74 @@ using Wayfinders.Client.Services.Dtos;
 namespace Wayfinders.Client.Scenes.Ui;
 
 /// <summary>
-/// E2.2 step 3+4 mission recruit panel (Varn-lock 2026-05-17 §A.8.D5).
-/// Slides in from the right when the player clicks a mission row in the
-/// E2 marker tooltip, displays the mission header / district / hook /
-/// iso character placeholder, and exposes Accept + Decline buttons
-/// wired to the §A.8.D5 endpoints
+/// E2.2 step 3+4+6 mission recruit panel (Varn-lock 2026-05-17 §A.8.D5
+/// + Didier-lock 2026-05-17 étape 6). Slides in from the right when
+/// the player clicks a mission row in the E2 marker tooltip, displays
+/// the mission header / district / hook / iso character placeholder,
+/// and exposes Accept + Decline buttons wired to
 /// <c>POST /api/missions/&lt;id&gt;/{accept,decline}</c>.
 ///
 /// <para>
-/// <b>What this scene IS.</b> A sticky, screen-anchored Control hosted
-/// inside a dedicated <see cref="CanvasLayer"/> (layer = 110) so it
-/// always renders ABOVE the mission tooltip (layer = 100) and every
-/// screen's chrome (layer = 2 or 3). The panel stays visible until
-/// closed explicitly -- no hover auto-dismiss, no fade-out on losing
-/// focus.
-/// </para>
-///
-/// <para>
-/// <b>What this scene is NOT.</b> NOT the future Compagnie panel (step
-/// 5 -- separate scene, separate slide direction, separate state shape).
-/// NOT a modal -- it does not freeze the underlying area-map ; the
-/// player can still pan / zoom / hover other markers while it sits open.
-/// </para>
-///
-/// <para>
-/// <b>Slide animation.</b> Tween on the Control's
-/// <see cref="Control.OffsetLeft"/> + <see cref="Control.OffsetRight"/>
-/// (since the panel is anchored to the right edge with positive
-/// offsets, sliding "in" means shrinking those offsets toward
-/// <see cref="OpenOffsetX"/>). 300ms ease-out cubic on the way in,
-/// 200ms ease-in cubic on the way out -- the open feels deliberate, the
-/// close feels snappy.
-/// </para>
-///
-/// <para>
-/// <b>Close paths.</b>
+/// <b>Étape 6 additions.</b>
 /// <list type="bullet">
-///   <item>Bouton X dans le header -- click triggers <see cref="Close"/>
-///         without an API call (cancel intent).</item>
-///   <item>ESC clavier -- the panel handles <c>ui_cancel</c> via
-///         <see cref="Control._UnhandledInput"/>. Listening at the
-///         unhandled level keeps focus-stealing trivial -- if a child
-///         Button consumes ESC first it wins.</item>
+///   <item>The hero <see cref="IsoCharacterPlaceholder"/> is configured
+///         as <see cref="IsoCharacterPlaceholder.SourceRole.RecruitPanelHost"/>
+///         -- drag source forward AND reverse-drop target.</item>
+///   <item>The panel owns a <see cref="MissionRecruitPanelState"/>
+///         state machine driven by drop / return events forwarded from
+///         the Compagnie socle (via the owning E2AreaMap) and from
+///         the placeholder's own reverse-drop signal. State transitions
+///         drive the placeholder's greyed-out flag + the Accept
+///         button's highlight theming.</item>
+///   <item>On a successful Accept round-trip the panel emits
+///         <see cref="RecruitConfirmedEventHandler"/> with the
+///         (missionId, npcId) so the owner can call
+///         <see cref="CompanyPanel.ApplyConfirmedOccupancy"/>.</item>
+///   <item>On Decline (with or without a prior drop) the panel
+///         restores the socle (via the owning E2AreaMap) by emitting
+///         <see cref="RecruitDeclinedEventHandler"/> with the
+///         missionId.</item>
 /// </list>
-/// Click-outside-to-close is intentionally NOT implemented in step 3 :
-/// the close affordances are visible enough (the X + ESC), and adding
-/// an invisible MouseFilter=Stop overlay would prevent the underlying
-/// area-map from receiving pan/zoom input -- the spec rules that
-/// out ("sticky, not modal").
 /// </para>
 ///
 /// <para>
-/// <b>Single-panel-at-a-time discipline.</b> The owner (E2AreaMap)
-/// holds a single instance and calls <see cref="ShowForMission"/> per
-/// click. If the panel is already open for mission X and the player
-/// clicks mission Y, <see cref="ShowForMission"/> swaps the content
-/// in-place without re-sliding (mirrors the HoverTooltipController
-/// fast-switch path -- the player is already in panel-reading mode).
+/// <b>State ownership.</b> Panel-scoped. The state resets to Initial
+/// on every <see cref="ShowForMission"/> and on every
+/// <see cref="Close"/> -- the panel's lifecycle defines the state's
+/// lifecycle. No global store, no autoload. Justified by Rune coaching
+/// brief §3 ("Stateless-everywhere reflex caught -- client UI is
+/// stateful").
 /// </para>
 ///
 /// <para>
-/// <b>Action routing (§A.8.D5).</b> Accept fires
-/// <see cref="ApiClient.AcceptMissionAsync"/> ; Decline fires
-/// <see cref="ApiClient.DeclineMissionAsync"/>. Both are
-/// fire-and-forget from the panel's POV : on a 200 response, the
-/// MissionStore.RemoveById call drops the mission from the cache (next
-/// poll reconciles), the panel closes, the tooltip's row will
-/// disappear at the next PendingMissionsChanged signal. 404/409 races
-/// (mission already accepted by another path) are logged at warning
-/// level and the panel still closes -- the player's intent was clear.
-/// </para>
-///
-/// <para>
-/// <b>CTS discipline (memory feedback_godot_rendering_input_traps trap
-/// #12).</b> The panel owns its own
-/// <see cref="CancellationTokenSource"/> tied to its own
+/// <b>CTS discipline (memo feedback_godot_rendering_input_traps).</b>
+/// The panel owns its own CTS tied to its own
 /// <see cref="Node._ExitTree"/>. In-flight Accept / Decline POSTs are
-/// cancelled cleanly when the panel is freed (e.g. on E2 unload).
-/// Pattern §C "screen-scoped CTS" -- the panel IS the screen lifetime
-/// here.
+/// cancelled cleanly when the panel is freed.
 /// </para>
 ///
 /// <para>
-/// <b>MouseFilter discipline (memory feedback_godot_rendering_input_traps).</b>
-/// The root Control is <see cref="MouseFilterEnum.Stop"/> so the panel
-/// captures hover / click events over its own rect (preventing the
-/// underlying area-map from receiving stray clicks that would land on
-/// a POI marker behind it). Decorative children (Labels, the iso
-/// placeholder) are <see cref="MouseFilterEnum.Ignore"/> so clicks fall
-/// through to the buttons. Buttons keep their default
-/// <see cref="MouseFilterEnum.Stop"/>.
+/// <b>MouseFilter discipline.</b> Root = Stop ; decorative children =
+/// Ignore ; buttons = Stop (default). The hero placeholder switches
+/// to Stop via SetSourceContext(RecruitPanelHost) so Godot routes
+/// _GetDragData / _CanDropData to it.
 /// </para>
 /// </summary>
 public partial class MissionRecruitPanel : Control
 {
-    /// <summary>Width of the panel in pixels. Locked at 480 -- wide
-    /// enough for the iso placeholder (200) + a column of text + 32 px
-    /// padding on each side, narrow enough to leave 2/3 of a 1920px
-    /// viewport free for the underlying area-map.</summary>
     private const float PanelWidthPx = 480f;
-
-    /// <summary>X-offset (from the right edge) the panel sits at when
-    /// open. Locked at 0 -- the panel hugs the right edge of the
-    /// viewport.</summary>
     private const float OpenOffsetX = 0f;
-
-    /// <summary>X-offset (from the right edge) the panel sits at when
-    /// closed. Equal to <see cref="PanelWidthPx"/> so the panel is
-    /// entirely off-screen and decorative children do not paint.</summary>
     private const float ClosedOffsetX = PanelWidthPx + 8f;
-
-    /// <summary>Open tween duration, seconds. 300ms ease-out cubic
-    /// reads as "deliberate landing", matching the rest of the UI
-    /// animation tempo.</summary>
     private const float OpenTweenSeconds = 0.30f;
-
-    /// <summary>Close tween duration, seconds. 200ms ease-in cubic is
-    /// slightly snappier so the close feels intentional rather than
-    /// lingering.</summary>
     private const float CloseTweenSeconds = 0.20f;
 
-    /// <summary>Parchment background colour -- cohérent with the
-    /// MissionTooltip's StyleBoxFlat (locked 2026-05-17).</summary>
     private static readonly Color ParchmentBg = new(0.91f, 0.85f, 0.72f, 0.97f);
-
-    /// <summary>Umber border colour -- matches the parchment tooltip
-    /// border.</summary>
     private static readonly Color ParchmentBorder = new(0.18f, 0.14f, 0.11f, 1f);
+
+    /// <summary>Accept button modulate when highlighted (state =
+    /// DroppedReadyToValidate). Warm parchment tint so the affordance
+    /// reads as "ready to go" without overpowering the panel chrome.</summary>
+    private static readonly Color AcceptHighlightTint = new(1.15f, 1.05f, 0.85f, 1f);
 
     private PanelContainer? _panelContainer;
     private Label? _headerLabel;
@@ -149,46 +90,59 @@ public partial class MissionRecruitPanel : Control
 
     private CancellationTokenSource _shutdownCts = null!;
     private string? _currentMissionId;
+    private string? _currentNpcId;
     private bool _isOpen;
+    private MissionRecruitPanelState _state = MissionRecruitPanelState.Initial;
 
     private ApiClient? _apiClient;
     private MissionStore? _missionStore;
 
     /// <summary>
-    /// Fired when the panel finishes its close animation. Owners (the
-    /// E2AreaMap) may listen to drop their reference to the panel
-    /// instance and free it ; M1 keeps the instance pooled and just
-    /// hides it.
+    /// Fired when the panel finishes its close animation.
     /// </summary>
     [Signal]
     public delegate void PanelClosedEventHandler();
+
+    /// <summary>
+    /// Étape 6 -- fired after a successful Accept round-trip. The
+    /// owner (E2AreaMap) subscribes to forward the npcId to
+    /// <see cref="CompanyPanel.ApplyConfirmedOccupancy"/>.
+    /// </summary>
+    [Signal]
+    public delegate void RecruitConfirmedEventHandler(string missionId, string npcId);
+
+    /// <summary>
+    /// Étape 6 -- fired on Decline (whether or not a prior drop
+    /// landed on the socle). The owner forwards to
+    /// <see cref="CompanyPanel.ResetOccupancy"/> so the socle reverts
+    /// to vide if the perso had been parked there mid-flow.
+    /// </summary>
+    [Signal]
+    public delegate void RecruitDeclinedEventHandler(string missionId);
+
+    /// <summary>
+    /// Étape 6 -- fired when the player reverse-drags the perso back
+    /// to this panel from the company socle. The owner forwards to
+    /// the company panel's socle to clear it.
+    /// </summary>
+    [Signal]
+    public delegate void CharacterReturnedToRecruitPanelEventHandler(string missionId, string npcId);
 
     public override void _Ready()
     {
         _shutdownCts = new CancellationTokenSource();
 
-        // Anchor the root Control to the right edge, full height. The
-        // offset_left / offset_right delta is what the slide tween
-        // animates : at "closed" the panel sits offsetLeft = +488 (off
-        // screen to the right) ; at "open" it sits offsetLeft = 0.
         SetAnchorsPreset(LayoutPreset.RightWide);
         OffsetLeft = -PanelWidthPx + ClosedOffsetX;
         OffsetRight = ClosedOffsetX;
         OffsetTop = 0f;
         OffsetBottom = 0f;
 
-        // Root captures the mouse over its own rect so clicks do NOT
-        // fall through to the area-map's POI hotspots behind the
-        // panel. Trap discipline (memory feedback_godot_rendering_input_traps).
         MouseFilter = MouseFilterEnum.Stop;
         Visible = false;
 
         BuildChildren();
 
-        // Resolve sibling autoloads. If either is missing the panel
-        // still renders -- Accept / Decline become silent no-ops (with
-        // a warning log). Lets the F6 launch path render the panel for
-        // visual smoke even without the autoload graph fully wired.
         _apiClient = GetTree()?.Root?.GetNodeOrNull<ApiClient>("ApiClient");
         _missionStore = GetTree()?.Root?.GetNodeOrNull<MissionStore>("MissionStore");
         if (_apiClient is null)
@@ -207,9 +161,6 @@ public partial class MissionRecruitPanel : Control
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        // ESC -> close. Listening at the unhandled level so a child
-        // Button that consumes ui_cancel first (e.g. focused Accept)
-        // wins ; the panel only acts on ESC when no descendant did.
         if (!_isOpen) return;
         if (@event.IsActionPressed("ui_cancel"))
         {
@@ -219,11 +170,7 @@ public partial class MissionRecruitPanel : Control
     }
 
     /// <summary>
-    /// Open (or swap content of) the panel for the given mission. If
-    /// the panel is already open for a different mission, the content
-    /// is swapped in-place without a re-slide -- mirrors the
-    /// HoverTooltipController fast-switch path. Idempotent for the
-    /// same mission id.
+    /// Open (or swap content of) the panel for the given mission.
     /// </summary>
     public void ShowForMission(EmergentMissionDto mission)
     {
@@ -232,11 +179,21 @@ public partial class MissionRecruitPanel : Control
         var payload = MissionRecruitPanelLogic.Compose(mission);
         ApplyPayload(payload);
         _currentMissionId = mission.Id;
+        _currentNpcId = payload.NpcId;
+
+        // Étape 6 : configure the placeholder as a drag-drop host for
+        // this mission. Mission id travels in every drag payload.
+        _isoPlaceholder?.SetSourceContext(
+            IsoCharacterPlaceholder.SourceRole.RecruitPanelHost,
+            mission.Id);
+
+        // Reset state for the new mission (state machine pin
+        // PanelOpened -> Initial).
+        ApplyState(MissionRecruitPanelStateLogic.Next(
+            _state, MissionRecruitPanelEvent.PanelOpened));
 
         if (_isOpen)
         {
-            // Fast-switch : already open, content just swapped above.
-            // No re-slide, no flicker.
             GD.PrintRaw(
                 $"[MissionRecruitPanel] swap content -> mission='{mission.Id}' " +
                 $"npc='{payload.NpcId}' district='{payload.DistrictLabel}'\n");
@@ -252,19 +209,43 @@ public partial class MissionRecruitPanel : Control
     }
 
     /// <summary>
-    /// Close the panel without firing a backend action. Used by the
-    /// X button, ESC, and as the convergence point of the
-    /// Accept/Decline button handlers after the HTTP POST completes.
-    /// Idempotent : closing a closed panel is a no-op.
+    /// Close the panel without firing a backend action.
     /// </summary>
     public void Close()
     {
         if (!_isOpen) return;
         _isOpen = false;
         _currentMissionId = null;
+        _currentNpcId = null;
+        // Reset the state machine + visuals so the next ShowForMission
+        // starts clean (the panel pool reuses the same instance).
+        ApplyState(MissionRecruitPanelStateLogic.Next(
+            _state, MissionRecruitPanelEvent.PanelClosed));
         StartSlideTween(toOpen: false);
         GD.Print("[MissionRecruitPanel] close");
     }
+
+    /// <summary>
+    /// Étape 6 -- called by the owner (E2AreaMap) when the company
+    /// panel's socle reports an occupancy change. <paramref name="dropped"/>
+    /// = true (npcId landed on socle) or false (socle reverted to
+    /// empty). Forwards into the state machine.
+    /// </summary>
+    public void SetCharacterDropped(bool dropped)
+    {
+        var ev = dropped
+            ? MissionRecruitPanelEvent.CharacterDroppedOnSocle
+            : MissionRecruitPanelEvent.CharacterReturnedFromSocle;
+        ApplyState(MissionRecruitPanelStateLogic.Next(_state, ev));
+    }
+
+    /// <summary>Currently-displayed mission id (null when panel is
+    /// closed). Read by the owner when it needs to correlate a socle
+    /// occupancy change with the current panel.</summary>
+    public string? CurrentMissionId => _currentMissionId;
+
+    /// <summary>Currently-displayed NPC id (null when panel is closed).</summary>
+    public string? CurrentNpcId => _currentNpcId;
 
     // -------------------------------------------------------------------
     // Internal -- scene tree build
@@ -307,7 +288,6 @@ public partial class MissionRecruitPanel : Control
         rootVbox.AddThemeConstantOverride("separation", 12);
         _panelContainer.AddChild(rootVbox);
 
-        // -- Header row : Close button (X) on the right + Title label
         var headerRow = new HBoxContainer
         {
             Name = "HeaderRow",
@@ -339,7 +319,6 @@ public partial class MissionRecruitPanel : Control
         _closeButton.Pressed += OnClosePressed;
         headerRow.AddChild(_closeButton);
 
-        // -- District subtitle
         _districtLabel = new Label
         {
             Name = "DistrictLabel",
@@ -351,11 +330,12 @@ public partial class MissionRecruitPanel : Control
         _districtLabel.AddThemeColorOverride("font_color", new Color(0.35f, 0.25f, 0.15f, 1f));
         rootVbox.AddChild(_districtLabel);
 
-        // -- Iso placeholder (centered, fixed area)
+        // Iso placeholder wrapper -- use Pass on the wrapper so the
+        // placeholder receives mouse events for its drag-source role.
         var isoWrapper = new CenterContainer
         {
             Name = "IsoWrapper",
-            MouseFilter = MouseFilterEnum.Ignore,
+            MouseFilter = MouseFilterEnum.Pass,
         };
         isoWrapper.CustomMinimumSize = new Vector2(0, 280);
         rootVbox.AddChild(isoWrapper);
@@ -366,8 +346,11 @@ public partial class MissionRecruitPanel : Control
         };
         _isoPlaceholder.CustomMinimumSize = new Vector2(200, 280);
         isoWrapper.AddChild(_isoPlaceholder);
+        // Subscribe to the reverse-drop signal so the panel forwards
+        // CharacterReturnedFromSocle into its own state machine + emits
+        // the owner-facing CharacterReturnedToRecruitPanel signal.
+        _isoPlaceholder.CharacterReturnedFromSocle += OnReverseDropLanded;
 
-        // -- Hook body (autowrap, takes remaining vertical room)
         _hookLabel = new Label
         {
             Name = "HookLabel",
@@ -382,7 +365,6 @@ public partial class MissionRecruitPanel : Control
         _hookLabel.AddThemeColorOverride("font_color", new Color(0.10f, 0.08f, 0.06f, 1f));
         rootVbox.AddChild(_hookLabel);
 
-        // -- Action buttons : Accept + Decline side by side at the bottom
         var buttonRow = new HBoxContainer
         {
             Name = "ButtonRow",
@@ -415,7 +397,7 @@ public partial class MissionRecruitPanel : Control
     }
 
     // -------------------------------------------------------------------
-    // Payload binding
+    // Payload binding + state -> visual projection
     // -------------------------------------------------------------------
 
     private void ApplyPayload(MissionRecruitPanelPayload payload)
@@ -424,6 +406,23 @@ public partial class MissionRecruitPanel : Control
         if (_districtLabel is not null) _districtLabel.Text = payload.DistrictLabel;
         if (_hookLabel is not null) _hookLabel.Text = payload.NarrativeHook;
         _isoPlaceholder?.SetNpc(payload.NpcId);
+    }
+
+    private void ApplyState(MissionRecruitPanelState next)
+    {
+        if (_state == next) return;
+        _state = next;
+        // Grey-out the placeholder iff the perso is on the socle.
+        _isoPlaceholder?.SetGreyedOut(
+            MissionRecruitPanelStateLogic.ShouldGreyOutCharacterPlaceholder(next));
+        // Highlight the Accept button via Modulate (themable later).
+        if (_acceptButton is not null)
+        {
+            _acceptButton.Modulate =
+                MissionRecruitPanelStateLogic.ShouldHighlightAcceptButton(next)
+                    ? AcceptHighlightTint
+                    : Colors.White;
+        }
     }
 
     // -------------------------------------------------------------------
@@ -445,8 +444,6 @@ public partial class MissionRecruitPanel : Control
 
         if (!toOpen)
         {
-            // After the close tween, hide the panel + emit the close
-            // signal so owners may free / pool the instance.
             _slideTween.TweenCallback(Callable.From(OnCloseAnimationFinished));
         }
     }
@@ -458,7 +455,7 @@ public partial class MissionRecruitPanel : Control
     }
 
     // -------------------------------------------------------------------
-    // Button handlers
+    // Button + signal handlers
     // -------------------------------------------------------------------
 
     private void OnClosePressed()
@@ -469,16 +466,15 @@ public partial class MissionRecruitPanel : Control
     private void OnAcceptPressed()
     {
         var missionId = _currentMissionId;
+        var npcId = _currentNpcId ?? string.Empty;
         if (string.IsNullOrEmpty(missionId))
         {
             GD.PushWarning("[MissionRecruitPanel] Accept pressed with no current mission -- no-op");
             return;
         }
-        // Drop the mission from the local cache immediately so the
-        // tooltip rows refresh on the next signal cycle. The
-        // authoritative server state is reconciled on the next poll.
+        // Drop from local cache immediately so the tooltip refreshes.
         _missionStore?.RemoveById(missionId);
-        _ = FireAcceptAsync(missionId);
+        _ = FireAcceptAsync(missionId, npcId);
         Close();
     }
 
@@ -492,10 +488,24 @@ public partial class MissionRecruitPanel : Control
         }
         _missionStore?.RemoveById(missionId);
         _ = FireDeclineAsync(missionId);
+        // Tell the owner to wipe the socle in case the perso had been
+        // parked there mid-flow (spec 6.D).
+        EmitSignal(SignalName.RecruitDeclined, missionId);
         Close();
     }
 
-    private async Task FireAcceptAsync(string missionId)
+    private void OnReverseDropLanded(string npcId)
+    {
+        // The placeholder accepted a reverse drop from the socle.
+        // Drive the state machine + tell the owner so it can wipe the
+        // company socle.
+        ApplyState(MissionRecruitPanelStateLogic.Next(
+            _state, MissionRecruitPanelEvent.CharacterReturnedFromSocle));
+        var missionId = _currentMissionId ?? string.Empty;
+        EmitSignal(SignalName.CharacterReturnedToRecruitPanel, missionId, npcId);
+    }
+
+    private async Task FireAcceptAsync(string missionId, string npcId)
     {
         if (_apiClient is null) return;
         try
@@ -508,6 +518,10 @@ public partial class MissionRecruitPanel : Control
             {
                 case Result<MissionAcceptResponseDto, ApiError>.Success ok:
                     GD.PrintRaw($"[MissionRecruitPanel] accept ack id={missionId} status={ok.Value.Status}\n");
+                    // Marshall back to the main thread before touching
+                    // any scene state (CallDeferred = the trap memo's
+                    // L4 main-thread-marshalling pin).
+                    CallDeferred(MethodName.OnAcceptSucceededDeferred, missionId, npcId);
                     break;
                 case Result<MissionAcceptResponseDto, ApiError>.Failure fail:
                     if (fail.Error is ApiError.ServerError serverErr && serverErr.StatusCode == 404)
@@ -518,6 +532,10 @@ public partial class MissionRecruitPanel : Control
                     {
                         GD.PushWarning($"[MissionRecruitPanel] accept failed id={missionId} : {fail.Error.GetType().Name}");
                     }
+                    // Failure path : tell the owner to restore the
+                    // socle visual state -- the player's intent did
+                    // not land on the server.
+                    CallDeferred(MethodName.OnAcceptFailedDeferred, missionId);
                     break;
             }
         }
@@ -525,6 +543,25 @@ public partial class MissionRecruitPanel : Control
         {
             // Panel freed mid-flight -- expected on E2 unload.
         }
+    }
+
+    /// <summary>
+    /// Main-thread continuation : emits RecruitConfirmed so the owner
+    /// can call CompanyPanel.ApplyConfirmedOccupancy. The panel itself
+    /// has already closed by this point (Close ran synchronously
+    /// inside OnAcceptPressed) ; the signal fires on the freed-but-
+    /// still-instance panel, so the owner subscribes before Show.
+    /// </summary>
+    private void OnAcceptSucceededDeferred(string missionId, string npcId)
+    {
+        EmitSignal(SignalName.RecruitConfirmed, missionId, npcId);
+    }
+
+    private void OnAcceptFailedDeferred(string missionId)
+    {
+        // Owner restores the socle on Decline-shaped signal (the
+        // server did not accept, treat as cancelled).
+        EmitSignal(SignalName.RecruitDeclined, missionId);
     }
 
     private async Task FireDeclineAsync(string missionId)

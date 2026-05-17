@@ -998,6 +998,15 @@ public partial class E2AreaMap
         var panelScene = GD.Load<PackedScene>("res://scenes/ui/MissionRecruitPanel.tscn");
         _recruitPanel = panelScene.Instantiate<MissionRecruitPanel>();
         _recruitPanelCanvasLayer.AddChild(_recruitPanel);
+        // E2.2 step 6 cross-panel wiring : forward the recruit panel's
+        // confirm / decline / reverse-drop signals so the Compagnie socle
+        // can react (apply confirmed occupancy, reset on decline, clear
+        // on reverse drag). Subscribed once at instantiation time ; the
+        // company panel itself is ensured lazily on its first
+        // SlideIn call.
+        _recruitPanel.RecruitConfirmed += OnRecruitConfirmed;
+        _recruitPanel.RecruitDeclined += OnRecruitDeclined;
+        _recruitPanel.CharacterReturnedToRecruitPanel += OnCharacterReturnedToRecruitPanel;
         return _recruitPanel;
     }
 
@@ -1026,7 +1035,72 @@ public partial class E2AreaMap
         var panelScene = GD.Load<PackedScene>("res://scenes/ui/CompanyPanel.tscn");
         _companyPanel = panelScene.Instantiate<CompanyPanel>();
         _companyPanelCanvasLayer.AddChild(_companyPanel);
+        // E2.2 step 6 cross-panel wiring : forward the socle's
+        // occupancy changes back to the recruit panel's state machine
+        // (drop landed -> grey out + highlight Accept ; reverse drag ->
+        // restore).
+        _companyPanel.OccupancyChanged += OnCompanySocleOccupancyChanged;
         return _companyPanel;
+    }
+
+    // ====================================================================
+    // E2.2 step 6 (2026-05-17) -- cross-panel signal forwarders.
+    //
+    // The recruit panel and the company panel each own their own state
+    // and visuals ; the E2AreaMap is the only place they can talk
+    // because each panel is hosted in its own CanvasLayer. Forwarders
+    // here are deliberately thin -- they only translate one panel's
+    // signal into the other panel's public mutator method. The
+    // business decisions (state-machine transitions, drop validation,
+    // header text composition) live in the pure-C# logic helpers
+    // pinned by xUnit.
+    // ====================================================================
+
+    private void OnCompanySocleOccupancyChanged(string npcId)
+    {
+        // Empty string = socle reverted to empty (reverse drag picked
+        // the perso back). Non-empty = drop just landed. Feed the
+        // boolean into the recruit panel's state machine.
+        var dropped = !string.IsNullOrEmpty(npcId);
+        if (_recruitPanel is not null && IsInstanceValid(_recruitPanel))
+        {
+            _recruitPanel.SetCharacterDropped(dropped);
+        }
+    }
+
+    private void OnRecruitConfirmed(string missionId, string npcId)
+    {
+        // Accept round-trip succeeded -- promote the socle to
+        // "confirmed occupied" + update the company header. The
+        // recruit panel has already slid out by this point.
+        if (_companyPanel is not null && IsInstanceValid(_companyPanel))
+        {
+            _companyPanel.ApplyConfirmedOccupancy(npcId);
+        }
+        GD.Print($"[E2AreaMap] RecruitConfirmed mission='{missionId}' npc='{npcId}'");
+    }
+
+    private void OnRecruitDeclined(string missionId)
+    {
+        // Decline (or accept failure) -- wipe the socle in case the
+        // perso had been parked there mid-flow (spec 6.D).
+        if (_companyPanel is not null && IsInstanceValid(_companyPanel))
+        {
+            _companyPanel.ResetOccupancy();
+        }
+        GD.Print($"[E2AreaMap] RecruitDeclined mission='{missionId}'");
+    }
+
+    private void OnCharacterReturnedToRecruitPanel(string missionId, string npcId)
+    {
+        // Reverse drag landed back in the recruit panel -- clear the
+        // company socle. The recruit panel already drove its own
+        // state machine via the placeholder's reverse-drop signal.
+        if (_companyPanel is not null && IsInstanceValid(_companyPanel))
+        {
+            _companyPanel.ResetOccupancy();
+        }
+        GD.Print($"[E2AreaMap] CharacterReturnedToRecruitPanel mission='{missionId}' npc='{npcId}'");
     }
 
     /// <summary>

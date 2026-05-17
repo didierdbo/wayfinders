@@ -1,4 +1,5 @@
 using Godot;
+using Wayfinders.Client.Scripts.Screens;
 
 namespace Wayfinders.Client.Scenes.Ui;
 
@@ -23,92 +24,61 @@ namespace Wayfinders.Client.Scenes.Ui;
 /// </para>
 ///
 /// <para>
-/// <b>Slide direction.</b> The panel is anchored to the LEFT edge with
-/// negative-going offsets when closed (entirely off-screen to the
-/// left). At open it sits at OffsetLeft = 0, OffsetRight = PanelWidthPx.
-/// Mirror image of the recruit panel's right-edge offsets.
+/// <b>Slide direction.</b> Anchored to the LEFT edge with negative
+/// offsets when closed. Mirror of the recruit panel's right-edge offsets.
 /// </para>
 ///
 /// <para>
-/// <b>Close paths.</b>
+/// <b>Étape 6 additions.</b>
 /// <list type="bullet">
-///   <item>Bouton X dans le header -- click triggers <see cref="Close"/>.</item>
-///   <item>ESC clavier -- handled via <see cref="Control._UnhandledInput"/>.
-///         The recruit panel ALSO handles ui_cancel ; whichever
-///         control's ancestor sits earlier in the input chain wins.
-///         Because the CanvasLayer index of the Compagnie panel
-///         (= 111) sits above the recruit panel (= 110), Godot's
-///         input chain delivers ESC to the Compagnie panel FIRST. We
-///         decided (Didier UX decision, 2026-05-17) that ESC closes
-///         the FOCUSED panel only -- not a synchronous "close both" --
-///         so the panel calls <c>SetInputAsHandled()</c> after closing
-///         itself, preventing the recruit panel from also reacting to
-///         the same ESC press.</item>
+///   <item>The central socle is configured as
+///         <see cref="IsoSocketPlaceholder.DropTargetRole.CompanyHost"/>
+///         so it accepts the forward drop from the recruit panel +
+///         hosts the reverse drag back.</item>
+///   <item>The panel forwards the socle's
+///         <see cref="IsoSocketPlaceholder.OccupancyChangedEventHandler"/>
+///         to its own <see cref="OccupancyChangedEventHandler"/>
+///         (re-emission lets the E2AreaMap subscribe once at the
+///         panel level rather than two layers deep).</item>
+///   <item>The panel listens to the viewport's drag-begin / drag-end
+///         notifications (via <see cref="Control._Notification"/>)
+///         and toggles the socle's rim glow accordingly -- the glow
+///         is a UI affordance, not a state-machine input.</item>
+///   <item><see cref="ApplyConfirmedOccupancy"/> -- called by the
+///         owner (E2AreaMap) after a successful
+///         <c>POST /api/missions/&lt;id&gt;/accept</c> round-trip.
+///         Updates the header text ("Compagnie -- 1 membre"), freezes
+///         the socle (no reverse drag), and keeps the occupant visible.</item>
 /// </list>
 /// </para>
 ///
 /// <para>
-/// <b>CanvasLayer index 111.</b> One step above the recruit panel's
-/// 110 so that at étape 6, when a character placeholder is dragged
-/// from the recruit panel TO the Compagnie socle, the Compagnie panel
-/// (the drop target) stays visually on top of the source panel during
-/// the drag. Decided 2026-05-17 ; if at étape 6 the drag preview
-/// rendering reveals this is wrong, we revisit.
+/// <b>What this scene IS NOT.</b> NOT a modal -- the underlying
+/// area-map stays interactive (pan / zoom / hover) while the
+/// Compagnie sits open.
 /// </para>
 ///
 /// <para>
-/// <b>What this scene IS NOT.</b> NOT the future drag&amp;drop logic --
-/// étape 6. The socle child is a static placeholder (its
-/// <c>SetOccupiedNpc</c> setter exists but stays unused at étape 5).
-/// NOT a modal -- like the recruit panel, the underlying area-map
-/// stays interactive (pan / zoom / hover) while the Compagnie sits
-/// open.
-/// </para>
-///
-/// <para>
-/// <b>MouseFilter discipline (memo feedback_godot_rendering_input_traps).</b>
-/// Root Control = Stop so clicks over the panel's rect do not fall
-/// through to the area-map POI markers behind it. Decorative children
-/// (Label, IsoSocketPlaceholder) = Ignore so events fall through to
-/// the panel container. Header HBox + close button keep their default
-/// (Pass / Stop) so the close button is clickable.
-/// </para>
-///
-/// <para>
-/// <b>No CTS at v1.</b> The Compagnie panel is purely visual at étape 5 --
-/// no async ApiClient calls. The CTS pattern §C will land at étape 6
-/// when drag&amp;drop wires party-composition POSTs.
+/// <b>No CTS at v1.</b> The Compagnie panel issues no async ApiClient
+/// calls of its own -- the Accept POST lives on the recruit panel,
+/// the company panel only renders the confirmed state.
 /// </para>
 /// </summary>
 public partial class CompanyPanel : Control
 {
-    /// <summary>Panel width, px. Locked at 360 -- wide enough for the
-    /// centre socle (~280 socle + 32 padding x 2) without crowding 2/3
-    /// of a 1920px viewport reserved for the area-map underneath.</summary>
+    /// <summary>Panel width, px. Locked at 360.</summary>
     private const float PanelWidthPx = 360f;
 
-    /// <summary>X-offset (from the left edge) when open. Locked at 0 --
-    /// the panel hugs the left edge.</summary>
+    /// <summary>X-offset (from the left edge) when open.</summary>
     private const float OpenOffsetX = 0f;
 
-    /// <summary>X-offset (from the left edge) when closed. Negative
-    /// PanelWidthPx + a small safety margin so the panel is entirely
-    /// off-screen and decorative children do not paint.</summary>
+    /// <summary>X-offset when closed -- entirely off-screen left.</summary>
     private const float ClosedOffsetX = -(PanelWidthPx + 8f);
 
-    /// <summary>Open tween duration, seconds. 300ms ease-out cubic --
-    /// mirror of the recruit panel for visual symmetry.</summary>
     private const float OpenTweenSeconds = 0.30f;
-
-    /// <summary>Close tween duration, seconds. 200ms ease-in cubic --
-    /// mirror of the recruit panel.</summary>
     private const float CloseTweenSeconds = 0.20f;
 
-    /// <summary>Parchment background -- cohérent with the recruit
-    /// panel + the mission tooltip (locked 2026-05-17 visual DNA).</summary>
     private static readonly Color ParchmentBg = new(0.91f, 0.85f, 0.72f, 0.97f);
-
-    /// <summary>Umber border -- matches the recruit panel border.</summary>
     private static readonly Color ParchmentBorder = new(0.18f, 0.14f, 0.11f, 1f);
 
     private PanelContainer? _panelContainer;
@@ -120,27 +90,30 @@ public partial class CompanyPanel : Control
     private bool _isOpen;
 
     /// <summary>
-    /// Fired when the panel finishes its close animation. The
-    /// E2AreaMap owner may listen if it later needs to free the
-    /// instance ; at M1 the panel is pooled across mission-row clicks
-    /// so the signal is informational only.
+    /// Fired when the panel finishes its close animation.
     /// </summary>
     [Signal]
     public delegate void PanelClosedEventHandler();
 
+    /// <summary>
+    /// Étape 6 re-emission of the socle's
+    /// <see cref="IsoSocketPlaceholder.OccupancyChangedEventHandler"/>.
+    /// The E2AreaMap subscribes to this so it can forward the
+    /// occupancy change to the recruit panel's state machine.
+    /// Payload is the npcId (empty string when the socle reverts
+    /// to empty).
+    /// </summary>
+    [Signal]
+    public delegate void OccupancyChangedEventHandler(string npcId);
+
     public override void _Ready()
     {
-        // Anchor the root to the LEFT edge, full height. The mirror of
-        // the recruit panel's right-edge anchoring.
         SetAnchorsPreset(LayoutPreset.LeftWide);
         OffsetLeft = ClosedOffsetX;
         OffsetRight = ClosedOffsetX + PanelWidthPx;
         OffsetTop = 0f;
         OffsetBottom = 0f;
 
-        // Root captures the mouse over its own rect (Stop) -- prevents
-        // panel-bounds clicks from leaking to area-map POI hotspots
-        // behind it (trap discipline).
         MouseFilter = MouseFilterEnum.Stop;
         Visible = false;
 
@@ -155,16 +128,6 @@ public partial class CompanyPanel : Control
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        // ESC -> close THIS panel only. SetInputAsHandled prevents the
-        // sibling recruit panel from also reacting to the same press.
-        // The recruit panel handles its own ESC independently when its
-        // _UnhandledInput fires -- but if BOTH panels were open and the
-        // Compagnie panel's CanvasLayer (111) sits above the recruit
-        // panel's (110), Godot delivers ESC to the Compagnie first.
-        // The handled-flag stops the cascade. Inverted order (close
-        // both on a single ESC) was considered but rejected : a focused
-        // close per-panel mirrors common desktop UX and keeps the X
-        // button + ESC sémantically equivalent.
         if (!_isOpen) return;
         if (@event.IsActionPressed("ui_cancel"))
         {
@@ -173,9 +136,27 @@ public partial class CompanyPanel : Control
         }
     }
 
+    public override void _Notification(int what)
+    {
+        // Étape 6 rim glow : Godot fires NotificationDragBegin /
+        // NotificationDragEnd on every Control that is in the tree
+        // when a drag starts / ends. We capture them at the panel
+        // level so the socle does not have to poll, and so closing
+        // the panel mid-drag (e.g. via X click during a drag, edge
+        // case) still clears the glow.
+        switch ((long)what)
+        {
+            case NotificationDragBegin:
+                _socle?.SetDropTargetGlow(true);
+                break;
+            case NotificationDragEnd:
+                _socle?.SetDropTargetGlow(false);
+                break;
+        }
+    }
+
     /// <summary>
-    /// Slide the panel in. Idempotent : calling on an already-open
-    /// panel is a no-op.
+    /// Slide the panel in. Idempotent.
     /// </summary>
     public void SlideIn()
     {
@@ -187,8 +168,7 @@ public partial class CompanyPanel : Control
     }
 
     /// <summary>
-    /// Close the panel. Idempotent : closing an already-closed panel
-    /// is a no-op.
+    /// Close the panel. Idempotent.
     /// </summary>
     public void Close()
     {
@@ -197,6 +177,53 @@ public partial class CompanyPanel : Control
         StartSlideTween(toOpen: false);
         GD.Print("[CompanyPanel] close");
     }
+
+    /// <summary>
+    /// Reset the panel's occupancy to empty (no recruit on socle,
+    /// "Compagnie" header). Called by the owner when the recruit
+    /// panel closes without a successful accept (decline / X / ESC),
+    /// to wipe any in-progress drop state.
+    /// </summary>
+    public void ResetOccupancy()
+    {
+        if (_socle is not null)
+        {
+            _socle.SetConfirmedOccupancy(false);
+            _socle.SetOccupiedNpc(null);
+        }
+        if (_headerLabel is not null)
+            _headerLabel.Text = CompanyPanelOccupiedLogic.EmptyHeaderText;
+    }
+
+    /// <summary>
+    /// Apply the confirmed-occupied state after a successful Accept
+    /// round-trip. Called by the owner (E2AreaMap) on the
+    /// <see cref="MissionRecruitPanel.RecruitConfirmedEventHandler"/>
+    /// signal. Updates the header + freezes the socle (no reverse
+    /// drag once confirmed).
+    /// </summary>
+    public void ApplyConfirmedOccupancy(string npcId)
+    {
+        if (string.IsNullOrEmpty(npcId))
+        {
+            GD.PushWarning("[CompanyPanel] ApplyConfirmedOccupancy called with empty npcId -- no-op");
+            return;
+        }
+        var payload = CompanyPanelOccupiedLogic.Compose(npcId);
+        if (_headerLabel is not null) _headerLabel.Text = payload.HeaderText;
+        if (_socle is not null)
+        {
+            _socle.SetOccupiedNpc(npcId);
+            _socle.SetConfirmedOccupancy(true);
+        }
+        GD.Print($"[CompanyPanel] occupancy confirmed npc='{npcId}' header='{payload.HeaderText}'");
+    }
+
+    /// <summary>Expose the socle so the owning E2AreaMap can wire the
+    /// recruit panel's reverse-drop target to it (the recruit panel
+    /// needs to forward CharacterReturnedFromSocle back to the
+    /// company-panel-owned socle on the reverse path).</summary>
+    public IsoSocketPlaceholder? Socle => _socle;
 
     // -------------------------------------------------------------------
     // Internal -- scene tree build
@@ -239,7 +266,6 @@ public partial class CompanyPanel : Control
         rootVbox.AddThemeConstantOverride("separation", 12);
         _panelContainer.AddChild(rootVbox);
 
-        // -- Header row : Title label left, Close button (X) on right.
         var headerRow = new HBoxContainer
         {
             Name = "HeaderRow",
@@ -250,7 +276,7 @@ public partial class CompanyPanel : Control
         _headerLabel = new Label
         {
             Name = "HeaderLabel",
-            Text = "Compagnie",
+            Text = CompanyPanelOccupiedLogic.EmptyHeaderText,
             MouseFilter = MouseFilterEnum.Ignore,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             HorizontalAlignment = HorizontalAlignment.Left,
@@ -271,15 +297,10 @@ public partial class CompanyPanel : Control
         _closeButton.Pressed += OnClosePressed;
         headerRow.AddChild(_closeButton);
 
-        // -- Central socle area : CenterContainer fills the remaining
-        // vertical space and centres the IsoSocketPlaceholder horizontally
-        // and vertically. The socle's CustomMinimumSize controls the
-        // visible footprint ; the centring is geometric, not anchor-based,
-        // so resizing the panel re-centres for free.
         var socleWrapper = new CenterContainer
         {
             Name = "SocleWrapper",
-            MouseFilter = MouseFilterEnum.Ignore,
+            MouseFilter = MouseFilterEnum.Pass,
             SizeFlagsVertical = SizeFlags.ExpandFill,
         };
         rootVbox.AddChild(socleWrapper);
@@ -288,15 +309,21 @@ public partial class CompanyPanel : Control
         {
             Name = "IsoSocket",
         };
-        // Override the default cmin (168 x 88) with a larger landing
-        // surface that reads as the centerpiece of the panel. Width 240
-        // -> height 120 (2:1 locked).
-        _socle.CustomMinimumSize = new Vector2(240, 120);
+        // Slightly larger landing surface than the cmin default + a
+        // tall enough vertical band to host the occupant silhouette
+        // + the name label below.
+        _socle.CustomMinimumSize = new Vector2(280, 240);
+        // Étape 6 : flip the socle from decorative to drop target +
+        // reverse drag source. MouseFilter is reconciled inside.
+        _socle.SetDropTargetRole(IsoSocketPlaceholder.DropTargetRole.CompanyHost);
+        // Re-emit the socle's occupancy changes at the panel level so
+        // the owner (E2AreaMap) subscribes once at one layer up.
+        _socle.OccupancyChanged += OnSocleOccupancyChanged;
         socleWrapper.AddChild(_socle);
     }
 
     // -------------------------------------------------------------------
-    // Slide tween
+    // Slide tween + signal forwarders
     // -------------------------------------------------------------------
 
     private void StartSlideTween(bool toOpen)
@@ -324,12 +351,17 @@ public partial class CompanyPanel : Control
         EmitSignal(SignalName.PanelClosed);
     }
 
-    // -------------------------------------------------------------------
-    // Button handlers
-    // -------------------------------------------------------------------
-
     private void OnClosePressed()
     {
         Close();
+    }
+
+    private void OnSocleOccupancyChanged(string npcId)
+    {
+        // Re-emit at the panel level. Empty string carries the
+        // "socle reverted to vide" signal -- the owner translates
+        // that into the recruit panel's CharacterReturnedFromSocle
+        // state-machine event.
+        EmitSignal(SignalName.OccupancyChanged, npcId);
     }
 }
