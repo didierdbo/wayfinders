@@ -1,12 +1,15 @@
 using System.Collections.Generic;
+using Wayfinders.Client.Scripts.Screens;
 using Wayfinders.Client.Services.Dtos;
 
 namespace Wayfinders.Client.Tests.Opening;
 
 /// <summary>
 /// Pin the <see cref="NpcRuntimeState"/> record contract locked by Varn
-/// 2026-05-17 (consolidated spec Section D ; I-10). This record is the
-/// canonical shape of per-NPC mutable state on the
+/// 2026-05-17 (consolidated spec Section D ; I-10) and amended by §D.7
+/// the same day (post-Rune commit a046ce4 — wire types restored to
+/// <see cref="TileCoordinate"/> + <see cref="NpcPortraitState"/>). This
+/// record is the canonical shape of per-NPC mutable state on the
 /// <c>NpcRegistry</c> autoload — the schema the E2.3 recruit panel
 /// (next milestone) wires against.
 ///
@@ -16,7 +19,8 @@ namespace Wayfinders.Client.Tests.Opening;
 ///   <item>Default-shaped entry : <c>IsRecruited=false</c>,
 ///         <c>RecruitedAtTick=null</c>, empty
 ///         <see cref="NpcRuntimeState.KnownTilesAppliedTo"/>,
-///         null <see cref="NpcRuntimeState.PortraitState"/>,
+///         <see cref="NpcPortraitState.Calm"/> default
+///         <see cref="NpcRuntimeState.PortraitState"/>,
 ///         null <see cref="NpcRuntimeState.LastSeenTick"/>.</item>
 ///   <item><c>with</c>-expression mutation produces a NEW snapshot ;
 ///         the original is unchanged (record immutability).</item>
@@ -25,7 +29,8 @@ namespace Wayfinders.Client.Tests.Opening;
 ///         <c>MutateState</c> no-op suppression gate.</item>
 ///   <item>The <c>KnownTilesAppliedTo</c> set is set-typed
 ///         (duplicate inserts are idempotent at the
-///         <see cref="HashSet{T}"/> level).</item>
+///         <see cref="HashSet{T}"/> level) and value-equal over
+///         <see cref="TileCoordinate"/>.</item>
 ///   <item>The mutator-delegate pattern (used by
 ///         <c>NpcRegistry.MutateState</c>) round-trips correctly :
 ///         given a snapshot, a <c>with</c>-expression-shaped
@@ -40,7 +45,9 @@ namespace Wayfinders.Client.Tests.Opening;
 /// itself : signal emission needs the Godot runtime. Same rationale
 /// as <see cref="LocationContextStateTests"/> (record contract here ;
 /// signal-fire validated via integration smoke at E2.3 recruit-panel
-/// landing).
+/// landing). Likewise the <c>Vector2I</c> bridge on the Godot-bound
+/// side is exercised by the first caller that materialises it — no
+/// fantôme bridge today.
 /// </para>
 /// </summary>
 public sealed class NpcRuntimeStateTests
@@ -53,14 +60,16 @@ public sealed class NpcRuntimeStateTests
         // recruit panel reads IsRecruited=false as "show the recruit
         // button" ; the reveal projection reads
         // KnownTilesAppliedTo.Count==0 as "the idempotence anchor
-        // says no tiles have been promoted yet".
+        // says no tiles have been promoted yet". PortraitState
+        // defaults to Calm so the E4 portrait composition has a
+        // valid key suffix without a null-tolerance branch.
         var state = new NpcRuntimeState { NpcId = "kira" };
 
         Assert.Equal("kira", state.NpcId);
         Assert.False(state.IsRecruited);
         Assert.Null(state.RecruitedAtTick);
         Assert.Empty(state.KnownTilesAppliedTo);
-        Assert.Null(state.PortraitState);
+        Assert.Equal(NpcPortraitState.Calm, state.PortraitState);
         Assert.Null(state.LastSeenTick);
     }
 
@@ -78,7 +87,7 @@ public sealed class NpcRuntimeStateTests
         Assert.True(after.IsRecruited);
         Assert.Equal(42, after.RecruitedAtTick);
         Assert.Empty(after.KnownTilesAppliedTo);
-        Assert.Null(after.PortraitState);
+        Assert.Equal(NpcPortraitState.Calm, after.PortraitState);
         Assert.Null(after.LastSeenTick);
     }
 
@@ -109,7 +118,7 @@ public sealed class NpcRuntimeStateTests
             NpcId = "kira",
             IsRecruited = true,
             RecruitedAtTick = 12,
-            PortraitState = "calm",
+            PortraitState = NpcPortraitState.Calm,
             LastSeenTick = 17,
         };
         var b = new NpcRuntimeState
@@ -117,7 +126,7 @@ public sealed class NpcRuntimeStateTests
             NpcId = "kira",
             IsRecruited = true,
             RecruitedAtTick = 12,
-            PortraitState = "calm",
+            PortraitState = NpcPortraitState.Calm,
             LastSeenTick = 17,
         };
 
@@ -138,17 +147,18 @@ public sealed class NpcRuntimeStateTests
     [Fact]
     public void KnownTilesAppliedTo_is_set_typed_idempotent_insertion()
     {
-        // Set semantics : duplicate inserts of the same cell-key are
-        // no-ops at the HashSet level. The reveal projection (A4.2)
-        // relies on this : when a mission re-applies the same NPC's
-        // known_tiles, the set already contains the keys, and the
-        // projection skips the already-promoted cells.
-        var tiles = new HashSet<string> { "3,4" };
-        tiles.Add("3,4");
-        tiles.Add("3,4");
+        // Set semantics : duplicate inserts of the same TileCoordinate
+        // are no-ops at the HashSet level (record-struct value
+        // equality powers the de-duplication). The reveal projection
+        // (A4.2) relies on this : when a mission re-applies the same
+        // NPC's known_tiles, the set already contains the coords, and
+        // the projection skips the already-promoted cells.
+        var tiles = new HashSet<TileCoordinate> { new(3, 4) };
+        tiles.Add(new TileCoordinate(3, 4));
+        tiles.Add(new TileCoordinate(3, 4));
 
         Assert.Single(tiles);
-        Assert.Contains("3,4", tiles);
+        Assert.Contains(new TileCoordinate(3, 4), tiles);
     }
 
     [Fact]
@@ -158,17 +168,21 @@ public sealed class NpcRuntimeStateTests
         // set produces a new snapshot whose set holds exactly the
         // expected entries. This is the shape the reveal projection
         // takes when it appends a freshly-promoted cell to the set
-        // (creating a new HashSet that includes the prior keys + the
+        // (creating a new HashSet that includes the prior coords + the
         // new one).
         var before = new NpcRuntimeState { NpcId = "kira" };
         var after = before with
         {
-            KnownTilesAppliedTo = new HashSet<string> { "3,4", "5,6" },
+            KnownTilesAppliedTo = new HashSet<TileCoordinate>
+            {
+                new(3, 4),
+                new(5, 6),
+            },
         };
 
         Assert.Equal(2, after.KnownTilesAppliedTo.Count);
-        Assert.Contains("3,4", after.KnownTilesAppliedTo);
-        Assert.Contains("5,6", after.KnownTilesAppliedTo);
+        Assert.Contains(new TileCoordinate(3, 4), after.KnownTilesAppliedTo);
+        Assert.Contains(new TileCoordinate(5, 6), after.KnownTilesAppliedTo);
         // The original is still empty — the with-expression replaced
         // the set rather than mutating the existing one.
         Assert.Empty(before.KnownTilesAppliedTo);
@@ -196,7 +210,7 @@ public sealed class NpcRuntimeStateTests
         var before = new NpcRuntimeState
         {
             NpcId = "kira",
-            PortraitState = "calm",
+            PortraitState = NpcPortraitState.Calm,
             LastSeenTick = 3,
         };
         var after = recruitMutator(before);
@@ -206,7 +220,7 @@ public sealed class NpcRuntimeStateTests
         Assert.Equal(7, after.RecruitedAtTick);
         // Untouched fields preserved verbatim.
         Assert.Equal("kira", after.NpcId);
-        Assert.Equal("calm", after.PortraitState);
+        Assert.Equal(NpcPortraitState.Calm, after.PortraitState);
         Assert.Equal(3, after.LastSeenTick);
         Assert.Empty(after.KnownTilesAppliedTo);
     }

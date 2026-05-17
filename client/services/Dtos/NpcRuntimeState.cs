@@ -1,18 +1,22 @@
 using System.Collections.Generic;
+using Wayfinders.Client.Scripts.Screens;
 
 namespace Wayfinders.Client.Services.Dtos;
 
 /// <summary>
 /// Per-NPC mutable runtime state held on the
 /// <see cref="Wayfinders.Client.Services.NpcRegistry"/> autoload. The
-/// static catalog (<see cref="Wayfinders.Client.Scripts.Screens.NpcCatalog"/>)
-/// holds pure data (display name, portrait keys) ; this record holds
-/// the mutable gameplay state that survives screen changes.
+/// static catalog (<see cref="NpcCatalog"/>) holds pure data (display
+/// name, portrait keys) ; this record holds the mutable gameplay state
+/// that survives screen changes.
 ///
 /// <para>
-/// <b>Varn-lock 2026-05-17 Section D (I-10).</b> Schema locked here so
-/// the E2.3 recruit panel (next milestone) can wire against a real
-/// shape rather than re-inventing one at the call site.
+/// <b>Varn-lock 2026-05-17 Section D (I-10) + §D.7 amendment.</b> Schema
+/// locked here so the E2.3 recruit panel (next milestone) can wire
+/// against a real shape rather than re-inventing one at the call site.
+/// The §D.7 ratification (post-Rune commit a046ce4) reversed two
+/// downgrades that had landed in the initial implementation — see the
+/// "Field types (Varn §D.7 ratification)" paragraph below.
 /// </para>
 ///
 /// <para>
@@ -63,25 +67,27 @@ namespace Wayfinders.Client.Services.Dtos;
 /// singleton (<see cref="EmptyTileSet"/>) so a default-shaped record
 /// vs another default-shaped record DO compare equal — that's the
 /// dominant case for the no-op suppression gate. Callers that mutate
-/// the set explicitly (the reveal projection at A4.2) must reuse
-/// the prior set reference if they want the no-op gate to fire on
-/// "no actual change". The recruit handler today doesn't mutate this
+/// the set explicitly (the reveal projection at A4.2) must reuse the
+/// prior set reference if they want the no-op gate to fire on "no
+/// actual change". The recruit handler today doesn't mutate this
 /// field — it lands when A4.2 wires in.
 /// </para>
 ///
 /// <para>
-/// <b>Field shape note (Didier 2026-05-17 brief).</b> The Varn-locked
-/// spec §D.1 lists <c>KnownTilesAppliedTo : IReadOnlySet&lt;Vector2I&gt;</c>
-/// and <c>PortraitState : NpcPortraitState</c> (the Godot enum). The
-/// implementation brief downgrades both to <c>string</c>-keyed shapes
-/// (HashSet&lt;string&gt; for tiles ; <c>string?</c> slug for portrait)
-/// so the record stays Godot-free and cherry-pickable into the xUnit
-/// test host. Translation seam: callers stringify cells via
-/// <c>$"{cell.X},{cell.Y}"</c> at the recruit-panel edge ; portrait
-/// slugs are <c>"calm"</c> / <c>"alert"</c> / <c>"wounded"</c> matching
-/// <see cref="Wayfinders.Client.Scripts.Screens.NpcPortraitState"/>
-/// suffixes. The semantic schema is preserved ; only the wire types
-/// shift to keep the test seam clean.
+/// <b>Field types (Varn §D.7 ratification, 2026-05-17).</b> The
+/// initial implementation (commit a046ce4) had downgraded the locked
+/// types to keep the record cherry-pickable into the xUnit host : the
+/// cell set as <c>IReadOnlySet&lt;string&gt;</c> (keys
+/// <c>"col,row"</c>), the portrait state as <c>string?</c> slug.
+/// Varn reviewed and refused both downgrades : the cherry-pick
+/// invariant is real, but a pure-C# value-typed mirror restores type
+/// safety without breaking it. The cell set is now
+/// <c>IReadOnlySet&lt;<see cref="TileCoordinate"/>&gt;</c> (a Godot-free
+/// readonly record struct mirroring <c>Vector2I</c>) ; the portrait
+/// state is now the <see cref="NpcPortraitState"/> enum (already
+/// Godot-free in <see cref="NpcCatalog"/>'s file). See §D.7 of
+/// <c>varn-mission-ml-and-invariants-consolidated-2026-05-17.md</c>
+/// for the ratification record.
 /// </para>
 /// </summary>
 public sealed record NpcRuntimeState
@@ -96,13 +102,12 @@ public sealed record NpcRuntimeState
     /// an empty <see cref="HashSet{T}"/> ; safe to expose because no
     /// caller has a writable reference.
     /// </summary>
-    private static readonly IReadOnlySet<string> EmptyTileSet = new HashSet<string>();
+    private static readonly IReadOnlySet<TileCoordinate> EmptyTileSet = new HashSet<TileCoordinate>();
 
     /// <summary>
     /// Stable NpcId matching the
-    /// <see cref="Wayfinders.Client.Scripts.Screens.NpcCatalog"/> id
-    /// convention. Required (no default — every entry must declare
-    /// which NPC it represents).
+    /// <see cref="NpcCatalog"/> id convention. Required (no default —
+    /// every entry must declare which NPC it represents).
     /// </summary>
     public required string NpcId { get; init; }
 
@@ -121,40 +126,45 @@ public sealed record NpcRuntimeState
     public int? RecruitedAtTick { get; init; }
 
     /// <summary>
-    /// Set of cell-keys (canonical <c>"col,row"</c> string form) whose
-    /// reveal-state has already been promoted to <c>Partial</c> or
-    /// <c>Revealed</c> by THIS NPC's <c>known_tiles</c> projection.
-    /// Used to prevent double-applying the projection across
-    /// recruit / unrecruit cycles. Empty set when not yet applied or
-    /// after explicit reset.
+    /// Set of cells whose reveal-state has already been promoted to
+    /// <c>Partial</c> or <c>Revealed</c> by THIS NPC's
+    /// <c>known_tiles</c> projection. Used to prevent double-applying
+    /// the projection across recruit / unrecruit cycles. Empty set
+    /// when not yet applied or after explicit reset.
     ///
     /// <para>
-    /// <b>String key seam.</b> Cells are stringified at the recruit-
-    /// panel edge via <c>$"{cell.X},{cell.Y}"</c> so the record stays
-    /// Godot-free. The reveal projection (A4.2) parses the keys back
-    /// into <c>Vector2I</c> at write time. Same idempotence anchor
-    /// either way.
+    /// <b>Godot-free seam (Varn §D.7).</b> Cells are
+    /// <see cref="TileCoordinate"/> records (pure-C# mirror of
+    /// <c>Vector2I</c>) so the field type stays cherry-pickable into
+    /// the xUnit host. The reveal projection (A4.2) lives on the
+    /// Godot-bound side and converts between <c>Vector2I</c> and
+    /// <see cref="TileCoordinate"/> at the engine boundary via a
+    /// one-line helper (the bridge lands with the first caller ;
+    /// concrete-first, no fantôme).
     /// </para>
     ///
     /// <para>
     /// <b>Default = shared singleton.</b> The default value is
-    /// <see cref="EmptyTileSet"/>, NOT a fresh <c>new HashSet</c> per
-    /// instance. This is what makes two default-shaped records
+    /// <see cref="EmptyTileSet"/>, NOT a fresh <c>new HashSet</c>
+    /// per instance. This is what makes two default-shaped records
     /// compare equal under C# record equality (which falls back to
     /// reference comparison for collection fields).
     /// </para>
     /// </summary>
-    public IReadOnlySet<string> KnownTilesAppliedTo { get; init; } = EmptyTileSet;
+    public IReadOnlySet<TileCoordinate> KnownTilesAppliedTo { get; init; } = EmptyTileSet;
 
     /// <summary>
-    /// Current portrait-state slug for stateful NPCs (Kira:
-    /// <c>"calm"</c> / <c>"alert"</c> / <c>"wounded"</c> ; future
-    /// stateful NPCs follow). Null means "use the catalog default"
-    /// (stateless NPCs ignore writes anyway). Matches the suffix
-    /// taxonomy from
-    /// <see cref="Wayfinders.Client.Scripts.Screens.NpcPortraitStateExtensions.ToKeySuffix(Wayfinders.Client.Scripts.Screens.NpcPortraitState)"/>.
+    /// Current portrait state for stateful NPCs (Kira:
+    /// <see cref="NpcPortraitState.Calm"/> /
+    /// <see cref="NpcPortraitState.Alert"/> /
+    /// <see cref="NpcPortraitState.Wounded"/> ; future stateful NPCs
+    /// follow). Defaults to <see cref="NpcPortraitState.Calm"/> —
+    /// stateless NPCs (Dorn, the fallback) effectively ignore the
+    /// field because <see cref="NpcCatalog.LookupPortraitKey"/>
+    /// short-circuits the state suffix when
+    /// <c>HasPerStatePortraits == false</c>.
     /// </summary>
-    public string? PortraitState { get; init; }
+    public NpcPortraitState PortraitState { get; init; } = NpcPortraitState.Calm;
 
     /// <summary>
     /// Last tick at which this NPC was rendered on a visible screen.
