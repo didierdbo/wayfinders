@@ -4,8 +4,8 @@ using Wayfinders.Client.Scripts.Screens;
 namespace Wayfinders.Client.Scenes.Ui;
 
 /// <summary>
-/// E2.2 step 3+4 placeholder Control rendering a procedural
-/// parallelepiped iso silhouette for one M1 roster NPC (kira / dorn /
+/// E2.2 step 3+4 placeholder Control rendering a procedural 2.5D iso
+/// parallelepiped silhouette for one M1 roster NPC (kira / dorn /
 /// vell). Lives inside the <see cref="MissionRecruitPanel"/>'s right
 /// half ; also reusable in the future Compagnie panel (étape 5) for
 /// the per-persona portrait row.
@@ -21,22 +21,30 @@ namespace Wayfinders.Client.Scenes.Ui;
 /// </para>
 ///
 /// <para>
-/// <b>Composition.</b>
+/// <b>Geometry.</b> Three visible faces of a 2:1 iso box, all
+/// computed by <see cref="IsoCharacterGeometryLogic"/> (pure-C#,
+/// engine-free, xUnit-pinned) :
 /// <list type="bullet">
-///   <item><b>Top face</b> -- iso losange, drawn as a 4-vertex polygon
-///         in the placeholder's lightest variant of the unit tint.
-///         Reads as the character's "head / cap" volume.</item>
-///   <item><b>Front face</b> -- 4-vertex polygon in the base unit
-///         tint. Reads as the character's "torso" volume.</item>
-///   <item><b>Right side face</b> -- 4-vertex polygon in a darker
-///         variant of the unit tint (multiplied by 0.7). The classic
-///         3D-iso shading trick : a single lateral face one step
-///         darker is enough to read as 3D volume.</item>
+///   <item><b>Top face</b> -- iso losange, lightest variant of the
+///         unit tint. The four apexes touch the bounding-rect edges
+///         (top, right at mid-depth, bottom at front-top apex, left
+///         at mid-depth).</item>
+///   <item><b>Front face</b> -- parallelogram leaning down-right,
+///         base unit tint. Mid tone.</item>
+///   <item><b>Right side face</b> -- parallelogram leaning down-left,
+///         darker variant of the unit tint (multiplied by 0.7). The
+///         classic 3D-iso shading trick : a single lateral face one
+///         step darker is enough to read as 3D volume.</item>
 ///   <item><b>Name label</b> -- engine <see cref="Label"/> child sitting
 ///         above the top face, displaying the resolved
 ///         <see cref="NpcCatalog.LookupDisplayName"/>. Centred,
-///         readable typography (24px, outlined).</item>
+///         readable typography (22px, outlined).</item>
 /// </list>
+/// The three faces meet at a common front-top apex -- this is the
+/// invariant pinned by
+/// <c>IsoCharacterGeometryLogicTests.Three_faces_meet_at_common_front_top_vertex</c>,
+/// catching any drift that would re-introduce the d5c3705 symptom
+/// (cube-2D with a floating detached losange on top).
 /// </para>
 ///
 /// <para>
@@ -49,12 +57,13 @@ namespace Wayfinders.Client.Scenes.Ui;
 /// </para>
 ///
 /// <para>
-/// <b>Sizing.</b> Default custom-minimum-size = 180 x 260 px. Width is
-/// dominated by the iso silhouette base (200px) ; height accommodates
-/// the silhouette (240px) + the label band (20px). Caller may override
-/// via <see cref="Control.CustomMinimumSize"/> ; the draw scales
-/// against <see cref="Control.Size"/> at every paint so the silhouette
-/// fills whatever room it gets.
+/// <b>Sizing.</b> Default custom-minimum-size = 180 x 260 px. This
+/// matches a 2:1 iso box of width W=180, depth D=60, height H=200
+/// (bounding box W by (D + H)), plus the reserved label band on top.
+/// Caller may override via <see cref="Control.CustomMinimumSize"/> ;
+/// the draw scales against <see cref="Control.Size"/> at every paint
+/// so the silhouette fills whatever room it gets while keeping the
+/// 2:1 iso ratio (depth = width / 3).
 /// </para>
 ///
 /// <para>
@@ -77,6 +86,13 @@ public partial class IsoCharacterPlaceholder : Control
     /// <summary>Padding inside the Control's rect, around the
     /// silhouette + label.</summary>
     private const float PaddingPx = 12f;
+
+    /// <summary>
+    /// 2:1 iso projection ratio. Depth = width * this. Locked to
+    /// 1/3 to match a standard dimetric iso (top losange is wider
+    /// than tall in a 3:1 visual ratio when D = W/3).
+    /// </summary>
+    private const float DepthOverWidth = 1f / 3f;
 
     /// <summary>
     /// Multiplier applied to the unit tint to derive the darker right
@@ -152,85 +168,75 @@ public partial class IsoCharacterPlaceholder : Control
 
     public override void _Draw()
     {
-        // Compute the silhouette bounding rect : the Control's rect
-        // minus the top label band and side padding.
-        var rect = new Rect2(
-            new Vector2(PaddingPx, LabelBandPx + PaddingPx),
-            new Vector2(
-                Mathf.Max(0f, Size.X - 2f * PaddingPx),
-                Mathf.Max(0f, Size.Y - LabelBandPx - 2f * PaddingPx)));
+        // Available rect for the silhouette = Control's rect minus the
+        // top label band and side padding.
+        var availW = Mathf.Max(0f, Size.X - 2f * PaddingPx);
+        var availH = Mathf.Max(0f, Size.Y - LabelBandPx - 2f * PaddingPx);
+        if (availW <= 4f || availH <= 4f) return;
 
-        if (rect.Size.X <= 4f || rect.Size.Y <= 4f) return;
+        // Derive (w, d, h) for a 2:1 iso box that fills the available
+        // rect. Depth is locked at w/3 ; height takes whatever is left
+        // after the depth band. If the available rect is wider than
+        // tall enough, we cap width so the box does not exceed
+        // available height.
+        float w = availW;
+        float d = w * DepthOverWidth;
+        float h = availH - d;
+        if (h < 8f)
+        {
+            // Available rect is squat -- scale the box down so it fits.
+            // Bounding height = d + h = w * (DepthOverWidth) + h.
+            // Solve w * DepthOverWidth + h_min = availH, but here we
+            // just cap w so d + 8 <= availH.
+            w = (availH - 8f) / DepthOverWidth;
+            d = w * DepthOverWidth;
+            h = 8f;
+        }
 
-        // Geometric anchors for the iso parallelepiped. The silhouette
-        // reads as a "block-shaped character" : a top losange (head),
-        // a tall front face (torso), and a side face (volume hint).
-        //
-        // Use ~30% of the silhouette height for the head losange, 70%
-        // for the torso volume. Width = 90% of rect.
-        var siloW = rect.Size.X * 0.9f;
-        var siloLeft = rect.Position.X + (rect.Size.X - siloW) * 0.5f;
-        var siloRight = siloLeft + siloW;
-        var siloTop = rect.Position.Y;
-        var siloBottom = siloTop + rect.Size.Y;
-        var headHeight = rect.Size.Y * 0.30f;
-        var headMid = siloTop + headHeight * 0.5f;
-        var torsoTop = siloTop + headHeight;
-
-        // Side face inset -- the right face's depth (how far it leans
-        // to the right of the silhouette body). Locked at 15% of width
-        // for a recognisable 3D hint without distorting the iso.
-        var depth = siloW * 0.15f;
+        // Centre the silhouette horizontally inside the padded rect.
+        var offX = PaddingPx + (availW - w) * 0.5f;
+        var offY = LabelBandPx + PaddingPx;
 
         // Colours -- top face is lighter, side face is darker.
         var topTint = LightenClamp(_baseTint, TopFaceMultiplier);
         var frontTint = _baseTint;
         var sideTint = DarkenClamp(_baseTint, SideFaceMultiplier);
 
-        // -------- Front face (torso) : 4-vertex polygon
-        // Rectangle from torsoTop to siloBottom, full silhouette width.
-        var frontPolygon = new Vector2[]
-        {
-            new(siloLeft, torsoTop),
-            new(siloRight - depth, torsoTop), // leaves room for the side face's top edge
-            new(siloRight - depth, siloBottom),
-            new(siloLeft, siloBottom),
-        };
+        // Pull the three face polygons from the pure-C# geometry
+        // helper, translate into the padded draw area, and convert to
+        // Godot Vector2[].
+        var topPolygon = Translate(IsoCharacterGeometryLogic.TopFace(w, d, h), offX, offY);
+        var frontPolygon = Translate(IsoCharacterGeometryLogic.FrontFace(w, d, h), offX, offY);
+        var rightPolygon = Translate(IsoCharacterGeometryLogic.RightFace(w, d, h), offX, offY);
+
+        // Draw order : front, right, top. The three faces do not
+        // overlap (they share edges only) so any order is correct ;
+        // we draw the top last so its outline sits cleanly above the
+        // two vertical faces' shared apex edge.
         DrawColoredPolygon(frontPolygon, frontTint);
-
-        // -------- Right side face : 4-vertex polygon
-        // A parallelogram leaning to the right ; reads as the
-        // "thickness" of the character.
-        var sidePolygon = new Vector2[]
-        {
-            new(siloRight - depth, torsoTop),
-            new(siloRight, torsoTop + depth * 0.5f),
-            new(siloRight, siloBottom - depth * 0.5f),
-            new(siloRight - depth, siloBottom),
-        };
-        DrawColoredPolygon(sidePolygon, sideTint);
-
-        // -------- Top face (head losange) : iso 4-vertex polygon
-        // Pointed at top + bottom, wide in the middle.
-        var headLeft = siloLeft + siloW * 0.25f;
-        var headRight = siloRight - depth - siloW * 0.10f;
-        var topPolygon = new Vector2[]
-        {
-            new((headLeft + headRight) * 0.5f, siloTop),     // top point
-            new(headRight, headMid),                          // right
-            new((headLeft + headRight) * 0.5f, torsoTop),    // bottom point (sits flush on torsoTop)
-            new(headLeft, headMid),                           // left
-        };
+        DrawColoredPolygon(rightPolygon, sideTint);
         DrawColoredPolygon(topPolygon, topTint);
 
-        // -------- Subtle outline -- one umber stroke around the
-        // silhouette so the shape reads against any panel background.
-        // Drawn last so it sits on top of the fills.
+        // -------- Subtle outline -- one umber stroke around each face
+        // so the silhouette reads against any panel background. The
+        // shared interior edges get stroked twice (acceptable at
+        // 1.5 px) ; the back-facing edges of the box are never drawn
+        // because the helper never returns their vertices.
         var outlineColour = new Color(0.18f, 0.14f, 0.11f, 1f);
         const float outlineWidth = 1.5f;
         DrawPolyline(ClosePolyline(frontPolygon), outlineColour, outlineWidth);
-        DrawPolyline(ClosePolyline(sidePolygon), outlineColour, outlineWidth);
+        DrawPolyline(ClosePolyline(rightPolygon), outlineColour, outlineWidth);
         DrawPolyline(ClosePolyline(topPolygon), outlineColour, outlineWidth);
+    }
+
+    private static Vector2[] Translate((float X, float Y)[] points, float dx, float dy)
+    {
+        var result = new Vector2[points.Length];
+        for (int i = 0; i < points.Length; i++)
+        {
+            result[i] = new Vector2(points[i].X + dx, points[i].Y + dy);
+        }
+        return result;
     }
 
     private static Color LightenClamp(Color c, float factor) => new(

@@ -379,6 +379,7 @@
        here, integration validated via the F6 smoke. -->
   <ItemGroup>
     <Compile Include="..\scripts\screens\IsoCharacterPaletteLogic.cs" Link="src\IsoCharacterPaletteLogic.cs" />
+    <Compile Include="..\scripts\screens\IsoCharacterGeometryLogic.cs" Link="src\IsoCharacterGeometryLogic.cs" />
     <Compile Include="..\scripts\screens\MissionRecruitPanelLogic.cs" Link="src\MissionRecruitPanelLogic.cs" />
   </ItemGroup>
 
