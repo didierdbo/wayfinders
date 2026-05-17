@@ -58,12 +58,32 @@ namespace Wayfinders.Client.Services;
 ///         <see cref="RequestMissionTooltip"/> (hover-in) and
 ///         <see cref="CancelMissionTooltip"/> (hover-out).</item>
 ///   <item><see cref="_tooltipHovered"/> — true while the cursor is on
-///         the mission tooltip panel. Flipped by the panel's
-///         <c>MouseEntered</c> / <c>MouseExited</c> signals wired here.</item>
+///         the mission tooltip panel OR on any of its row Buttons. The
+///         Buttons are wired explicitly because a Stop-filter Button
+///         child <i>steals</i> the parent Panel's mouse_exited (Godot 4
+///         quirk : a child Stop-filter Control covering a pixel makes
+///         the parent's mouse_exited fire even though the cursor is
+///         still inside the parent's rect).</item>
 /// </list>
 /// The tooltip stays visible while EITHER flag is true. When both go
 /// false, the fade-out runs. This is the "POI ↔ tooltip sticky bridge"
 /// the spec calls out.
+/// </para>
+///
+/// <para>
+/// <b>Stale-timer discipline (E2.2 step 2 bugfix 2026-05-17).</b>
+/// <see cref="SceneTreeTimer"/> has no <c>Cancel()</c> in Godot 4 — once
+/// scheduled, it WILL fire. The earlier shape stored the latest timer
+/// in a private field and bailed when that field was null, but the test
+/// missed the case where a NEW request had replaced the field with a
+/// NEW timer instance. The old timer would then fire, see the field
+/// non-null, and proceed to mutate the panel with the STALE payload
+/// (bug 1 — tooltip A stays visible after switching to POI B ; bug 3 —
+/// new tooltip B never renders because the stale fire nulled the field
+/// the new fire was checking). The fix is a monotonically incrementing
+/// <see cref="_missionRequestGeneration"/> counter captured by each
+/// scheduled lambda ; only the lambda whose captured token equals the
+/// current generation is allowed to run.
 /// </para>
 ///
 /// <para>
@@ -150,9 +170,19 @@ public partial class HoverTooltipController : Node
     // -- E2.2 step 2 mission tooltip (PanelContainer + VBox + per-row Button)
     private PanelContainer? _missionTooltipPanel;
     private VBoxContainer? _missionTooltipVbox;
-    private SceneTreeTimer? _missionPendingTimer;
     private Tween? _missionFadeTween;
     private Theme? _missionTooltipTheme;
+
+    /// <summary>
+    /// Monotonically incrementing token. Each
+    /// <see cref="RequestMissionTooltip"/> call bumps this AND captures
+    /// the new value into the timer lambda's closure. When the timer
+    /// fires, it compares its captured value against the current value :
+    /// stale timers (from a previous request that was superseded) silently
+    /// no-op. This is the canonical workaround for Godot 4's
+    /// <see cref="SceneTreeTimer"/> having no <c>Cancel()</c>.
+    /// </summary>
+    private int _missionRequestGeneration;
 
     /// <summary>
     /// Sticky bridge -- true while the anchoring POI is hovered. Flipped
@@ -163,8 +193,10 @@ public partial class HoverTooltipController : Node
 
     /// <summary>
     /// Sticky bridge -- true while the cursor is on the mission tooltip
-    /// panel itself. Flipped by the panel's MouseEntered (true) and
-    /// MouseExited (false) signals.
+    /// panel OR on any of its row Buttons. Flipped by both the Panel's
+    /// MouseEntered/MouseExited and by each row Button's
+    /// MouseEntered/MouseExited (the Buttons must opt in explicitly --
+    /// a Stop-filter child Control steals the parent's mouse_exited).
     /// </summary>
     private bool _tooltipHovered;
 
@@ -182,9 +214,17 @@ public partial class HoverTooltipController : Node
     /// disconnects with the EXACT lambdas wired at build time. Mirrors
     /// the Risk #1 captured-reference discipline used by every other
     /// hover-handler dict in this codebase (E2 markers, E2 cells, NPC
-    /// portraits).
+    /// portraits). Carries the Pressed handler AND the
+    /// MouseEntered/MouseExited handlers (the latter feed the sticky
+    /// bridge -- see <see cref="_tooltipHovered"/>).
     /// </summary>
-    private readonly List<(Button button, Action pressed)> _rowPressedHandlers = new();
+    private readonly List<RowHandlers> _rowHandlers = new();
+
+    private readonly record struct RowHandlers(
+        Button Button,
+        Action Pressed,
+        Action MouseEntered,
+        Action MouseExited);
 
     public override void _Ready()
     {
@@ -226,8 +266,15 @@ public partial class HoverTooltipController : Node
             // The mission panel needs to STOP mouse events (so the sticky
             // bridge MouseEntered/MouseExited fire on it). The simple
             // tooltip uses IGNORE because it has no interactivity ; we
-            // diverge here deliberately.
+            // diverge here deliberately. The VBox child stays at Pass so
+            // hover events that land on the VBox empty band (between
+            // rows, in the separation gap) propagate up to the Panel and
+            // keep the bridge alive.
             _missionTooltipPanel.MouseFilter = Control.MouseFilterEnum.Stop;
+            if (_missionTooltipVbox is not null)
+            {
+                _missionTooltipVbox.MouseFilter = Control.MouseFilterEnum.Pass;
+            }
             _missionTooltipPanel.Theme = _missionTooltipTheme;
             _missionTooltipPanel.MouseEntered += OnMissionTooltipMouseEntered;
             _missionTooltipPanel.MouseExited += OnMissionTooltipMouseExited;
@@ -341,6 +388,17 @@ public partial class HoverTooltipController : Node
     /// <see cref="_anchorHovered"/> OR <see cref="_tooltipHovered"/> is
     /// true.
     /// </para>
+    ///
+    /// <para>
+    /// <b>Fast-switch behaviour (bugfix 2026-05-17, bug 1 fix).</b> If a
+    /// mission tooltip is already on-screen (Visible AND alpha > 0) when
+    /// a new request lands for a DIFFERENT POI, the previous content is
+    /// torn down synchronously and the new content is rendered
+    /// IMMEDIATELY, bypassing the 600ms hover delay. The semantic match
+    /// is "the player is already in tooltip-reading mode, just swap the
+    /// content" -- same pattern as a stock OS tooltip following the
+    /// cursor across hot zones.
+    /// </para>
     /// </summary>
     /// <param name="payload">Header text + rows. If
     /// <see cref="MissionTooltipPayload.Rows"/> is empty, the call is a
@@ -362,13 +420,21 @@ public partial class HoverTooltipController : Node
         if (_missionTooltipPanel is null || _missionTooltipVbox is null) return;
         if (payload.Rows.Count == 0) return;
 
-        _anchorHovered = true;
+        // Bump the generation token. Any in-flight timer that captured
+        // an older value will compare-fail in OnMissionHoverDelayElapsed
+        // and silently no-op. Required because Godot 4's SceneTreeTimer
+        // has no Cancel() -- a scheduled timer WILL fire eventually
+        // (bug 1 + bug 3 race fix).
+        _missionRequestGeneration += 1;
+        var thisGeneration = _missionRequestGeneration;
 
-        // Cancel any in-flight schedule + fade -- last hover wins, same
-        // policy as the simple path.
-        _missionPendingTimer = null;
-        _missionFadeTween?.Kill();
-        _missionFadeTween = null;
+        _anchorHovered = true;
+        // Reset the tooltip-hovered flag to false on every new request.
+        // The cursor is now over a (new) POI marker, not the tooltip --
+        // a stale "true" from a previous switch would keep the fade-out
+        // suppressed even when both POI and tooltip are no longer
+        // hovered, leaking an orphan tooltip.
+        _tooltipHovered = false;
 
         // Capture the click callback for this request. Stashed in a field
         // so the per-row Button.Pressed lambdas (built inside the timer
@@ -376,8 +442,38 @@ public partial class HoverTooltipController : Node
         // RequestMissionTooltip lands before the timer fires.
         _onRowClicked = onRowClicked;
 
-        _missionPendingTimer = GetTree().CreateTimer(HoverDelaySeconds);
-        _missionPendingTimer.Timeout += () => OnMissionHoverDelayElapsed(payload, anchorScreenPosition);
+        // Fast-switch path : tooltip already on-screen (post fade-in) ->
+        // swap the content immediately. The 600ms hover delay only
+        // applies when surfacing a tooltip FROM nothing ; once the
+        // player is already in tooltip-reading mode, switching POI
+        // should not re-introduce a 600ms blank.
+        var alreadyVisible =
+            _missionTooltipPanel.Visible
+            && _missionTooltipPanel.Modulate.A > 0f;
+
+        if (alreadyVisible)
+        {
+            _missionFadeTween?.Kill();
+            _missionFadeTween = null;
+
+            BuildMissionTooltipChildren(payload);
+            _missionTooltipPanel.Position = anchorScreenPosition + TooltipOffset;
+            // Snap to fully opaque -- no re-fade-in mid-swap, that reads
+            // as a flicker not a content change.
+            _missionTooltipPanel.Modulate = new Color(1, 1, 1, 1);
+            return;
+        }
+
+        // Cold-surface path : kill any lingering fade, schedule the
+        // 600ms delay. The lambda captures `thisGeneration` so a stale
+        // fire (after a subsequent Request or Cancel) is silently
+        // discarded by the guard in OnMissionHoverDelayElapsed.
+        _missionFadeTween?.Kill();
+        _missionFadeTween = null;
+
+        var pendingTimer = GetTree().CreateTimer(HoverDelaySeconds);
+        pendingTimer.Timeout += () => OnMissionHoverDelayElapsed(
+            thisGeneration, payload, anchorScreenPosition);
     }
 
     /// <summary>
@@ -395,31 +491,34 @@ public partial class HoverTooltipController : Node
         _anchorHovered = false;
         if (force) _tooltipHovered = false;
 
-        // Drop any pending timer that has not yet fired. If the player
-        // hovered the POI, hovered out before 600ms, the row spawn
-        // never happens -- correct.
-        _missionPendingTimer = null;
+        // Bump the generation so any in-flight timer becomes stale.
+        // Required even for force=false : if the player hovered POI A,
+        // hovered out before 600ms, the scheduled timer A is still
+        // queued and would fire if we did not invalidate it here. Bug 1
+        // root cause -- the previous shape only nulled the field
+        // reference, which the stale-timer fire ignored.
+        _missionRequestGeneration += 1;
 
         if (_tooltipHovered) return; // sticky bridge holds the tooltip open
         FadeOutMissionTooltip();
     }
 
     private void OnMissionHoverDelayElapsed(
+        int capturedGeneration,
         MissionTooltipPayload payload,
         Vector2 anchorScreenPosition)
     {
-        // If CancelMissionTooltip flipped _anchorHovered to false between
-        // schedule and timer fire, _missionPendingTimer is null -- bail
-        // before mutating the panel. Symmetric with OnHoverDelayElapsed.
-        if (_missionPendingTimer is null) return;
+        // Generation guard : the closure captured the generation that
+        // was current when the timer was scheduled. Any later Request or
+        // Cancel bumped the counter ; the captured value no longer
+        // matches and this fire is stale. Drop silently.
+        if (capturedGeneration != _missionRequestGeneration) return;
         if (_missionTooltipPanel is null || _missionTooltipVbox is null) return;
         // Also bail if the anchor flag flipped back to false during the
-        // delay (a cleaner cancel than relying on the pending-timer-null
-        // alone -- defends against a second RequestMissionTooltip racing
-        // a CancelMissionTooltip on the same frame).
+        // delay (defends against a single race where the generation
+        // counter happens to round-trip back to the captured value --
+        // theoretical, but the cost is one branch).
         if (!_anchorHovered) return;
-
-        _missionPendingTimer = null;
 
         BuildMissionTooltipChildren(payload);
 
@@ -434,9 +533,33 @@ public partial class HoverTooltipController : Node
     /// <summary>
     /// Spawn the header Label + one row Button per
     /// <see cref="MissionTooltipRow"/> under
-    /// <see cref="_missionTooltipVbox"/>. Idempotent : any previous
-    /// children (from a prior hover) are torn down first, including the
-    /// per-row Button.Pressed handler disconnects.
+    /// <see cref="_missionTooltipVbox"/>. Children of the previous hover
+    /// are torn down synchronously (via <see cref="Node.Free"/>, NOT
+    /// QueueFree) so the new render is the only content visible on the
+    /// VERY NEXT frame -- the fast-switch path relies on this invariant
+    /// to avoid a one-frame flash of the old payload's rows next to the
+    /// new ones.
+    ///
+    /// <para>
+    /// <b>Row visual shape (bug 3 fix 2026-05-17).</b> Each row is a
+    /// <see cref="Button"/> whose Text is empty ; the visual is built
+    /// from a child <see cref="VBoxContainer"/> holding two
+    /// <see cref="Label"/>s (DisplayName + NarrativeHook). Reason :
+    /// Godot 4's Button rendering does not reliably expose multi-line
+    /// text -- the minimum-size calculation assumes a single line, the
+    /// extra lines from a "\n"-separated string render below the
+    /// allocated rect and are clipped. The previous shape (Button.Text
+    /// = "DisplayName\n  NarrativeHook") produced invisible rows under
+    /// the parchment panel : the Button claimed font-height-x1 of
+    /// vertical space, the Labels rendered outside that rect, the panel
+    /// drew over them. Switching to a Button-with-child-Labels layout
+    /// puts the labels INSIDE the Button's child band, which the VBox
+    /// parent then sizes correctly via min-size propagation. The
+    /// Button's click + hover surface remains the full rect because
+    /// <see cref="Control.MouseFilterEnum.Stop"/> stays on the Button
+    /// and the child VBox + Labels are
+    /// <see cref="Control.MouseFilterEnum.Ignore"/>.
+    /// </para>
     /// </summary>
     private void BuildMissionTooltipChildren(MissionTooltipPayload payload)
     {
@@ -474,14 +597,20 @@ public partial class HoverTooltipController : Node
                 Flat = true,
                 // Pointing-hand cursor on hover -- E2.2 step 2 spec.
                 MouseDefaultCursorShape = Control.CursorShape.PointingHand,
-                // Two-line layout : DisplayName + indented NarrativeHook.
-                // Button.Text supports \n natively ; we feed it pre-baked
-                // (the indent matches the step 1 composer's "  " indent
-                // so the visual rhythm carries over).
-                Text = row.DisplayName + "\n  " + row.NarrativeHook,
-                // Left-align the multi-line text -- Buttons centre by
-                // default which reads as floating.
-                Alignment = HorizontalAlignment.Left,
+                // The text comes from the child Labels (see bug 3 doc
+                // above). Button.Text stays empty so the engine does
+                // NOT reserve a single-line text band that would push
+                // the child Labels out.
+                Text = string.Empty,
+                // The Button MUST stop the mouse so it gets click +
+                // hover events. Child VBox + Labels are set to Ignore
+                // below so they don't steal the Button's events.
+                MouseFilter = Control.MouseFilterEnum.Stop,
+                // Stretch the button to the full VBox width -- without
+                // this the Button shrinks to its content width and the
+                // hover-highlight only paints a thin sliver instead of
+                // the row's full span.
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             };
             // Hover highlight : a per-button StyleBoxFlat override on the
             // "hover" theme key. Locked at terracotta wash 0.35 alpha
@@ -513,18 +642,74 @@ public partial class HoverTooltipController : Node
             button.AddThemeStyleboxOverride("normal", emptyStyle);
             button.AddThemeStyleboxOverride("pressed", emptyStyle);
 
+            // Inner VBox holding the two visible Labels. Mouse_filter
+            // Ignore on the VBox + both Labels so every mouse event
+            // falls through to the Button beneath. The Button's
+            // Pressed/MouseEntered/MouseExited stay wired correctly
+            // because the children are Ignore-transparent.
+            var rowInnerVbox = new VBoxContainer
+            {
+                Name = "Inner",
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+            };
+            // Tight separation -- the two lines are conceptually one
+            // mission, not two independent items.
+            rowInnerVbox.AddThemeConstantOverride("separation", 0);
+
+            var titleLabel = new Label
+            {
+                Name = "Title",
+                Text = row.DisplayName,
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+                HorizontalAlignment = HorizontalAlignment.Left,
+            };
+            var hookLabel = new Label
+            {
+                Name = "Hook",
+                // Indent matches the step 1 composer's "  " visual
+                // rhythm so the rumor hook sits under (and inset from)
+                // the title.
+                Text = "  " + row.NarrativeHook,
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+                HorizontalAlignment = HorizontalAlignment.Left,
+            };
+            // The hook reads one step smaller than the title -- visual
+            // hierarchy (mission name first, hook second).
+            hookLabel.AddThemeFontSizeOverride("font_size", 14);
+
+            rowInnerVbox.AddChild(titleLabel);
+            rowInnerVbox.AddChild(hookLabel);
+            button.AddChild(rowInnerVbox);
+
             // Capture row.MissionId once per closure so each button
             // dispatches its own id (Risk #1 captured-reference
-            // discipline). The handler is also stashed in
-            // _rowPressedHandlers so ClearMissionRows can disconnect
-            // with the exact lambda reference at next-hover teardown.
+            // discipline). The handlers are also stashed in
+            // _rowHandlers so ClearMissionRows can disconnect with the
+            // exact lambda references at next-hover teardown.
             var capturedMissionId = row.MissionId;
             Action pressed = () => OnRowButtonPressed(capturedMissionId);
+            Action mouseEntered = OnRowMouseEntered;
+            Action mouseExited = OnRowMouseExited;
             button.Pressed += pressed;
-            _rowPressedHandlers.Add((button, pressed));
+            button.MouseEntered += mouseEntered;
+            button.MouseExited += mouseExited;
+            _rowHandlers.Add(new RowHandlers(
+                button, pressed, mouseEntered, mouseExited));
 
             _missionTooltipVbox.AddChild(button);
         }
+
+        // Diagnostic log so a future regression is visible at boot. The
+        // step-1 path already logs at compose time ; the step-2 path
+        // adds this at render time so a "tooltip shows but rows look
+        // wrong" report can be triaged against actual child counts and
+        // names.
+        GD.Print(
+            $"[HoverTooltipController] BuildMissionTooltipChildren : " +
+            $"district='{payload.DistrictDisplayName}', " +
+            $"rows_in_payload={payload.Rows.Count}, " +
+            $"vbox_children_after_build={_missionTooltipVbox.GetChildCount()}, " +
+            $"first_row_name='{(_rowHandlers.Count > 0 ? _rowHandlers[0].Button.Name : "<none>")}'");
     }
 
     private void OnRowButtonPressed(string missionId)
@@ -536,26 +721,115 @@ public partial class HoverTooltipController : Node
     }
 
     /// <summary>
-    /// Disconnect every per-row Button.Pressed handler with the EXACT
-    /// captured lambda reference, then free every child Control under
-    /// the mission tooltip VBox. Idempotent ; safe to call when the
-    /// VBox is already empty.
+    /// Row Button MouseEntered handler. Keeps the sticky bridge alive
+    /// while the cursor is on a row (the parent Panel's
+    /// <c>mouse_exited</c> already fired when the cursor crossed onto
+    /// the Button -- without THIS handler, the tooltip would fade out
+    /// the moment the player tried to hover a row, defeating the entire
+    /// interactive-row design).
+    /// </summary>
+    private void OnRowMouseEntered()
+    {
+        _tooltipHovered = true;
+        // If the fade-out had started (cursor crossed POI->Button with
+        // a gap that briefly registered as "neither POI nor tooltip
+        // hovered"), kill it and snap back to fully visible.
+        if (_missionTooltipPanel is not null
+            && _missionTooltipPanel.Visible
+            && _missionTooltipPanel.Modulate.A < 1f)
+        {
+            _missionFadeTween?.Kill();
+            _missionFadeTween = CreateTween();
+            _missionFadeTween.TweenProperty(
+                _missionTooltipPanel, "modulate:a", 1f, FadeInSeconds);
+        }
+    }
+
+    /// <summary>
+    /// Row Button MouseExited handler. Re-evaluates the sticky bridge
+    /// by checking whether the cursor is still inside the Panel's rect
+    /// (rect-check, NOT signal-based -- because Godot's signals can't
+    /// tell us "you exited the Button but you're still over the Panel
+    /// at large"). If the cursor landed outside the entire panel, drop
+    /// the bridge flag ; if the cursor merely crossed onto the Panel's
+    /// empty band between rows or onto another row, keep the bridge
+    /// alive (the next Row's MouseEntered or the Panel's MouseEntered
+    /// will flip it back to true).
+    /// </summary>
+    private void OnRowMouseExited()
+    {
+        // Defer the rect-check by one frame -- Godot dispatches
+        // mouse_exited on the OLD control BEFORE mouse_entered on the
+        // NEW control. Reading the cursor position immediately would
+        // see the cursor still inside the Panel rect even when the
+        // next event is "Panel mouse_exited" too. CallDeferred lets the
+        // sibling mouse_entered (if any) flip _tooltipHovered to true
+        // first ; the deferred check then trusts the bridge flag set
+        // by whichever entered next.
+        CallDeferred(MethodName.ReevaluateTooltipHoveredAfterRowExit);
+    }
+
+    private void ReevaluateTooltipHoveredAfterRowExit()
+    {
+        if (_missionTooltipPanel is null) return;
+        // The mouse position in canvas (CanvasLayer-local) coordinates.
+        // Our panel lives in the dedicated identity-transform tooltip
+        // CanvasLayer so this maps 1:1 with the panel's Position +
+        // Size.
+        var mousePos = _missionTooltipPanel.GetGlobalMousePosition();
+        var rect = new Rect2(_missionTooltipPanel.Position, _missionTooltipPanel.Size);
+        var insidePanel = rect.HasPoint(mousePos);
+
+        if (insidePanel)
+        {
+            // Cursor is still somewhere over the Panel (empty band
+            // between rows, header strip, another row about to fire
+            // mouse_entered). Keep the bridge alive.
+            _tooltipHovered = true;
+            return;
+        }
+
+        // Cursor has left the Panel rect entirely. Drop the flag and
+        // close the tooltip if the anchor POI is also no longer
+        // hovered.
+        _tooltipHovered = false;
+        if (_anchorHovered) return;
+        FadeOutMissionTooltip();
+    }
+
+    /// <summary>
+    /// Disconnect every per-row Button.Pressed AND
+    /// MouseEntered/MouseExited handler with the EXACT captured lambda
+    /// references, then free every child Control under the mission
+    /// tooltip VBox SYNCHRONOUSLY (Free, not QueueFree). Synchronous
+    /// removal matters for the fast-switch path : QueueFree is deferred
+    /// to the end of the frame, which would leave stale Buttons in the
+    /// VBox for one frame and flash both payloads side by side.
+    /// Idempotent ; safe to call when the VBox is already empty.
     /// </summary>
     private void ClearMissionRows()
     {
-        foreach (var (button, pressed) in _rowPressedHandlers)
+        foreach (var rh in _rowHandlers)
         {
-            if (IsInstanceValid(button))
+            if (IsInstanceValid(rh.Button))
             {
-                button.Pressed -= pressed;
+                rh.Button.Pressed -= rh.Pressed;
+                rh.Button.MouseEntered -= rh.MouseEntered;
+                rh.Button.MouseExited -= rh.MouseExited;
             }
         }
-        _rowPressedHandlers.Clear();
+        _rowHandlers.Clear();
 
         if (_missionTooltipVbox is null) return;
+        // Use Free (synchronous) not QueueFree (deferred). The
+        // fast-switch path rebuilds children in the same frame -- a
+        // deferred free would leak the previous payload's rows into the
+        // new render for one frame. The tradeoff is that we MUST hold
+        // no captured references to these Buttons past this call
+        // (which the _rowHandlers.Clear() above guarantees).
         foreach (var child in _missionTooltipVbox.GetChildren())
         {
-            child.QueueFree();
+            child.Free();
         }
     }
 
@@ -579,10 +853,32 @@ public partial class HoverTooltipController : Node
 
     private void OnMissionTooltipMouseExited()
     {
+        // Defer the bridge update by one frame for the same reason as
+        // OnRowMouseExited : Godot fires mouse_exited on the Panel when
+        // the cursor crosses ONTO a Stop-filter child (Button row),
+        // even though the cursor is still inside the Panel rect. A
+        // deferred rect-check lets the child Button's mouse_entered
+        // flip _tooltipHovered to true first ; only an actual exit
+        // from the Panel rect drops the flag.
+        CallDeferred(MethodName.ReevaluateTooltipHoveredAfterPanelExit);
+    }
+
+    private void ReevaluateTooltipHoveredAfterPanelExit()
+    {
+        if (_missionTooltipPanel is null) return;
+        var mousePos = _missionTooltipPanel.GetGlobalMousePosition();
+        var rect = new Rect2(_missionTooltipPanel.Position, _missionTooltipPanel.Size);
+        if (rect.HasPoint(mousePos))
+        {
+            // Cursor crossed onto a child Button -- the Panel's
+            // mouse_exited fires but the cursor is still over the
+            // Panel rect. Keep the bridge alive ; the child Button's
+            // mouse_entered (if it was a Button) already set it to true
+            // anyway, this is just defence in depth.
+            _tooltipHovered = true;
+            return;
+        }
         _tooltipHovered = false;
-        // If the anchor POI is also no longer hovered, fade out now.
-        // Otherwise the player has moved from the tooltip back onto the
-        // POI marker -- keep the tooltip visible.
         if (_anchorHovered) return;
         FadeOutMissionTooltip();
     }
