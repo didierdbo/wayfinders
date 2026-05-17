@@ -1733,10 +1733,21 @@ public partial class IsoMapE1Probe : Node2D
             return 0;
         }
 
+        // §A.8.D1 cross-layer alias (R9 bug B fix, 2026-05-17) — the
+        // backend emits target_poi = "e2.halfgate.<district>" but the
+        // tooltip is hovered on the E1 POI whose canonical id is
+        // "e1.halfgate". Pure prefix-match (PoiTreeService.IsDescendantOf)
+        // does NOT bridge the e1/e2 layer hop, so wrap it with the
+        // Halfgate cross-layer predicate that also accepts
+        // e2.halfgate.* missions when hovering e1.halfgate. Any other
+        // hovered id falls through to the unchanged prefix-match.
+        var predicate = Wayfinders.Client.Scripts.Screens.MissionTooltipRowLogic
+            .HalfgateE1CrossLayerPredicate(poiTree.IsDescendantOf);
+
         var result = Wayfinders.Client.Scripts.Screens.MissionTooltipRowLogic.Build(
             hoveredPoiId,
             gameState.PendingMissions,
-            poiTree.IsDescendantOf);
+            predicate);
 
         if (result.TotalMatching == 0)
         {
@@ -2021,7 +2032,28 @@ public partial class IsoMapE1Probe : Node2D
             return;
         }
 
-        GD.Print($"[PROBE IsoMapE1Probe] reveal trigger fired at t≈{RevealTriggerDelaySec:F1}s — starting 4×4 spiral flip on {_revealSprites.Count} tiles");
+        GD.Print($"[PROBE IsoMapE1Probe] reveal trigger fired at t≈{RevealTriggerDelaySec:F1}s — waiting for Halfgate mission before tile flip (Varn §A.8.D1 strict gating)");
+
+        // §A.8.D1 strict gating (R9, 2026-05-17 amend) — the SPEC says
+        // "the Halfgate region marker / POI surfaces" is mission-gated.
+        // The 4×4 spiral tile-flip cinematic IS part of "Halfgate region
+        // marker surfaces" (it is the painted-city reveal on the iso
+        // grid), so the gate must wrap BOTH the tile flip AND the POI
+        // fade-in — not just the POI fade-in (R6 was incomplete).
+        //
+        // Bounded wait : tick==1 is unconditional server-side (Varn
+        // §A.8.D2), so worst case the player sees the cadastral grid
+        // for one world-tick window (~5s wall-clock) before the flip
+        // fires. If the scene is freed mid-wait we observe the
+        // IsInstanceValid drop and short-circuit cleanly.
+        await WaitForHalfgateMissionAsync();
+
+        if (!IsInstanceValid(this) || !IsInsideTree())
+        {
+            return;
+        }
+
+        GD.Print($"[PROBE IsoMapE1Probe] Halfgate mission present — starting 4×4 spiral flip on {_revealSprites.Count} tiles");
 
         _isRevealAnimating = true;
 
@@ -2043,23 +2075,7 @@ public partial class IsoMapE1Probe : Node2D
         }
 
         _revealCompleted = true;
-        GD.Print($"[PROBE IsoMapE1Probe] flip completed at t≈{RevealTriggerDelaySec + RevealTotalDurationSec:F2}s — waiting for Halfgate mission before POI fade-in (Varn §A.8.D1 strict gating)");
-
-        // §A.8.D1 R6 — wait for a recruit mission targeting Halfgate
-        // (e1.halfgate or e2.halfgate.*) to land in MissionStore.AllActive
-        // before revealing the POI. Tick==1 is unconditional server-side
-        // (Varn §A.8.D2) so the wait is bounded by one world-tick interval
-        // (~5s wall-clock). If the scene is freed mid-wait we observe the
-        // IsInstanceValid drop and short-circuit. This replaces the
-        // legacy unconditional fade-in (backlog B1, closed won't fix).
-        await WaitForHalfgateMissionAsync();
-
-        if (!IsInstanceValid(this) || !IsInsideTree())
-        {
-            return;
-        }
-
-        GD.Print($"[PROBE IsoMapE1Probe] Halfgate mission present — starting POI fade-in ({PoiFadeInDurationSec:F2}s)");
+        GD.Print($"[PROBE IsoMapE1Probe] flip completed at t≈{RevealTriggerDelaySec + RevealTotalDurationSec:F2}s — starting POI fade-in ({PoiFadeInDurationSec:F2}s)");
 
         // PR3-6 integration : make the POI node visible just before the
         // fade-in tween starts. Until now Visible=false ensured the PR5
