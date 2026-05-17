@@ -216,15 +216,21 @@ public partial class HoverTooltipController : Node
     /// hover-handler dict in this codebase (E2 markers, E2 cells, NPC
     /// portraits). Carries the Pressed handler AND the
     /// MouseEntered/MouseExited handlers (the latter feed the sticky
-    /// bridge -- see <see cref="_tooltipHovered"/>).
+    /// bridge -- see <see cref="_tooltipHovered"/>). Also carries the
+    /// MinimumSizeChanged handler on the row's inner VBox so we can
+    /// disconnect it cleanly at teardown -- see
+    /// <see cref="BuildMissionTooltipChildren"/> for the
+    /// min-size-propagation rationale.
     /// </summary>
     private readonly List<RowHandlers> _rowHandlers = new();
 
     private readonly record struct RowHandlers(
         Button Button,
+        VBoxContainer InnerVbox,
         Action Pressed,
         Action MouseEntered,
-        Action MouseExited);
+        Action MouseExited,
+        Action InnerMinSizeChanged);
 
     public override void _Ready()
     {
@@ -560,6 +566,37 @@ public partial class HoverTooltipController : Node
     /// and the child VBox + Labels are
     /// <see cref="Control.MouseFilterEnum.Ignore"/>.
     /// </para>
+    ///
+    /// <para>
+    /// <b>Min-size propagation gotcha (panel-wrap fix 2026-05-17).</b>
+    /// <see cref="Button"/> is a <see cref="Control"/>, NOT a
+    /// <see cref="Container"/>. Adding a <see cref="VBoxContainer"/>
+    /// child does NOT make the Button recompute its min-size from the
+    /// VBox's combined min-size -- the Button reports its own native
+    /// min-size (single-line font height, ~icon size), the inner VBox
+    /// renders at its own min-size at the Button's (0,0), and the parent
+    /// <see cref="PanelContainer"/> sizes the StyleBox only to the
+    /// Button's tiny reported rect. Result : the parchment panel wraps
+    /// just the district header, the rows visually overflow.
+    /// The fix is twofold :
+    /// <list type="number">
+    ///   <item>Push the inner VBox's combined min-size up into
+    ///         <see cref="Control.CustomMinimumSize"/> on the Button
+    ///         (so the parent <see cref="VBoxContainer"/> + grand-parent
+    ///         <see cref="PanelContainer"/> see the right
+    ///         min-size).</item>
+    ///   <item>Anchor-fill the inner VBox to the Button's rect (so
+    ///         once the VBoxContainer parent stretches the Button to
+    ///         full width via <see cref="Control.SizeFlags.ExpandFill"/>,
+    ///         the inner VBox + its Labels stretch with it instead of
+    ///         hugging their min-width at the top-left corner).</item>
+    /// </list>
+    /// The propagation is re-evaluated on every
+    /// <see cref="Control.MinimumSizeChanged"/> emission from the inner
+    /// VBox so font swaps / locale changes / text edits stay in sync.
+    /// An initial deferred call covers the first paint after AddChild
+    /// (the signal isn't guaranteed to fire on construction).
+    /// </para>
     /// </summary>
     private void BuildMissionTooltipChildren(MissionTooltipPayload payload)
     {
@@ -611,6 +648,7 @@ public partial class HoverTooltipController : Node
                 // hover-highlight only paints a thin sliver instead of
                 // the row's full span.
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+                ClipText = false,
             };
             // Hover highlight : a per-button StyleBoxFlat override on the
             // "hover" theme key. Locked at terracotta wash 0.35 alpha
@@ -647,11 +685,18 @@ public partial class HoverTooltipController : Node
             // falls through to the Button beneath. The Button's
             // Pressed/MouseEntered/MouseExited stay wired correctly
             // because the children are Ignore-transparent.
+            //
+            // Anchor preset = FullRect so the inner VBox stretches with
+            // the Button (which gets stretched by the OUTER VBox via
+            // ExpandFill). Without this, the inner VBox hugs its
+            // min-width at (0,0) and the rim of the Button stays empty
+            // even though the Button's own rect spans the panel width.
             var rowInnerVbox = new VBoxContainer
             {
                 Name = "Inner",
                 MouseFilter = Control.MouseFilterEnum.Ignore,
             };
+            rowInnerVbox.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
             // Tight separation -- the two lines are conceptually one
             // mission, not two independent items.
             rowInnerVbox.AddThemeConstantOverride("separation", 0);
@@ -687,16 +732,36 @@ public partial class HoverTooltipController : Node
             // _rowHandlers so ClearMissionRows can disconnect with the
             // exact lambda references at next-hover teardown.
             var capturedMissionId = row.MissionId;
+            var capturedButton = button;
+            var capturedInner = rowInnerVbox;
             Action pressed = () => OnRowButtonPressed(capturedMissionId);
             Action mouseEntered = OnRowMouseEntered;
             Action mouseExited = OnRowMouseExited;
+            // Min-size propagation : Button is a Control, not a Container,
+            // so it does NOT auto-bubble the inner VBox's combined min-size
+            // into its own CustomMinimumSize. Without this, the parent
+            // PanelContainer sizes the parchment StyleBox to the Button's
+            // tiny native min-size and the rows visually overflow. We
+            // wire MinimumSizeChanged so font swaps / locale edits /
+            // future text mutations stay in sync.
+            Action innerMinSizeChanged = () =>
+                SyncRowButtonMinSize(capturedButton, capturedInner);
             button.Pressed += pressed;
             button.MouseEntered += mouseEntered;
             button.MouseExited += mouseExited;
+            rowInnerVbox.MinimumSizeChanged += innerMinSizeChanged;
             _rowHandlers.Add(new RowHandlers(
-                button, pressed, mouseEntered, mouseExited));
+                button, rowInnerVbox, pressed, mouseEntered, mouseExited,
+                innerMinSizeChanged));
 
             _missionTooltipVbox.AddChild(button);
+
+            // Initial min-size push : MinimumSizeChanged is not guaranteed
+            // to fire on construction (Godot only emits when the value
+            // actually changes from a previous reading). Deferred so the
+            // inner VBox has been laid out at least once by the engine
+            // before we sample GetCombinedMinimumSize().
+            Callable.From(() => SyncRowButtonMinSize(capturedButton, capturedInner)).CallDeferred();
         }
 
         // Diagnostic log so a future regression is visible at boot. The
@@ -710,6 +775,34 @@ public partial class HoverTooltipController : Node
             $"rows_in_payload={payload.Rows.Count}, " +
             $"vbox_children_after_build={_missionTooltipVbox.GetChildCount()}, " +
             $"first_row_name='{(_rowHandlers.Count > 0 ? _rowHandlers[0].Button.Name : "<none>")}'");
+    }
+
+    /// <summary>
+    /// Push the inner VBox's combined min-size into the row Button's
+    /// <see cref="Control.CustomMinimumSize"/> plus the Button's stylebox
+    /// content margins (6 / 6 / 4 / 4 -- see <c>emptyStyle</c> /
+    /// <c>hoverStyle</c> in <see cref="BuildMissionTooltipChildren"/>).
+    /// Called once at deferred time after the row is added AND on every
+    /// <see cref="Control.MinimumSizeChanged"/> emission from the inner
+    /// VBox. Idempotent ; safe to call when the inner VBox is empty.
+    /// Guarded against freed nodes via
+    /// <see cref="GodotObject.IsInstanceValid"/> because the inner VBox
+    /// is Free'd synchronously in <see cref="ClearMissionRows"/> but the
+    /// deferred call from <c>BuildMissionTooltipChildren</c> may still
+    /// be in the queue.
+    /// </summary>
+    private static void SyncRowButtonMinSize(Button button, VBoxContainer innerVbox)
+    {
+        if (!IsInstanceValid(button) || !IsInstanceValid(innerVbox)) return;
+        var innerMin = innerVbox.GetCombinedMinimumSize();
+        // The horizontal margin (left + right = 12) and vertical margin
+        // (top + bottom = 8) match the empty/hover StyleBox content
+        // margins. Hard-coded here for clarity ; if those margins are
+        // re-tuned in BuildMissionTooltipChildren, mirror the change
+        // here.
+        button.CustomMinimumSize = new Vector2(
+            innerMin.X + 12f,
+            innerMin.Y + 8f);
     }
 
     private void OnRowButtonPressed(string missionId)
@@ -816,6 +909,10 @@ public partial class HoverTooltipController : Node
                 rh.Button.Pressed -= rh.Pressed;
                 rh.Button.MouseEntered -= rh.MouseEntered;
                 rh.Button.MouseExited -= rh.MouseExited;
+            }
+            if (IsInstanceValid(rh.InnerVbox))
+            {
+                rh.InnerVbox.MinimumSizeChanged -= rh.InnerMinSizeChanged;
             }
         }
         _rowHandlers.Clear();
