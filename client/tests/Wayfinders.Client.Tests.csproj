@@ -409,4 +409,13 @@
     <Compile Include="..\scripts\screens\CompanyPanelOccupiedLogic.cs" Link="src\CompanyPanelOccupiedLogic.cs" />
   </ItemGroup>
 
+  <!-- E2.2 étape 6 fix (2026-05-17): placement helper that aligns the
+       occupant character's parallelepiped BASE with the socle rhombus'
+       TOP apex. The Godot-bound _Draw + PositionOccupantChildren on
+       IsoSocketPlaceholder consume this helper ; xUnit pins the math.
+       Pinned to catch drift in occupant padding / cmin sizing. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\IsoSocketCharacterPlacementLogic.cs" Link="src\IsoSocketCharacterPlacementLogic.cs" />
+  </ItemGroup>
+
 </Project>

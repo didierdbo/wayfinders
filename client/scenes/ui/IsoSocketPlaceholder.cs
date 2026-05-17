@@ -244,15 +244,34 @@ public partial class IsoSocketPlaceholder : Control
             [IsoSocketDropLogic.PayloadKeySource] = IsoSocketDropLogic.DragSourceCompanySocle,
         };
 
-        // Preview = a half-alpha compact silhouette of the occupant.
+        // Preview = a half-alpha compact silhouette of the occupant,
+        // wrapped + centred under the cursor (same discipline as
+        // IsoCharacterPlaceholder._GetDragData ; the wrapper exists
+        // because Godot 4 anchors SetDragPreview at the child's (0,0)
+        // = top-left, otherwise the perso fuit la souris vers le bas).
         var preview = new IsoCharacterPlaceholder
         {
             Name = "DragPreview",
             Modulate = new Color(1f, 1f, 1f, 0.55f),
+            MouseFilter = MouseFilterEnum.Ignore,
         };
         preview.SetCompactMode(true);
         preview.SetNpc(_occupiedNpcId);
-        SetDragPreview(preview);
+        // Same source of truth as the character placeholder's
+        // _GetDragData : the publicly exposed CompactMinSize constant
+        // (120 x 244). _Ready has not yet run on the orphan preview so
+        // we seed Size manually here.
+        var previewSize = IsoCharacterPlaceholder.CompactMinSize;
+        preview.Position = new Vector2(-previewSize.X * 0.5f, -previewSize.Y * 0.5f);
+        preview.Size = previewSize;
+
+        var wrapper = new Control
+        {
+            Name = "DragPreviewWrapper",
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        wrapper.AddChild(preview);
+        SetDragPreview(wrapper);
 
         EmitSignal(SignalName.ReverseDragStarted, _occupiedNpcId);
         return payload;
@@ -377,15 +396,19 @@ public partial class IsoSocketPlaceholder : Control
     {
         if (_occupantSilhouette is not null && IsInstanceValid(_occupantSilhouette))
         {
-            // Place the silhouette so its base sits on top of the
-            // rhombus centre. Compact silhouette is 120x160 ; centre
-            // it horizontally on the socle, anchor its bottom at the
-            // rhombus' vertical centre.
+            // Place the silhouette so its parallelepiped BASE lands on
+            // the rhombus' TOP apex (the perso visibly stands on the
+            // socle, not in front of it). The X/Y math is pinned by
+            // IsoSocketCharacterPlacementLogicTests so a future shift
+            // in the IsoCharacterPlaceholder padding / cmin sizing
+            // surfaces loud at xUnit. Padding constant mirrors the
+            // IsoCharacterPlaceholder.PaddingPx = 12 internal contract.
             var sw = _occupantSilhouette.CustomMinimumSize.X;
             var sh = _occupantSilhouette.CustomMinimumSize.Y;
-            _occupantSilhouette.Position = new Vector2(
-                (Size.X - sw) * 0.5f,
-                rhombusOffsetY + rhombusH * 0.5f - sh);
+            const float occupantInternalPaddingPx = 12f;
+            var (px, py) = IsoSocketCharacterPlacementLogic.ComputeOccupantPosition(
+                Size.X, rhombusOffsetY, sw, sh, occupantInternalPaddingPx);
+            _occupantSilhouette.Position = new Vector2(px, py);
             _occupantSilhouette.Size = new Vector2(sw, sh);
         }
 

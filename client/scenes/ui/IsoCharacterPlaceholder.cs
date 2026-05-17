@@ -70,8 +70,11 @@ public partial class IsoCharacterPlaceholder : Control
     /// <summary>Default cmin size in compact mode (no label band, used
     /// by the company socle's occupied-state mini silhouette). Width
     /// 120 + depth 60 + height 160 gives a 120 x 220 silhouette
-    /// bounding box plus the 2 x padding (24) = 244 vertical budget.</summary>
-    private static readonly Vector2 CompactMinSize = new(120, 244);
+    /// bounding box plus the 2 x padding (24) = 244 vertical budget.
+    /// Exposed publicly so external sites (the socle's reverse-drag
+    /// preview, the placement helper xUnit pins) read the same source
+    /// of truth and a future tweak fans out automatically.</summary>
+    public static readonly Vector2 CompactMinSize = new(120, 244);
 
     /// <summary>Default name label height band reserved above the
     /// silhouette.</summary>
@@ -250,15 +253,38 @@ public partial class IsoCharacterPlaceholder : Control
             [IsoSocketDropLogic.PayloadKeySource] = IsoSocketDropLogic.DragSourceRecruitPanel,
         };
 
-        // Drag preview = a half-alpha copy of the same silhouette.
+        // Drag preview = a half-alpha compact silhouette wrapped in a
+        // Control so we can centre it under the cursor. Godot 4
+        // SetDragPreview anchors the wrapper's (0, 0) on the mouse
+        // position ; without the wrapper, the silhouette's top-left
+        // corner ends up under the cursor (the perso "fuit" the mouse
+        // to the bottom-right, smoke 6 bug 2026-05-17).
+        //
+        // Centroid-under-cursor over sticky-to-atPosition : the preview
+        // is compact (120x244) while the source is hero-sized (160x336),
+        // so a proportional atPosition mapping would visually shift the
+        // clicked pixel anyway. Centering matches the modern tactical
+        // RPG idiom (XCOM, Wartales, Battle Brothers) and stays
+        // predictable when hovering multiple drop targets.
         var preview = new IsoCharacterPlaceholder
         {
             Name = "DragPreview",
             Modulate = new Color(1f, 1f, 1f, DragPreviewAlpha),
+            MouseFilter = MouseFilterEnum.Ignore,
         };
         preview.SetCompactMode(true);
         preview.SetNpc(_npcId);
-        SetDragPreview(preview);
+        var previewSize = CompactMinSize;
+        preview.Position = new Vector2(-previewSize.X * 0.5f, -previewSize.Y * 0.5f);
+        preview.Size = previewSize;
+
+        var wrapper = new Control
+        {
+            Name = "DragPreviewWrapper",
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        wrapper.AddChild(preview);
+        SetDragPreview(wrapper);
 
         return payload;
     }
