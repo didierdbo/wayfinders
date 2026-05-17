@@ -55,11 +55,20 @@ namespace Wayfinders.Client.Services.Dtos;
 /// </summary>
 public static class WorldTickWireFormat
 {
-    /// <summary>Mission type closed lookup (Varn-locked 2026-05-10).
-    /// Server-side <c>EmergenceMissionType = Literal["scout_route",
+    /// <summary>Mission type closed lookup. M1 strict mode (Varn §A.8.D3
+    /// 2026-05-17) restricts emission to <see cref="Recruit"/> only ;
+    /// <see cref="ScoutRoute"/> and <see cref="ParleyLocal"/> stay on
+    /// the wire schema for M2 restore but are not emitted in M1.
+    /// Server-side <c>MissionType = Literal["recruit", "scout_route",
     /// "parley_local"]</c>.</summary>
     public static class MissionType
     {
+        /// <summary>M1 strict mode (Varn §A.8.D3) — only type emitted in
+        /// M1. Mission anchored to one Halfgate district per recruit
+        /// roster entry (kira/gateway, dorn/intramuros, vell/littoral).
+        /// Each recruit mission carries a non-null
+        /// <see cref="EmergentMissionDto.RecruitTargetNpcId"/>.</summary>
+        public const string Recruit = "recruit";
         public const string ScoutRoute = "scout_route";
         public const string ParleyLocal = "parley_local";
     }
@@ -153,6 +162,11 @@ public sealed record WorldTickRequestDto(
 ///         ±1-bucket window rule (Varn-lock 2026-05-10). Empty when
 ///         the company is empty or no persona is in range — mission
 ///         still emerges (option (c)).</item>
+///   <item><b>Varn §A.8.D3 strict M1 (2026-05-17)</b> — emitted
+///         <see cref="Type"/> is exclusively
+///         <see cref="WorldTickWireFormat.MissionType.Recruit"/> and
+///         <see cref="RecruitTargetNpcId"/> is non-null. For M2 types
+///         it may be null.</item>
 /// </list>
 /// </para>
 ///
@@ -205,6 +219,15 @@ public sealed record WorldTickRequestDto(
 /// empty string so legacy call sites that haven't been updated still
 /// compile ; the live server (Tess commit 6d2d2e4) always returns a
 /// non-empty value.</param>
+/// <param name="RecruitTargetNpcId">M1 strict mode (Varn §A.8.D3,
+/// 2026-05-17) — when <see cref="Type"/> equals
+/// <see cref="WorldTickWireFormat.MissionType.Recruit"/> this is the
+/// NpcId (kira / dorn / vell) the player can recruit by resolving the
+/// mission. Null for any non-recruit type (M2+ : the schema retains
+/// the slot ; for M1 the field is always non-null because recruit is
+/// the only emitted type). Source-gen mapping : C# PascalCase →
+/// snake_case <c>recruit_target_npc_id</c> via the uniform
+/// <see cref="ApiJsonContext"/> naming policy.</param>
 public sealed record EmergentMissionDto(
     string Id,
     string Type,
@@ -215,7 +238,8 @@ public sealed record EmergentMissionDto(
     int? DeadlineTicks,
     string? Outcome,
     long Seed,
-    [property: JsonPropertyName("target_poi")] string TargetPoi = ""
+    [property: JsonPropertyName("target_poi")] string TargetPoi = "",
+    string? RecruitTargetNpcId = null
 );
 
 /// <summary>
