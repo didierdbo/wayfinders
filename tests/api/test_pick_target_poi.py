@@ -264,7 +264,10 @@ class TestCadenceTick1:
         )
 
     def test_tick_1_engine_produces_mission(self) -> None:
-        """EmergenceEngine at tick=1 must produce a mission (unconditional window)."""
+        """EmergenceEngine at tick=1 must produce a mission (unconditional window).
+
+        M1 strict mode (§A.8.D3): emitted type is always 'recruit'.
+        """
         mock = MagicMock()
         mock.ready = True
         mock.predict.return_value = 1.5
@@ -278,7 +281,9 @@ class TestCadenceTick1:
         resp = engine.process_tick(req)
 
         assert resp.mission is not None, "tick=1 must produce a mission (unconditional window)"
-        assert resp.mission.type in ("scout_route", "parley_local")
+        assert resp.mission.type == "recruit", (
+            f"M1 strict mode: expected 'recruit', got {resp.mission.type!r}"
+        )
 
     def test_tick_1_target_poi_is_e2_for_halfgate(self) -> None:
         """At tick=1, a halfgate context must produce an e2.halfgate.* target_poi."""
@@ -300,7 +305,14 @@ class TestCadenceTick1:
         )
 
     def test_tick_1_target_poi_is_e1_for_brescaille(self) -> None:
-        """At tick=1, a brescaille context must fall back to e1.brescaille."""
+        """At tick=1, a brescaille context must fall back to e1.brescaille.
+
+        M1 recruit picker: brescaille has no visible E2 districts, so the
+        target_poi falls back to e1.brescaille (same rule as the old
+        scout_route/parley_local picker for non-halfgate regions).
+        The mission is still type 'recruit' (§A.8.D3); the e1 fallback
+        applies only to the POI layer, not the mission type.
+        """
         mock = MagicMock()
         mock.ready = True
         mock.predict.return_value = 1.5
@@ -314,8 +326,10 @@ class TestCadenceTick1:
         resp = engine.process_tick(req)
 
         assert resp.mission is not None
+        assert resp.mission.type == "recruit"
         assert resp.mission.target_poi == "e1.brescaille", (
-            f"expected e1.brescaille, got {resp.mission.target_poi!r}"
+            f"expected e1.brescaille (e1 fallback for non-halfgate region), "
+            f"got {resp.mission.target_poi!r}"
         )
 
 

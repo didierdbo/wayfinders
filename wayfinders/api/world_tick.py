@@ -6,52 +6,51 @@ Varn's scope doc (2026-05-10 §6) and Tess's tech decisions (§2):
   1. Cadence gate: a mission window opens every ``_CADENCE_MIN`` to
      ``_CADENCE_MAX`` ticks (default 5-10), determined deterministically
      from ``seed``.  Tick 1 is an unconditional first window (Varn-lock
-     2026-05-17) — guarantees ≥1 mission before E2 entry in BootScene →
-     E1 → click POI → E2 flow.  Ticks outside the window return ``None``.
+     2026-05-17 §A.8.D2) — guarantees ≥1 mission before E2 entry in
+     BootScene → E1 → click POI → E2 flow.  Ticks outside the window
+     return ``None``.
 
-  2. Softmax over ``{scout_route, parley_local, no_emergence}`` via the
-     Predictor (UC1 encoder → concat → MLP head — same backbone).
+  2. M1 recruit-only mode (Varn-lock 2026-05-17 §A.8.D3):
+     In M1 only ``"recruit"`` missions are emitted.  The old softmax over
+     ``{scout_route, parley_local, no_emergence}`` is **NOT used** in the
+     M1 pipeline — it is preserved in-module for M2 when those types
+     re-enter the picker.  The M1 path calls ``_pick_recruit_mission()``
+     directly.
 
-     M1 approximation: the UC1 head is a regression head (→ delta ∈ [-5,+5]);
-     we do not yet have a classification head.  Instead we derive three
-     proxy logits from a single predict() call:
-       - Run predict() with ``context_prose`` only (char/action stubs).
-       - Map the scalar delta → three-class logits (see ``_logits_from_delta``).
-     This is explicitly a proxy for M1 and is flagged as technical debt
-     for Etape 3 / M2 where a proper classification head will be trained.
-
-  3. M1 no_emergence fallback: if the sampled class is ``no_emergence``
-     but we are inside the cadence window, fall back to
-     ``argmax({scout_route, parley_local})`` — ensures the end-to-end
-     chain always produces a mission within the window.
+  3. M1 recruit picker: ``_pick_recruit_mission()`` selects the next NPC
+     from ``M1_RECRUIT_ROSTER`` who does not yet have an active mission in
+     the store.  Returns ``None`` if all 3 NPCs are already targeted (cap
+     hit).  Order is deterministic: roster declaration sequence
+     (kira → dorn → vell) — this is the designed tutorial arc, not RNG.
 
   4. Mission struct assembly: ``id`` is a UUID4 stable per
      ``(tick, seed)``; ``narrative_hook`` is a server-side f-string
      template; ``eligible_personas`` is computed by
      ``filter_eligible_personas()`` (Varn-lock 2026-05-10 §2).
 
-  5. POI targeting: missions now emit e2.{region}.{district} for regions
-     with visible E2 districts (Varn-lock 2026-05-17).  Only halfgate is
-     e2-enabled in M1; other regions fall back to e1.{region}.
+  5. POI targeting: missions emit ``e2.{region}.{district}`` derived from
+     the NPC's home district in ``M1_RECRUIT_ROSTER``.  Only halfgate is
+     e2-enabled in M1.
 
 All randomness is seeded from the caller-provided ``seed`` — the server
-holds no global RNG state.  Same ``(tick, seed, context_prose)`` always
-produces the same mission.
+holds no global RNG state.  Same ``(tick, seed, context_prose, active_npcs)``
+always produces the same mission.
 
 Dev flag: ``WAYFINDERS_DEV_MISSION_SEED`` env var.  When set, the cadence
-gate is bypassed (any tick is a window) and the seed from the var is used
-for deterministic mission-type + district selection.  Free-form string for
-M1; closed preset lookup may be added at M2.
+gate is bypassed (any tick is a window).  Free-form string for M1.
 
 OPEN — Varn-flagged items:
   - ``region`` is derived from ``context_prose`` by a heuristic in M1 that
     normalises matches against the Varn-locked RegionId closed lookup and
     falls back to seeded uniform sampling when no match is found.
     M2 will pass it explicitly from WorldState.
-  - The proxy logit derivation is a M1 approximation.  A proper multi-class
-    head (Varn §5 "bolt-on or sibling") is M2 scope.
+  - ``MISSION_TYPE_DISTRICT_AFFINITY`` and the softmax/sampling pipeline are
+    **retained but NOT used in M1**.  They will be restored in M2 when
+    ``scout_route`` and ``parley_local`` re-enter the picker.
   - Multi-region E2 extension (M2): add entries to VISIBLE_E2_DISTRICTS_BY_REGION
     for brescaille, fendelune, veillemont, roches-closes when their E2 scenes land.
+  - Narrative hook templates for recruit type are M1 stubs (f-string server-side).
+    Mira-authored Jinja2 templates land in M2 (narrative_hooks_recruit_*.j2).
 """
 
 from __future__ import annotations
@@ -64,6 +63,7 @@ import uuid
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
+from wayfinders.api.recruit_roster import M1_RECRUIT_ROSTER, RecruitRosterEntry
 from wayfinders.api.world_tick_models import (
     REGION_IDS,
     EmergenceMissionType,
@@ -90,10 +90,15 @@ _CADENCE_MIN: int = 5
 _CADENCE_MAX: int = 10
 
 # ---------------------------------------------------------------------------
-# Mission classes (Varn-locked 2026-05-10)
+# Mission classes (Varn-locked)
 # ---------------------------------------------------------------------------
 
-_MISSION_TYPES: list[EmergenceMissionType] = ["scout_route", "parley_local"]
+# M2+ types — retained in code but NOT emitted in M1 (excluded by M1_EMITTED_TYPES).
+# Restored in M2 when the picker widens back to scout_route + parley_local.
+_MISSION_TYPES_M2: list[EmergenceMissionType] = ["scout_route", "parley_local"]
+
+# M1 emitted type (single element list; kept for symmetry with M2 multi-type lists).
+_MISSION_TYPES: list[EmergenceMissionType] = ["recruit"]
 
 # Prose stubs used when calling the regression head as a proxy classifier.
 # These are EN-pinned, minimal, structurally valid for the encoder.
@@ -126,6 +131,119 @@ def _render_narrative_hook(mission_type: EmergenceMissionType, region: str) -> s
     """Render the M1 f-string narrative hook for a mission type and region."""
     template = _NARRATIVE_HOOKS[mission_type]
     return template.format(type_display=_TYPE_DISPLAY[mission_type], region=region)
+
+
+# Recruit narrative hook templates (M1 stub; Mira-authored Jinja2 templates land in M2).
+# Pratchett-tonal register: dry observation, not heroic announcement.
+# DO NOT change without Varn/Mira ratification — these appear in the E2 tooltip.
+_RECRUIT_HOOKS: dict[str, str] = {
+    "kira": (
+        "A gate-watcher who knows everyone's business — "
+        "and knows which business is worth knowing about."
+    ),
+    "dorn": (
+        "A man behind a desk who knows whose ledger is short "
+        "and whose signature is worth more than the ink."
+    ),
+    "vell": (
+        "Someone at the dockside who has seen every ship come in "
+        "and every promise sail back out again."
+    ),
+}
+
+
+def _render_recruit_hook(npc_id: str) -> str:
+    """Return the M1 narrative hook for a recruit NPC.
+
+    Falls back to a generic template if the NPC id is not in the hook dict
+    (forward-compat guard for M2+ NPCs; M1 roster always matches).
+    """
+    return _RECRUIT_HOOKS.get(
+        npc_id,
+        "A potential recruit in the area — worth a conversation.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# M1 recruit mission picker (§A.8.D3, Varn-lock 2026-05-17)
+# ---------------------------------------------------------------------------
+
+
+def _pick_recruit_mission(
+    region: RegionId,
+    already_targeted_npc_ids: frozenset[str],
+    tick: int,
+    seed: int,
+) -> EmergentMission | None:
+    """Pick the next recruit mission to emit for M1.
+
+    Deterministic order: iterates ``M1_RECRUIT_ROSTER`` in declaration sequence
+    (kira → dorn → vell) and picks the first NPC not yet targeted by an active
+    mission.  This is the designed M1 tutorial arc — no RNG.
+
+    Returns ``None`` when all 3 NPCs in the roster already have an active
+    recruit mission (cap = 3 hit, §A.8.D3).
+
+    POI targeting:
+      - If the region has visible E2 districts (halfgate in M1), the target_poi
+        is ``e2.{region}.{npc.home_district}`` — the NPC's home district anchors
+        the mission to their district on the E2 map.
+      - If the region has no visible E2 districts (non-halfgate regions in M1),
+        the target_poi falls back to ``e1.{region}`` — same e1 fallback used by
+        the old scout_route/parley_local picker for non-halfgate contexts.
+
+    Args:
+        region:                   The current world region (RegionId).
+        already_targeted_npc_ids: NPC ids that already have an active mission.
+                                  Comes from ``MissionStore.active_recruit_npc_ids()``.
+        tick:                     Current world tick (for stable mission id).
+        seed:                     Caller-provided tick seed (for stable mission id).
+
+    Returns:
+        A new ``EmergentMission`` of type ``"recruit"``, or ``None`` if capped.
+
+    Implementation note:
+        ``MISSION_TYPE_DISTRICT_AFFINITY`` and ``_pick_target_poi`` are NOT called
+        here.  In M1, the district is derived directly from the NPC's
+        ``home_district`` in the roster.  ``MISSION_TYPE_DISTRICT_AFFINITY`` is
+        retained in module scope for M2 restore when scout_route/parley_local
+        re-enter the picker.
+    """
+    candidates: list[RecruitRosterEntry] = [
+        entry for entry in M1_RECRUIT_ROSTER if entry.npc_id not in already_targeted_npc_ids
+    ]
+    if not candidates:
+        logger.debug(
+            "world_tick: _pick_recruit_mission — all %d NPCs already targeted, cap hit",
+            len(M1_RECRUIT_ROSTER),
+        )
+        return None
+
+    # Deterministic: first candidate in roster declaration order.
+    pick = candidates[0]
+
+    # POI targeting: e2 layer for regions with visible districts, e1 fallback otherwise.
+    visible_districts = VISIBLE_E2_DISTRICTS_BY_REGION.get(region, ())
+    if visible_districts:
+        # NPC home_district is a valid slug for this region's E2 map.
+        target_poi: PoiId = f"e2.{region}.{pick.home_district}"
+    else:
+        # Non-halfgate region in M1: fall back to e1 layer (same as old scout/parley picker).
+        target_poi = f"e1.{region}"
+
+    return EmergentMission(
+        id=_stable_mission_id(tick, seed),
+        type="recruit",
+        narrative_hook=_render_recruit_hook(pick.npc_id),
+        eligible_personas=(),  # M1: recruit does not gate on personas
+        difficulty="mid",
+        region=region,
+        target_poi=target_poi,
+        deadline_ticks=None,
+        outcome=None,
+        seed=seed,
+        recruit_target_npc_id=pick.npc_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -463,34 +581,47 @@ def _region_to_poi_id(region: RegionId) -> PoiId:
 class EmergenceEngine:
     """Stateless mission-emergence engine for ``POST /api/world/tick``.
 
-    Uses the UC1 Predictor as a proxy classifier (M1 approximation).
-    All state is derived from the request; the engine holds no mutable
-    state between calls.
+    M1 mode: emits recruit-only missions via ``_pick_recruit_mission()``
+    (§A.8.D3, Varn-lock 2026-05-17).  The UC1 Predictor is NOT used for
+    mission-type selection in M1; the softmax/sampling pipeline is preserved
+    for M2 when scout_route/parley_local re-enter the picker.
+
+    In M1, the engine requires access to the ``MissionStore`` to check which
+    NPCs are already targeted (cap enforcement).  Pass it via ``process_tick()``.
 
     Args:
         predictor: The process-level Predictor instance (from app.state).
-                   May be None or not-ready; the engine degrades gracefully
-                   (uniform random over mission types) in that case.
+                   Not used for mission-type selection in M1.  Kept for
+                   eligibility-persona filtering (filter_eligible_personas).
+                   May be None or not-ready; degrades gracefully.
     """
 
     def __init__(self, predictor: Predictor | None = None) -> None:
         self._predictor = predictor
 
-    def process_tick(self, request: WorldTickRequest) -> WorldTickResponse:
+    def process_tick(
+        self,
+        request: WorldTickRequest,
+        already_targeted_npc_ids: frozenset[str] | None = None,
+    ) -> WorldTickResponse:
         """Process a world tick and return an emergence response.
 
-        Algorithm:
+        M1 algorithm (§A.8.D3, Varn-lock 2026-05-17):
           1. Cadence gate — if not in window, return ``mission=None``.
-             Dev flag: if WAYFINDERS_DEV_MISSION_SEED is set, bypass the
-             cadence gate (any tick is a window).
-          2. Get proxy logits via predictor (or uniform if not ready).
-          3. Softmax + seed-seeded sampling.
-          4. M1 fallback: if sampled == no_emergence, use argmax of
-             {scout_route, parley_local}.
-          5. Assemble EmergentMission struct and return.
+             Dev flag: if WAYFINDERS_DEV_MISSION_SEED is set, bypass.
+          2. Derive region from prose (M1 heuristic).
+          3. Call ``_pick_recruit_mission()`` — returns None if cap hit.
+          4. Return the mission (or None if capped).
+
+        The old softmax/sampling pipeline (steps 2-4 in the original
+        docstring) is NOT used in M1.  It is preserved in-module for M2.
 
         Args:
-            request: Validated WorldTickRequest from the HTTP layer.
+            request:                 Validated WorldTickRequest from HTTP layer.
+            already_targeted_npc_ids: NPC ids with active recruit missions.
+                                     Comes from MissionStore.active_recruit_npc_ids().
+                                     Defaults to empty frozenset when called
+                                     without a store (test compatibility).
 
         Returns:
             WorldTickResponse with mission set or None.
@@ -498,6 +629,9 @@ class EmergenceEngine:
         tick = request.tick
         seed = request.seed
         context_prose = request.context_prose
+
+        if already_targeted_npc_ids is None:
+            already_targeted_npc_ids = frozenset()
 
         # --- Dev seed override (WAYFINDERS_DEV_MISSION_SEED) ---
         # When set: bypass cadence gate, use the env-var string as an
@@ -527,75 +661,51 @@ class EmergenceEngine:
             logger.debug("world_tick: tick=%d seed=%d — outside cadence window", tick, seed)
             return WorldTickResponse(mission=None, tick=tick)
 
-        # --- 2. Proxy logits ---
-        logits = self._get_logits(context_prose, seed)
-
-        # --- 3. Softmax + sampling ---
-        probs = _softmax(logits)
-        rng = random.Random(seed ^ 0xCAFE_BABE)  # domain-separate from cadence RNG
-        sampled = _sample_class(probs, rng)
-
-        logger.debug(
-            "world_tick: tick=%d seed=%d probs=%s sampled=%s",
-            tick,
-            seed,
-            {k: f"{v:.3f}" for k, v in probs.items()},
-            sampled,
-        )
-
-        # --- 4. M1 no_emergence fallback ---
-        if sampled == "no_emergence":
-            # Within the window we always emit a mission (M1 spec §6).
-            # Fall back to argmax of the two active mission types.
-            mission_probs = {mt: probs[mt] for mt in _MISSION_TYPES}
-            sampled = max(mission_probs, key=lambda k: mission_probs[k])
-            logger.debug("world_tick: tick=%d — no_emergence fallback → %s", tick, sampled)
-
-        mission_type: EmergenceMissionType = sampled  # type: ignore[assignment]
-        # Narrow type: sampled is always in _MISSION_TYPES after fallback.
-        assert mission_type in _MISSION_TYPES, f"unexpected mission type: {mission_type!r}"
-
-        # --- 5. Assemble mission ---
+        # --- 2. Derive region (M1 heuristic; M2 will receive it from WorldState) ---
         region = _extract_region_from_prose(context_prose, seed=seed)
-        # Varn-lock 2026-05-17: use _pick_target_poi (e2 layer for halfgate,
-        # e1 fallback for other regions in M1).
-        target_poi = _pick_target_poi(mission_type, region, seed)
-        difficulty: DescriptorBucket = "mid"  # forced M1 (sampler disabled per spec §6)
-        eligible = filter_eligible_personas(
-            mission_type=mission_type,
-            difficulty_bucket=difficulty,
-            company_personas=request.company_personas,
-        )
-        mission = EmergentMission(
-            id=_stable_mission_id(tick, seed),
-            type=mission_type,
-            narrative_hook=_render_narrative_hook(mission_type, region),
-            eligible_personas=eligible,
-            difficulty=difficulty,
+
+        # --- 3. M1 recruit picker (§A.8.D3) ---
+        # NOTE: MISSION_TYPE_DISTRICT_AFFINITY and _pick_target_poi are NOT called here.
+        # In M1 the district is derived from the NPC's home_district in M1_RECRUIT_ROSTER.
+        # MISSION_TYPE_DISTRICT_AFFINITY is retained for M2 restore (scout/parley types).
+        mission = _pick_recruit_mission(
             region=region,
-            target_poi=target_poi,
-            deadline_ticks=None,  # M1 — no timer
-            outcome=None,  # set at resolution, not at emergence
+            already_targeted_npc_ids=already_targeted_npc_ids,
+            tick=tick,
             seed=seed,
         )
 
+        if mission is None:
+            # All 3 NPCs already targeted — cap hit, no new mission this window.
+            logger.debug(
+                "world_tick: tick=%d seed=%d — recruit cap hit, no mission emitted",
+                tick,
+                seed,
+            )
+            return WorldTickResponse(mission=None, tick=tick)
+
         logger.info(
-            "world_tick: tick=%d seed=%d → mission %s type=%s region=%s",
+            "world_tick: tick=%d seed=%d → mission %s type=%s npc=%s region=%s poi=%s",
             tick,
             seed,
             mission.id,
             mission.type,
+            mission.recruit_target_npc_id,
             mission.region,
+            mission.target_poi,
         )
 
         return WorldTickResponse(mission=mission, tick=tick)
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Internal helpers (M2 softmax pipeline — NOT used in M1)
     # ------------------------------------------------------------------
 
     def _get_logits(self, context_prose: str, seed: int) -> dict[str, float]:
         """Return three-class proxy logits from the predictor or uniform fallback.
+
+        NOT called in M1 (recruit-only, no logit-based type selection).
+        Preserved for M2 restore of scout_route / parley_local picker.
 
         If the predictor is not ready, returns uniform logits (each class
         equally likely).  This allows the endpoint to function during
@@ -604,12 +714,12 @@ class EmergenceEngine:
         predictor = self._predictor
         if predictor is None or not predictor.ready:
             logger.warning(
-                "world_tick: predictor not ready — using uniform logits (M1 degraded mode)"
+                "world_tick: predictor not ready — using uniform logits (M2 degraded mode)"
             )
             return {"scout_route": 0.0, "parley_local": 0.0, "no_emergence": 0.0}
 
         try:
-            # M1 approximation: use regression head as a proxy classifier.
+            # M2 approximation: use regression head as a proxy classifier.
             # Context-only call: char/action stubs are minimal valid EN prose.
             # The delta encodes the context's "action quality" signal, which
             # we map to mission-type logits via _logits_from_delta.

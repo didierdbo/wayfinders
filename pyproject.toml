@@ -75,6 +75,7 @@ addopts = "-ra --strict-markers --strict-config"
 xfail_strict = true
 markers = [
     "integration: requires model download / network / slow I/O (run with -m integration)",
+    "m2_only: test covers M2+ scope — skipped in M1 (recruit-only mode, §A.8.D3)",
 ]
 
 [tool.ruff]

@@ -123,7 +123,7 @@ class TestMissionsActiveAfterSpawn:
     def test_spawned_mission_fields_complete(
         self, client_with_store: tuple[TestClient, MissionStore]
     ) -> None:
-        """Active mission must have all EmergentMission fields."""
+        """Active mission must have all EmergentMission fields (§A.8.D3: includes recruit_target_npc_id)."""
         tc, _ = client_with_store
         tc.post("/api/world/tick", json={"tick": 1, "seed": 99, "context_prose": _CONTEXT_HALFGATE})
         active = tc.get("/api/missions/active").json()
@@ -140,6 +140,7 @@ class TestMissionsActiveAfterSpawn:
             "deadline_ticks",
             "outcome",
             "seed",
+            "recruit_target_npc_id",  # §A.8.D3 Varn-lock 2026-05-17
         }
         assert set(mission.keys()) == expected_fields
 

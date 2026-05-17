@@ -221,7 +221,7 @@ class TestWorldTickResponseSchema:
         assert response.json()["mission"] is not None
 
     def test_mission_fields_when_present(self, client_ready: tuple[TestClient, MagicMock]) -> None:
-        """EmergentMission must have all contracted fields."""
+        """EmergentMission must have all contracted fields (§A.8.D3: includes recruit_target_npc_id)."""
         tc, _ = client_ready
         seed = 42
         in_window_tick = next(t for t in range(200) if _in_cadence_window(t, seed))
@@ -242,6 +242,7 @@ class TestWorldTickResponseSchema:
             "deadline_ticks",
             "outcome",
             "seed",
+            "recruit_target_npc_id",  # §A.8.D3 Varn-lock 2026-05-17
         }
         assert set(mission.keys()) == expected_keys
 
@@ -357,12 +358,19 @@ class TestWorldTickResponseSchema:
 
 class TestWorldTickDeterminism:
     def test_same_inputs_same_mission_id(self, client_ready: tuple[TestClient, MagicMock]) -> None:
+        """Determinism test: reset store between calls so active-NPC state is identical."""
         tc, _ = client_ready
         seed = 99
         in_window_tick = next(t for t in range(200) if _in_cadence_window(t, seed))
         payload = {"tick": in_window_tick, "seed": seed, "context_prose": _CONTEXT_PROSE}
 
+        # Reset store before each call to ensure identical active-NPC state.
+        from wayfinders.api.app import app
+        from wayfinders.api.mission_store import MissionStore
+
+        app.state.mission_store = MissionStore()
         r1 = tc.post("/api/world/tick", json=payload)
+        app.state.mission_store = MissionStore()
         r2 = tc.post("/api/world/tick", json=payload)
 
         assert r1.json()["mission"]["id"] == r2.json()["mission"]["id"]
@@ -370,12 +378,18 @@ class TestWorldTickDeterminism:
     def test_same_inputs_same_mission_type(
         self, client_ready: tuple[TestClient, MagicMock]
     ) -> None:
+        """Determinism test: reset store between calls so active-NPC state is identical."""
         tc, _ = client_ready
         seed = 99
         in_window_tick = next(t for t in range(200) if _in_cadence_window(t, seed))
         payload = {"tick": in_window_tick, "seed": seed, "context_prose": _CONTEXT_PROSE}
 
+        from wayfinders.api.app import app
+        from wayfinders.api.mission_store import MissionStore
+
+        app.state.mission_store = MissionStore()
         r1 = tc.post("/api/world/tick", json=payload)
+        app.state.mission_store = MissionStore()
         r2 = tc.post("/api/world/tick", json=payload)
 
         assert r1.json()["mission"]["type"] == r2.json()["mission"]["type"]
@@ -383,12 +397,18 @@ class TestWorldTickDeterminism:
     def test_same_inputs_same_narrative_hook(
         self, client_ready: tuple[TestClient, MagicMock]
     ) -> None:
+        """Determinism test: reset store between calls so active-NPC state is identical."""
         tc, _ = client_ready
         seed = 99
         in_window_tick = next(t for t in range(200) if _in_cadence_window(t, seed))
         payload = {"tick": in_window_tick, "seed": seed, "context_prose": _CONTEXT_PROSE}
 
+        from wayfinders.api.app import app
+        from wayfinders.api.mission_store import MissionStore
+
+        app.state.mission_store = MissionStore()
         r1 = tc.post("/api/world/tick", json=payload)
+        app.state.mission_store = MissionStore()
         r2 = tc.post("/api/world/tick", json=payload)
 
         assert r1.json()["mission"]["narrative_hook"] == r2.json()["mission"]["narrative_hook"]
@@ -565,63 +585,66 @@ class TestWorldTickCadence:
 
 class TestWorldTickClosedLookup:
     def test_mission_type_in_closed_set(self, client_ready: tuple[TestClient, MagicMock]) -> None:
-        """Over several window ticks, all mission types must be in the closed lookup."""
+        """M1 strict mode (§A.8.D3): all emitted missions must be type 'recruit'.
+
+        The store is reset before each tick call to ensure the cap does not
+        block emission (3-NPC cap; cap-saturation tested separately).
+        """
+        from wayfinders.api.app import app
+        from wayfinders.api.mission_store import MissionStore
+
         tc, _ = client_ready
         seed = 7
 
-        seen_types: set[str] = set()
-        for tick in range(0, 50):
+        for tick in range(0, 20):
             tick_seed = seed ^ (tick * 0xBEEF)
             if not _in_cadence_window(tick, tick_seed):
                 continue
+            # Reset store so the cap never blocks the first-NPC pick.
+            app.state.mission_store = MissionStore()
             payload = {"tick": tick, "seed": tick_seed, "context_prose": _CONTEXT_PROSE}
             response = tc.post("/api/world/tick", json=payload)
             mission = response.json()["mission"]
+            # In the window with an empty store, a mission must always emerge.
             assert mission is not None
             assert mission["type"] in _MISSION_TYPES, (
                 f"tick={tick}: unexpected mission type {mission['type']!r}; "
                 f"must be in {_MISSION_TYPES}"
             )
-            seen_types.add(mission["type"])
+            assert mission["type"] == "recruit", (
+                f"tick={tick}: M1 strict mode — only 'recruit' missions emitted, "
+                f"got {mission['type']!r}"
+            )
 
-    def test_both_mission_types_reachable(self) -> None:
-        """Over enough seeds and ticks, both scout_route and parley_local must appear.
+    @pytest.mark.m2_only
+    def test_both_m2_mission_types_reachable(self) -> None:
+        """M2+ only: scout_route and parley_local must both be reachable.
 
-        We use the direct engine API to explore more seeds efficiently.
-        The logit mapping produces scout_route for delta > 0 and parley_local
-        for delta < 0, so we test both.
+        This test is skipped in M1 (recruit-only mode per §A.8.D3).
+        Restore in M2 when the picker is widened to scout_route + parley_local.
         """
-        seen_types: set[str] = set()
+        pytest.skip("M2 only — scout_route / parley_local retired from M1 picker (§A.8.D3)")
 
-        for delta_val in [2.0, -2.0]:
-            mock = _make_predictor(ready=True, delta=delta_val)
-            engine = EmergenceEngine(predictor=mock)
-            for seed in range(10):
-                tick = 0  # tick 0 is always in window
-                req = WorldTickRequest(tick=tick, seed=seed, context_prose=_CONTEXT_PROSE)
-                resp = engine.process_tick(req)
-                if resp.mission is not None:
-                    seen_types.add(resp.mission.type)
-
-        assert "scout_route" in seen_types, "scout_route was never sampled"
-        assert "parley_local" in seen_types, "parley_local was never sampled"
-
-    def test_no_emergence_never_reaches_response(
+    def test_no_emergence_type_never_in_response(
         self, client_ready: tuple[TestClient, MagicMock]
     ) -> None:
         """'no_emergence' must never appear as a mission type in the response.
 
-        Even when delta=0 (maximises no_emergence probability), the M1
-        fallback must redirect to one of the two active types.
+        In M1 the type is always 'recruit' inside cadence windows (§A.8.D3).
+        The old no_emergence fallback is not used; this invariant still holds.
         """
+        from wayfinders.api.app import app
+        from wayfinders.api.mission_store import MissionStore
+
         tc, mock = client_ready
-        mock.predict.return_value = 0.0  # maximise no_emergence logit
+        mock.predict.return_value = 0.0
 
         seed = 42
-        for tick in range(50):
+        for tick in range(20):
             tick_seed = seed ^ (tick * 0xDEAD)
             if not _in_cadence_window(tick, tick_seed):
                 continue
+            app.state.mission_store = MissionStore()
             payload = {"tick": tick, "seed": tick_seed, "context_prose": _CONTEXT_PROSE}
             response = tc.post("/api/world/tick", json=payload)
             mission = response.json()["mission"]

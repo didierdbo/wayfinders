@@ -18,6 +18,18 @@ Endpoints:
 * ``GET /api/missions/active`` — Active mission list (Varn-lock 2026-05-17 §A).
   Returns ``list[EmergentMission]`` ordered by spawn tick ascending.  Missions
   remain active until resolved or concluded.  Session-scoped (clears on restart).
+* ``POST /api/missions/{mission_id}/accept`` — Mark a pending mission as accepted.
+  Idempotent (second call is a no-op, returns 200).  Returns 404 if not found.
+* ``POST /api/missions/{mission_id}/decline`` — Remove a pending mission from the
+  store (player declined).  The NPC may re-spawn in a later cadence window.
+  Returns 404 if not found.  409 if already accepted (can't decline after accept).
+* ``POST /api/missions/{mission_id}/conclude`` — Mark an accepted mission as concluded
+  (success outcome: NPC joins the compagnie, does not re-spawn).  Returns 404 if not
+  found.  409 if not in accepted state.
+* ``POST /api/missions/{mission_id}/resolve`` — Conclude an accepted mission with an
+  explicit typed outcome (success / failure / abandoned).  Distinct from conclude
+  so the resolution-outcome type stays a typed contract for the recruit panel.
+  Returns 404 if not found.  409 if not in accepted state.
 * ``GET /api/world/poi_tree`` — POI hierarchy manifest. Returns the Varn-locked
   ``poi_tree.json`` (2026-05-15 spec v2 §2). Read-only, static per server
   version; the client should cache this at startup. Structure: flat dict keyed
@@ -55,6 +67,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from wayfinders.api.mission_conclude import (
     MissionConcludeRequest,
@@ -247,10 +260,23 @@ def world_tick(payload: WorldTickRequest, request: Request) -> WorldTickResponse
     predictor: Predictor = request.app.state.predictor
     mission_store: MissionStore = request.app.state.mission_store
     engine = EmergenceEngine(predictor=predictor)
-    response = engine.process_tick(payload)
-    # Feed emitted mission into the session store (if one emerged).
+    # Pass already-targeted NPC ids for M1 cap enforcement (§A.8.D3).
+    already_targeted = mission_store.active_recruit_npc_ids()
+    response = engine.process_tick(payload, already_targeted_npc_ids=already_targeted)
+    # Feed emitted mission into the session store via try_add (enforces N=3 cap).
     if response.mission is not None:
-        mission_store.add(response.mission, spawn_tick=payload.tick)
+        admitted = mission_store.try_add(response.mission, spawn_tick=payload.tick)
+        if not admitted:
+            # This should not happen: EmergenceEngine already checked the cap via
+            # active_recruit_npc_ids().  A race between two concurrent tick calls
+            # on the same process (uvicorn --workers 1: not possible) could cause
+            # this.  Log at warning and return the mission to the caller anyway —
+            # the client-side defensive guard will drop it if it's a 4th recruit.
+            logger.warning(
+                "world_tick: try_add() refused mission %s after engine emitted it — "
+                "possible race (unlikely on single-worker); returning mission to caller",
+                response.mission.id,
+            )
     return response
 
 
@@ -311,6 +337,262 @@ def get_poi_tree(request: Request) -> JSONResponse:
     Always returns HTTP 200.
     """
     return JSONResponse(content=request.app.state.poi_tree)
+
+
+# ---------------------------------------------------------------------------
+# Mission action models (§A.8.D5, Varn-lock 2026-05-17)
+# ---------------------------------------------------------------------------
+
+
+class MissionActionRequest(BaseModel):
+    """Empty request body for accept / decline (no payload required)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class MissionAcceptResponse(BaseModel):
+    """Response for POST /api/missions/{mission_id}/accept."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    mission_id: str
+    status: str  # "accepted"
+
+
+class MissionDeclineResponse(BaseModel):
+    """Response for POST /api/missions/{mission_id}/decline."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    mission_id: str
+    status: str  # "declined"
+
+
+class MissionConcludeActionRequest(BaseModel):
+    """Request body for POST /api/missions/{mission_id}/conclude.
+
+    outcome: "success" | "failure" | "abandoned"
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: str = Field(
+        ...,
+        description="Resolution outcome: success | failure | abandoned.",
+    )
+
+
+class MissionConcludeActionResponse(BaseModel):
+    """Response for POST /api/missions/{mission_id}/conclude."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    mission_id: str
+    status: str  # "concluded"
+    outcome: str
+
+
+class MissionResolveActionRequest(BaseModel):
+    """Request body for POST /api/missions/{mission_id}/resolve.
+
+    resolution_outcome_type: typed closed lookup for recruit resolution.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    resolution_outcome_type: str = Field(
+        ...,
+        description=(
+            "Typed resolution outcome for recruit missions. "
+            "M1 closed lookup: success | failure | abandoned."
+        ),
+    )
+
+
+class MissionResolveActionResponse(BaseModel):
+    """Response for POST /api/missions/{mission_id}/resolve."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    mission_id: str
+    status: str  # "resolved"
+    resolution_outcome_type: str
+
+
+# ---------------------------------------------------------------------------
+# Mission action endpoints (§A.8.D5)
+# ---------------------------------------------------------------------------
+
+
+@app.post(
+    "/api/missions/{mission_id}/accept",
+    response_model=MissionAcceptResponse,
+    tags=["world"],
+    summary="Accept a pending mission",
+    responses={
+        404: {"description": "Mission not found in the active store."},
+    },
+)
+def mission_accept(
+    mission_id: str,
+    payload: MissionActionRequest,  # empty body, required for POST contract
+    request: Request,
+) -> MissionAcceptResponse:
+    """Mark a pending mission as accepted.
+
+    Idempotent: a second call on an already-accepted mission returns 200 (no-op).
+    The mission remains in the active store with its accepted flag set.
+    ``GET /api/missions/active`` continues to return it until conclude/resolve removes it.
+
+    Returns 404 if the mission_id is not in the current session store.
+    """
+    mission_store: MissionStore = request.app.state.mission_store
+    found = mission_store.accept(mission_id)
+    if not found:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Mission {mission_id!r} not found in the active store.",
+        )
+    return MissionAcceptResponse(mission_id=mission_id, status="accepted")
+
+
+@app.post(
+    "/api/missions/{mission_id}/decline",
+    response_model=MissionDeclineResponse,
+    tags=["world"],
+    summary="Decline (remove) a pending mission",
+    responses={
+        404: {"description": "Mission not found in the active store."},
+        409: {"description": "Mission is already accepted — cannot decline after accept."},
+    },
+)
+def mission_decline(
+    mission_id: str,
+    payload: MissionActionRequest,
+    request: Request,
+) -> MissionDeclineResponse:
+    """Remove a pending mission from the active store (player declined).
+
+    The NPC is freed — the emergence engine may re-emit a mission targeting
+    the same NPC in a later cadence window.
+
+    Returns 404 if the mission_id is not in the active store.
+    Returns 409 if the mission has already been accepted (decline after accept
+    is not allowed; use conclude or resolve instead).
+    """
+    mission_store: MissionStore = request.app.state.mission_store
+    if mission_store.get(mission_id) is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Mission {mission_id!r} not found in the active store.",
+        )
+    if mission_store.is_accepted(mission_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Mission {mission_id!r} is already accepted. "
+                "Use /conclude or /resolve to end an accepted mission."
+            ),
+        )
+    mission_store.remove(mission_id)
+    return MissionDeclineResponse(mission_id=mission_id, status="declined")
+
+
+@app.post(
+    "/api/missions/{mission_id}/conclude",
+    response_model=MissionConcludeActionResponse,
+    tags=["world"],
+    summary="Conclude an accepted mission (success/failure/abandoned)",
+    responses={
+        404: {"description": "Mission not found in the active store."},
+        409: {"description": "Mission is not in accepted state."},
+    },
+)
+def mission_conclude_action(
+    mission_id: str,
+    payload: MissionConcludeActionRequest,
+    request: Request,
+) -> MissionConcludeActionResponse:
+    """Conclude an accepted mission with an outcome.
+
+    On success: the NPC is considered recruited.  Removes the mission from the
+    active store (does not re-spawn the NPC in future cadence windows).
+    On failure / abandoned: the mission is removed; future behaviour depends on
+    game-logic (out of scope for this endpoint — no server-side NPC state in M1).
+
+    Returns 404 if the mission_id is not in the active store.
+    Returns 409 if the mission has not been accepted (must accept before conclude).
+
+    Idempotent on identical body: if the mission_id is already gone (previously
+    concluded), returns 404 — the client should handle this gracefully.
+    """
+    mission_store: MissionStore = request.app.state.mission_store
+    if mission_store.get(mission_id) is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Mission {mission_id!r} not found in the active store.",
+        )
+    if not mission_store.is_accepted(mission_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Mission {mission_id!r} is not in accepted state. Call /accept before /conclude."
+            ),
+        )
+    mission_store.remove(mission_id)
+    return MissionConcludeActionResponse(
+        mission_id=mission_id,
+        status="concluded",
+        outcome=payload.outcome,
+    )
+
+
+@app.post(
+    "/api/missions/{mission_id}/resolve",
+    response_model=MissionResolveActionResponse,
+    tags=["world"],
+    summary="Resolve an accepted recruit mission with a typed outcome",
+    responses={
+        404: {"description": "Mission not found in the active store."},
+        409: {"description": "Mission is not in accepted state."},
+    },
+)
+def mission_resolve_action(
+    mission_id: str,
+    payload: MissionResolveActionRequest,
+    request: Request,
+) -> MissionResolveActionResponse:
+    """Resolve an accepted recruit mission with a typed ResolutionOutcomeType.
+
+    Distinct from ``/conclude`` so the resolution-outcome type stays a typed
+    contract — the E2.3 recruit panel will read ``resolution_outcome_type``
+    to determine panel state (success = NPC joins; failure = declined; etc.).
+
+    For M1 the server does not enforce a closed enum on ``resolution_outcome_type``
+    (free-form string); M2 will promote this to a Varn-locked Literal.
+
+    Returns 404 if the mission_id is not in the active store.
+    Returns 409 if the mission has not been accepted.
+    """
+    mission_store: MissionStore = request.app.state.mission_store
+    if mission_store.get(mission_id) is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Mission {mission_id!r} not found in the active store.",
+        )
+    if not mission_store.is_accepted(mission_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Mission {mission_id!r} is not in accepted state. Call /accept before /resolve."
+            ),
+        )
+    mission_store.remove(mission_id)
+    return MissionResolveActionResponse(
+        mission_id=mission_id,
+        status="resolved",
+        resolution_outcome_type=payload.resolution_outcome_type,
+    )
 
 
 @app.post(

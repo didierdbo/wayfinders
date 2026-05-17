@@ -55,8 +55,12 @@ from wayfinders.ml.schemas.character import CharacterState
 # Varn-locked type aliases (2026-05-10) — DO NOT EDIT without Varn ratification
 # ---------------------------------------------------------------------------
 
-# Two mission types for M1 MVP slice.  M2+ will extend this literal.
-EmergenceMissionType = Literal["scout_route", "parley_local"]
+# Mission types — Varn-locked closed lookup.
+# "recruit" is the only type emitted in M1 (§A.8.D3).
+# "scout_route" and "parley_local" remain in the schema for M2+ use; they are
+# excluded from the M1 picker by M1_EMITTED_TYPES (recruit_roster.py).
+# DO NOT add or remove values without a Varn ratification step.
+EmergenceMissionType = Literal["scout_route", "parley_local", "recruit"]
 
 # Five difficulty buckets — reuses the stat-lane bucket vocabulary from
 # ``wayfinders.ml.schemas.vocabularies`` (Varn lock 2026-05-06).
@@ -299,6 +303,16 @@ class EmergentMission(BaseModel):
     seed: int = Field(
         ...,
         description="The spawn seed from the tick that produced this mission. Audit trail.",
+    )
+    recruit_target_npc_id: str | None = Field(
+        default=None,
+        description=(
+            "NpcId of the NPC the player can recruit by resolving this mission. "
+            "Varn-locked (§A.8.D3, 2026-05-17): required when mission type == 'recruit' — "
+            "must be a known NpcId from M1_RECRUIT_ROSTER (kira / dorn / vell). "
+            "None for non-recruit types (scout_route, parley_local in M2+). "
+            "In M1, always non-null since recruit is the only emitted type."
+        ),
     )
 
 
