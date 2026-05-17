@@ -6,9 +6,9 @@ namespace Wayfinders.Client.Tests.Opening;
 /// xUnit pins for <see cref="IsoCharacterGeometryLogic"/> -- the three
 /// visible faces of the 2.5D iso parallelepiped silhouette rendered by
 /// <c>IsoCharacterPlaceholder</c>. Locks the projection convention
-/// (2:1 iso, Y down, origin at top apex) and the shared-vertex
-/// invariant that makes the three faces read as one solid block
-/// instead of three detached shapes.
+/// (true 2:1 iso, depth = half-width, Y down, origin at top apex) and
+/// the shared-vertex invariant that makes the three faces read as one
+/// solid block instead of three detached shapes.
 ///
 /// <para>
 /// Without these pins, the d5c3705 regression (cube-2D + floating
@@ -20,10 +20,11 @@ namespace Wayfinders.Client.Tests.Opening;
 public sealed class IsoCharacterGeometryLogicTests
 {
     // Reference dimensions used across the pins. Match the default
-    // IsoCharacterPlaceholder sizing (W=180, D=60, H=200 -> 180x260
-    // bounding box, fits the CustomMinimumSize).
-    private const float W = 180f;
-    private const float D = 60f;
+    // IsoCharacterPlaceholder sizing (W=160, D=80, H=200 -> 160x280
+    // bounding box, true 2:1 iso ratio so the three faces read as
+    // visibly inclined instead of a near-frontal cube).
+    private const float W = 160f;
+    private const float D = 80f;
     private const float H = 200f;
 
     // --------------------------------------------------------------------

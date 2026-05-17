@@ -21,11 +21,14 @@ namespace Wayfinders.Client.Scenes.Ui;
 /// </para>
 ///
 /// <para>
-/// <b>Geometry.</b> Three visible faces of a 2:1 iso box, all
-/// computed by <see cref="IsoCharacterGeometryLogic"/> (pure-C#,
-/// engine-free, xUnit-pinned). Two visible faces meet at a common
-/// front-top apex, pinned by the geometry test
-/// <c>Three_faces_meet_at_common_front_top_vertex</c>.
+/// <b>Geometry.</b> Three visible faces of a true 2:1 iso box (depth =
+/// half-width), all computed by <see cref="IsoCharacterGeometryLogic"/>
+/// (pure-C#, engine-free, xUnit-pinned). The D=W/2 ratio is what makes
+/// the top losange visibly wide and the front/right faces visibly
+/// inclined ; the prior D=W/3 cut shipped silhouettes that read as a
+/// flat cube-face with a subtle side shadow (smoke 2026-05-17). Two
+/// visible faces meet at a common front-top apex, pinned by the
+/// geometry test <c>Three_faces_meet_at_common_front_top_vertex</c>.
 /// </para>
 ///
 /// <para>
@@ -58,12 +61,17 @@ namespace Wayfinders.Client.Scenes.Ui;
 /// </summary>
 public partial class IsoCharacterPlaceholder : Control
 {
-    /// <summary>Default cmin size -- can be overridden per instance.</summary>
-    private static readonly Vector2 DefaultMinSize = new(180, 260);
+    /// <summary>Default cmin size -- can be overridden per instance.
+    /// Width 160 + depth 80 + height 200 gives a 160 x 280 silhouette
+    /// bounding box (D + H = 280) plus the label band (32) and the
+    /// 2 x padding (24) on the host Control = 336 vertical budget.</summary>
+    private static readonly Vector2 DefaultMinSize = new(160, 336);
 
     /// <summary>Default cmin size in compact mode (no label band, used
-    /// by the company socle's occupied-state mini silhouette).</summary>
-    private static readonly Vector2 CompactMinSize = new(120, 160);
+    /// by the company socle's occupied-state mini silhouette). Width
+    /// 120 + depth 60 + height 160 gives a 120 x 220 silhouette
+    /// bounding box plus the 2 x padding (24) = 244 vertical budget.</summary>
+    private static readonly Vector2 CompactMinSize = new(120, 244);
 
     /// <summary>Default name label height band reserved above the
     /// silhouette.</summary>
@@ -73,7 +81,12 @@ public partial class IsoCharacterPlaceholder : Control
     /// silhouette + label.</summary>
     private const float PaddingPx = 12f;
 
-    private const float DepthOverWidth = 1f / 3f;
+    /// <summary>True 2:1 iso projection (a.k.a. dimetric) -- depth is
+    /// exactly half the projected width. The prior D=W/3 cut produced
+    /// a near-frontal cube silhouette ; D=W/2 makes the top losange
+    /// visibly wide and the front/right faces visibly inclined, which
+    /// is the whole point of an iso 3/4 view.</summary>
+    private const float DepthOverWidth = 0.5f;
     private const float SideFaceMultiplier = 0.7f;
     private const float TopFaceMultiplier = 1.15f;
 
