@@ -264,7 +264,7 @@ public partial class MissionStore : Node
         // Cap defense : refuse a 4th+ recruit mission.
         if (mission.Type == WorldTickWireFormat.MissionType.Recruit)
         {
-            var currentRecruitCount = CountRecruitMissions(_activeMissions);
+            var currentRecruitCount = MissionStoreLogic.CountRecruitMissions(_activeMissions);
             if (currentRecruitCount >= RecruitMissionCap)
             {
                 GD.PushWarning(
@@ -446,46 +446,23 @@ public partial class MissionStore : Node
 
     /// <summary>
     /// Trim a poll snapshot down to at most
-    /// <see cref="RecruitMissionCap"/> recruit-type missions. Non-recruit
-    /// missions pass through untouched. Logs at warning level when the
-    /// trim actually happens.
+    /// <see cref="RecruitMissionCap"/> recruit-type missions. Delegates
+    /// to <see cref="MissionStoreLogic.EnforceRecruitCap"/> (the pure
+    /// xUnit-pinned math) and adds the engine-side warning log when the
+    /// trim actually drops something.
     /// </summary>
     private static IReadOnlyList<EmergentMissionDto> EnforceRecruitCap(
         IReadOnlyList<EmergentMissionDto> snapshot, int tick)
     {
-        if (CountRecruitMissions(snapshot) <= RecruitMissionCap) return snapshot;
-
-        var trimmed = new List<EmergentMissionDto>(snapshot.Count);
-        var recruitsSoFar = 0;
-        var dropped = 0;
-        foreach (var mission in snapshot)
+        var trimmed = MissionStoreLogic.EnforceRecruitCap(snapshot);
+        if (!ReferenceEquals(trimmed, snapshot))
         {
-            if (mission.Type == WorldTickWireFormat.MissionType.Recruit)
-            {
-                if (recruitsSoFar >= RecruitMissionCap)
-                {
-                    dropped++;
-                    continue;
-                }
-                recruitsSoFar++;
-            }
-            trimmed.Add(mission);
+            GD.PushWarning(
+                $"[MissionStore] poll (tick={tick}) returned {snapshot.Count} missions " +
+                $"with >{RecruitMissionCap} recruit-type — dropping {snapshot.Count - trimmed.Count} surplus " +
+                $"(server cap bypass ? race ?)");
         }
-        GD.PushWarning(
-            $"[MissionStore] poll (tick={tick}) returned {snapshot.Count} missions " +
-            $"with >{RecruitMissionCap} recruit-type — dropping {dropped} surplus " +
-            $"(server cap bypass ? race ?)");
         return trimmed;
-    }
-
-    private static int CountRecruitMissions(IReadOnlyList<EmergentMissionDto> missions)
-    {
-        var n = 0;
-        for (var i = 0; i < missions.Count; i++)
-        {
-            if (missions[i].Type == WorldTickWireFormat.MissionType.Recruit) n++;
-        }
-        return n;
     }
 
     private bool SnapshotMatchesCurrent(IReadOnlyList<EmergentMissionDto> snapshot)
