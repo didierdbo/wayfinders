@@ -36,7 +36,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// <b>New Game path (2026-05-13, Rune).</b> "Nouvelle Partie" now drives
 /// the player through the e1 cinematic (boot grid -&gt; 3D flip -&gt; POI
 /// Halfgate fade-in -&gt; hover/click) implemented in
-/// <c>scenes/scratch/IsoMapE1Probe/IsoMapE1Probe.tscn</c>. The cinematic
+/// <c>scenes/screens/IsoMapE1Probe/IsoMapE1Probe.tscn</c>. The cinematic
 /// itself ends with <c>ChangeSceneToFile</c> to E2Stub on POI click. Both
 /// hops use <c>ChangeSceneToFile</c> rather than
 /// <see cref="SceneManager.NavigateTo"/> because the cinematic is a one-way
@@ -73,7 +73,7 @@ public partial class E1Title : Control, IScreen
     // directly via ChangeSceneToFile. See class docstring "New Game path"
     // for the rationale (cinematic is not a stack-managed screen).
     private const string IsoMapE1ProbeScenePath =
-        "res://scenes/scratch/IsoMapE1Probe/IsoMapE1Probe.tscn";
+        "res://scenes/screens/IsoMapE1Probe/IsoMapE1Probe.tscn";
 
     // Asset keys -- mirror data/asset_keys.json.
     private const string BureauAssetKey = "e1.bureau";

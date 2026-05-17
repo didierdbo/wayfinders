@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://scenes/scratch/IsoMapE1Probe/IsoMapE1Probe.cs" id="1_probe"]
+[ext_resource type="Script" path="res://scenes/screens/IsoMapE1Probe/IsoMapE1Probe.cs" id="1_probe"]
 
 [node name="IsoMapE1Probe" type="Node2D"]
 script = ExtResource("1_probe")
