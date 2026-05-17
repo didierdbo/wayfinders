@@ -66,14 +66,16 @@ public partial class RosterScene : Control
     private Node _unitsContainer = null!;
 
     /// <summary>
-    /// Cancellation source tied to this scene's lifetime. Cancelled in
-    /// <c>_ExitTree</c> so an in-flight roster fetch is abandoned cleanly
-    /// if the scene is unloaded mid-load (scene change, app exit, future
-    /// router). Same discipline banked from L4 — <see cref="ApiClient"/>'s
-    /// own shutdown token still fires on app exit; this token covers the
-    /// scene-only-unloads case.
+    /// Screen-scoped <see cref="CancellationTokenSource"/> tied to this
+    /// scene's lifetime. Cancelled and disposed in <c>_ExitTree</c> so an
+    /// in-flight roster fetch is abandoned cleanly if the scene is
+    /// unloaded mid-load (scene change, app exit, future router). Same
+    /// discipline banked from L4 — <see cref="ApiClient"/>'s own
+    /// shutdown token still fires on app exit; this token covers the
+    /// scene-only-unloads case. Naming aligned on the Varn-locked
+    /// canonical <c>_screenCts</c> 2026-05-17 Section C.
     /// </summary>
-    private CancellationTokenSource? _shutdownCts;
+    private CancellationTokenSource? _screenCts;
 
     public override void _Ready()
     {
@@ -82,19 +84,19 @@ public partial class RosterScene : Control
         _unitsContainer = GetNode<Node>("Units");
 
         _statusLabel.Text = "Roster: loading...";
-        _shutdownCts = new CancellationTokenSource();
+        _screenCts = new CancellationTokenSource();
 
         // Fire-and-forget the async load. The method body itself owns
-        // its lifetime via _shutdownCts and pattern-matches on Result -
+        // its lifetime via _screenCts and pattern-matches on Result -
         // no exception escapes for the caller to handle.
-        _ = LoadRosterAsync(_shutdownCts.Token);
+        _ = LoadRosterAsync(_screenCts.Token);
     }
 
     public override void _ExitTree()
     {
-        _shutdownCts?.Cancel();
-        _shutdownCts?.Dispose();
-        _shutdownCts = null;
+        _screenCts?.Cancel();
+        _screenCts?.Dispose();
+        _screenCts = null;
     }
 
     private async System.Threading.Tasks.Task LoadRosterAsync(CancellationToken ct)

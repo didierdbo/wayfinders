@@ -1,4 +1,5 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Godot;
 using Wayfinders.Client.Data;
@@ -325,6 +326,18 @@ public partial class M1Slice : Node2D
     private string? _selectedPersonaId; // for the Affect button backup path (5c)
     private int _currentTick;
 
+    /// <summary>
+    /// Screen-scoped <see cref="CancellationTokenSource"/> tied to this
+    /// scene's <c>_Ready</c>/<c>_ExitTree</c> lifetime. Every
+    /// <see cref="ApiClient"/> await in this scene passes
+    /// <see cref="_screenCts"/>.Token so an in-flight HTTP call is
+    /// abandoned cleanly when the scene unloads (Varn-lock 2026-05-17
+    /// Section C - screen-scoped CTS discipline). The autoload's own
+    /// shutdown token still fires on app exit ; this token covers the
+    /// scene-only-unloads case (scene change, F6 then ESC).
+    /// </summary>
+    private CancellationTokenSource _screenCts = null!;
+
     public override void _EnterTree()
     {
         GD.Print("***** [M1 SLICE] _EnterTree -- composite Compagnie+Mission scene loading *****");
@@ -333,6 +346,8 @@ public partial class M1Slice : Node2D
     public override void _Ready()
     {
         GD.Print("***** [M1 SLICE] _Ready ENTERED -- starting boot sequence *****");
+
+        _screenCts = new CancellationTokenSource();
 
         ResolveBindings();
         EnsureCompagnieWorld3D();
@@ -353,6 +368,15 @@ public partial class M1Slice : Node2D
 
     public override void _ExitTree()
     {
+        // Screen-scoped CTS first - cancel any in-flight HTTP awaits
+        // before the rest of the teardown touches scene state. The
+        // continuations in ConcludeOneAsync / ResolveAndApply observe
+        // the cancel via ApiError.Cancelled and silently drop the
+        // response without mutating GameState (Varn-lock 2026-05-17
+        // Section C).
+        _screenCts.Cancel();
+        _screenCts.Dispose();
+
         if (_compagnieHandle is not null)
             _compagnieHandle.GuiInput -= OnHandleGuiInput;
         if (_worldSimTick is not null)
@@ -1317,7 +1341,17 @@ public partial class M1Slice : Node2D
             return;
         }
 
-        var result = await _apiClient.ConcludeMissionAsync(request).ConfigureAwait(false);
+        var result = await _apiClient.ConcludeMissionAsync(request, _screenCts.Token).ConfigureAwait(false);
+
+        // Screen-scoped CTS guard (Varn-lock 2026-05-17 Section C) :
+        // if the scene exited mid-request, drop silently - the response
+        // is stale, mutating ActiveMissions / PersonaLegacy now would
+        // touch a scene tree that is being torn down.
+        if (_screenCts.IsCancellationRequested)
+        {
+            GD.PrintRaw($"[CONCLUDE] response dropped - screen exited mid-request (mission={active.Mission.Id})\n");
+            return;
+        }
 
         switch (result)
         {
@@ -1774,7 +1808,17 @@ public partial class M1Slice : Node2D
         if (_apiClient is null || _gameState is null) return;
 
         Log($"[RESOLVE] mission={request.MissionId} outcome={request.Outcome} assigned=[{string.Join(",", request.AssignedPersonas)}]");
-        var result = await _apiClient.ResolveMissionAsync(request);
+        var result = await _apiClient.ResolveMissionAsync(request, _screenCts.Token);
+
+        // Screen-scoped CTS guard (Varn-lock 2026-05-17 Section C) :
+        // if the scene exited mid-request, drop silently - the response
+        // is stale, mutating PendingMissions / PersonaLegacy now would
+        // touch a scene tree that is being torn down.
+        if (_screenCts.IsCancellationRequested)
+        {
+            GD.PrintRaw($"[RESOLVE] response dropped - screen exited mid-request (mission={mission.Id})\n");
+            return;
+        }
 
         switch (result)
         {
