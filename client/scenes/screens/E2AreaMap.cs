@@ -708,6 +708,11 @@ public partial class E2AreaMap : Control, IScreen
         // does not surface a tooltip on the next screen mid-fade.
         var tooltipController = GetNodeOrNull<HoverTooltipController>("/root/HoverTooltipController");
         tooltipController?.CancelTooltip();
+        // E2.2 step 2 (2026-05-17) : also force-cancel the mission
+        // tooltip path (separate panel + sticky bridge flags). force=true
+        // overrides the bridge so a tooltip-hovered state cannot pin a
+        // ghost panel after the scene unmounts.
+        tooltipController?.CancelMissionTooltip(force: true);
 
         _blockedTween?.Kill();
         _blockedTween = null;

@@ -680,20 +680,30 @@ public partial class E2AreaMap
     }
 
     /// <summary>
-    /// E2.2 step 1 (2026-05-17) -- hover-in handler on an E2 POI marker.
-    /// Resolves the marker's PoiId to the missions anchored on it via
-    /// <see cref="HalfgateE2MissionTooltip.FindByPoiId"/>, composes the
-    /// tooltip text via <see cref="HalfgateE2MissionTooltip.Compose"/>,
-    /// and feeds it to the <see cref="HoverTooltipController"/> autoload.
+    /// E2.2 step 2 (2026-05-17) -- hover-in handler on an E2 POI marker.
+    /// Builds the structured <see cref="MissionTooltipPayload"/> for the
+    /// hovered POI and feeds it to
+    /// <see cref="HoverTooltipController.RequestMissionTooltip"/> -- the
+    /// new "rows are interactive Buttons" path. The legacy single-string
+    /// path (<see cref="HalfgateE2MissionTooltip.Compose"/> +
+    /// <c>RequestTooltip</c>) is no longer the route for the E2 POI
+    /// markers ; it stays consumed by E1 POI / E2 cell / E2 NPC portrait
+    /// / E3 POI which still want the simple Label render.
+    ///
+    /// <para>
+    /// <b>Click callback wiring (step 2 scaffold, step 3 swap-in).</b> The
+    /// <c>onRowClicked</c> delegate is wired to <see cref="OnMissionRowClicked"/>
+    /// which logs the missionId and returns. Step 3 will swap the body
+    /// for the mission-panel slide-in. The seam is the delegate ; no
+    /// further controller surface is needed.
+    /// </para>
     ///
     /// <para>
     /// <b>Empty-mission contract.</b> If no mission is found for the
-    /// poi_id (drift between spawn + lookup) OR the composer returns an
-    /// empty string, we explicitly skip the
-    /// <c>HoverTooltipController.RequestTooltip</c> call. The spec is
-    /// "pas de tooltip si pas de mission" -- the absence of a request is
-    /// observable as "no tooltip surfaces after the 600 ms delay", same
-    /// shape as <see cref="OnCellHoverIn"/>'s fog-state early-return.
+    /// poi_id (drift between spawn + lookup), <c>RequestMissionTooltip</c>
+    /// is called with a payload whose Rows list is empty AND the
+    /// controller treats that as a no-op (no tooltip surfaces). Symmetric
+    /// with the step 1 empty-string short-circuit.
     /// </para>
     ///
     /// <para>
@@ -714,8 +724,8 @@ public partial class E2AreaMap
         if (missions.Count == 0) return;
 
         var districtLabel = DistrictTypeHelpers.DisplayName(missions[0].TargetDistrict);
-        var text = HalfgateE2MissionTooltip.Compose(districtLabel, missions);
-        if (string.IsNullOrEmpty(text)) return;
+        var payload = MissionTooltipRows.Compose(districtLabel, missions);
+        if (payload.Rows.Count == 0) return;
 
         var tooltipController = GetNodeOrNull<HoverTooltipController>("/root/HoverTooltipController");
         if (tooltipController is null) return;
@@ -723,20 +733,37 @@ public partial class E2AreaMap
         var anchor = _e2MarkerHotspots.TryGetValue(poiId, out var hotspot)
             ? hotspot.GetGlobalTransformWithCanvas().Origin
             : Vector2.Zero;
-        tooltipController.RequestTooltip(text, anchor);
+        tooltipController.RequestMissionTooltip(payload, anchor, OnMissionRowClicked);
     }
 
     /// <summary>
-    /// E2.2 step 1 (2026-05-17) -- hover-out handler. Symmetric with the
-    /// E1WorldMap.OnPoiHoverOut path : cancel any pending or visible
-    /// tooltip, no anchor needed. The poi_id argument is captured for
-    /// symmetry with hover-in and for future per-marker telemetry, but
-    /// is unused by the cancellation.
+    /// E2.2 step 2 (2026-05-17) -- hover-out handler. Sends the cancel
+    /// to the mission-tooltip path (NOT the simple <c>CancelTooltip</c>
+    /// path). The cancel respects the sticky bridge : if the cursor is
+    /// on the tooltip itself, the controller keeps the tooltip alive ;
+    /// the actual fade-out only runs when both the POI marker AND the
+    /// tooltip are un-hovered.
     /// </summary>
     private void OnE2PoiMarkerHoverOut(string _)
     {
         var tooltipController = GetNodeOrNull<HoverTooltipController>("/root/HoverTooltipController");
-        tooltipController?.CancelTooltip();
+        tooltipController?.CancelMissionTooltip();
+    }
+
+    /// <summary>
+    /// E2.2 step 2 (2026-05-17) -- click handler stub on a mission row.
+    /// Wired into the tooltip controller via the
+    /// <c>RequestMissionTooltip</c> callback parameter. At step 2 the
+    /// body is a no-op-with-log : the spec is "row is connectable, not
+    /// connected to a panel yet". Step 3 will swap the body for the
+    /// mission-panel slide-in (the seam is THIS delegate -- the
+    /// controller does not need any further surface).
+    /// </summary>
+    private void OnMissionRowClicked(string missionId)
+    {
+        GD.Print(
+            $"[E2AreaMap] OnMissionRowClicked : missionId='{missionId}' " +
+            $"(step 2 scaffold -- no panel yet, slide-in lands at step 3).");
     }
 
     /// <summary>
