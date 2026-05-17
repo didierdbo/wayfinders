@@ -267,25 +267,55 @@ public partial class E2AreaMap
     private Node2D? _npcPortraitLayer;
 
     /// <summary>
-    /// E2-layer POI markers, one per active <see cref="HalfgateE2Mission"/>.
-    /// Spawned by <c>SpawnE2MissionPoiMarkers</c> at E2.1c+ ; each marker
-    /// sits at the iso-screen position of its target district's centroid
-    /// (resolved via <see cref="AreaGridLogic.DistrictCentroid"/>). The
-    /// list is kept so <see cref="TearDownAreaGrid"/> can clear refs
-    /// without enumerating the AreaGridLayer children -- the layer
-    /// QueueFree cascade already frees the sprites, but the list lets us
-    /// log the count + nullify the captured refs in one pass.
+    /// E2-layer POI marker hotspot roots, one per active
+    /// <see cref="HalfgateE2Mission"/>. Spawned by
+    /// <c>SpawnE2MissionPoiMarkers</c> at E2.1c+ ; each hotspot sits at
+    /// the iso-screen position of its target district's centroid
+    /// (resolved via <see cref="AreaGridLogic.DistrictCentroid"/>).
     ///
     /// <para>
-    /// <b>Why a List, not a Dictionary by mission_id.</b> The E2.1c
-    /// renderer never looks markers up by id (no hover, no click, no
-    /// tooltip ; the brief is strict on lecture-only). When E2.2 wires
-    /// hover dispatch this becomes a Dictionary keyed by mission_id or
-    /// by district. For now the list mirrors the static authoring order
-    /// from <see cref="HalfgateE2MissionAuthoring.All"/>.
+    /// <b>E2.2 step 1 (2026-05-17) refonte.</b> Pre-E2.2 the markers were
+    /// bare <see cref="Sprite2D"/> nodes (lecture-only at E2.1c). Step 1
+    /// wraps each marker in a <see cref="Node2D"/> hotspot with a
+    /// <see cref="Sprite2D"/> visual + <see cref="Area2D"/> hit-test so
+    /// hover surfaces the mission tooltip. The hotspot Node2D is what
+    /// this list now holds ; the inner Sprite2D and Area2D live as
+    /// children, parallel to E1WorldMap's POI spawn pattern.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Per-marker lookups land in two sibling dicts.</b>
+    /// <see cref="_e2MarkerHotspots"/> keys hotspot roots by
+    /// <see cref="HalfgateE2Mission.PoiId"/> so the hover handler can
+    /// fetch <c>GlobalPosition</c> for the tooltip anchor without
+    /// scanning the scene tree. <see cref="_e2MarkerHandlers"/> keeps the
+    /// captured <see cref="Action"/> references so <c>TearDownAreaGrid</c>
+    /// disconnects with the exact same delegates used at wire time
+    /// (Risk #1 captured-reference signal-leak discipline, same shape as
+    /// <c>_tileHitHandlers</c>).
     /// </para>
     /// </summary>
-    private readonly List<Sprite2D> _e2PoiMarkers = new();
+    private readonly List<Node2D> _e2PoiMarkers = new();
+
+    /// <summary>
+    /// Reverse lookup poi_id -> hotspot Node2D root. Keyed by
+    /// <see cref="HalfgateE2Mission.PoiId"/> (e.g.
+    /// <c>"halfgate.intramuros"</c>). The hover handler reads
+    /// <c>GlobalPosition</c> off the hotspot for the tooltip anchor.
+    /// Empty at E2.1a / E2.1b ; populated from E2.1c onward.
+    /// </summary>
+    private readonly Dictionary<string, Node2D> _e2MarkerHotspots = new();
+
+    /// <summary>
+    /// Per-marker captured handlers so <c>TearDownAreaGrid</c> can
+    /// disconnect with the exact lambda references used at wire time.
+    /// Keyed by <see cref="HalfgateE2Mission.PoiId"/>. Method-group
+    /// disconnect would not match because each lambda closes over a
+    /// distinct PoiId (Risk #1, same pattern as
+    /// <see cref="_tileHitHandlers"/>). Empty at E2.1a / E2.1b ;
+    /// populated from E2.2 step 1 (2026-05-17) onward.
+    /// </summary>
+    private readonly Dictionary<string, (Action mouseEntered, Action mouseExited)> _e2MarkerHandlers = new();
 
     /// <summary>
     /// Per-cell base-tile Sprite2D, keyed by grid coord. At E2.1a the
@@ -529,36 +559,48 @@ public partial class E2AreaMap
     }
 
     /// <summary>
-    /// Spawn one POI marker per active E2-layer mission (E2.1c
-    /// deliverable, Didier brief 2026-05-16). Reads the mock authoring
-    /// in <see cref="HalfgateE2MissionAuthoring.All"/>, resolves each
-    /// mission's <see cref="HalfgateE2Mission.TargetDistrict"/> to a
-    /// fractional zone-centre centroid via
+    /// Spawn one POI marker hotspot per active E2-layer mission. Reads
+    /// the mock authoring in <see cref="HalfgateE2MissionAuthoring.All"/>,
+    /// resolves each mission's <see cref="HalfgateE2Mission.TargetDistrict"/>
+    /// to a fractional zone-centre centroid via
     /// <see cref="AreaGridLogic.DistrictCentroid"/>, translates the
     /// centroid into iso-screen space via <see cref="IsoFractionalCentre"/>,
-    /// and instantiates one <see cref="Sprite2D"/> per mission under
-    /// <see cref="_areaGridLayer"/>.
+    /// and instantiates one <see cref="Node2D"/> hotspot per mission
+    /// under <see cref="_areaGridLayer"/>.
     ///
     /// <para>
-    /// <b>E2.1c profond refonte (2026-05-16).</b> Each centroid is now
+    /// <b>E2.1c profond refonte (2026-05-16).</b> Each centroid is
     /// guaranteed to sit on one of the 16 zone-centres
     /// (= <c>(2*zCol + 0.5, 2*zRow + 0.5)</c>), AND the picked zone is
     /// guaranteed to contain at least one cell of the target district.
-    /// The previous E2.1c pass used per-district 2×2 block centroids ;
-    /// the new lookup decouples zone-pick from cell-shape so districts
-    /// can have any irregular shape and the POI marker still lands at a
-    /// stable, axis-aligned, narrative-anchored position.
     /// </para>
     ///
     /// <para>
-    /// <b>Scope strict at E2.1c.</b> The brief locks lecture-only :
+    /// <b>E2.2 step 1 (2026-05-17 -- this slice).</b> The bare Sprite2D
+    /// at E2.1c is now a <see cref="Node2D"/> hotspot containing a
+    /// <see cref="Sprite2D"/> visual + <see cref="Area2D"/> hit-test
+    /// (with <see cref="CollisionShape2D"/> + <see cref="RectangleShape2D"/>).
+    /// MouseEntered fires <see cref="OnE2PoiMarkerHoverIn"/>, MouseExited
+    /// fires <see cref="OnE2PoiMarkerHoverOut"/>. The shape matches the
+    /// marker's visible footprint with a small fudge factor for player
+    /// comfort -- losange centres are not pixel-precise hit targets.
     /// </para>
-    /// <list type="bullet">
-    ///   <item>No hover -- no Area2D hit-test attached.</item>
-    ///   <item>No click -- no input handler.</item>
-    ///   <item>No tooltip -- the narrative_hook is authored but not
-    ///         surfaced.</item>
-    /// </list>
+    ///
+    /// <para>
+    /// <b>Per-marker hit-box size.</b> The POI marker bitmap is 192x192
+    /// pixels (Mira-baked anchor + ring). We pick a 128x96 rectangular
+    /// hit-box centered on the marker so the player can hover slightly
+    /// above or below the ring without losing the tooltip. Smaller than
+    /// the bitmap (192) so two adjacent markers' hit-boxes do not
+    /// overlap when the zoom factor squishes them visually closer.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>What still does NOT happen at E2.2 step 1.</b> No click handler
+    /// (left-click is step 3's "open mission panel" affordance). No
+    /// in-tooltip hover-mission-highlight (step 2). No mission-panel
+    /// slide-in (step 3). The hotspot is hover-only this step.
+    /// </para>
     /// </summary>
     private void SpawnE2MissionPoiMarkers(AssetResolver assetResolver)
     {
@@ -569,15 +611,24 @@ public partial class E2AreaMap
             var centroid = AreaGridLogic.DistrictCentroid(mission.TargetDistrict);
             var screenCentre = IsoFractionalCentre(centroid.Col, centroid.Row);
 
-            var marker = new Sprite2D
+            // Hotspot root carries the Position so children sit relative
+            // to it. ZIndex stacks the marker above the tile layer (the
+            // tiles are at ZIndex = col within Y-sort, max 7 ; marker at
+            // 5 reads above any tile at the same Y-sort band).
+            var hotspot = new Node2D
             {
                 // Name encodes mission_id so the remote scene inspector
                 // makes the marker easy to find. Stable across runs.
                 Name = $"E2PoiMarker_{mission.MissionId}",
+                Position = screenCentre,
+                ZIndex = 5,
+            };
+
+            var sprite = new Sprite2D
+            {
+                Name = "Visual",
                 Texture = markerTexture,
                 Centered = true,
-                ZIndex = 5,
-                Position = screenCentre,
                 // LinearWithMipmaps matches the tile rendering : at the
                 // default zoom the marker's ring edge reads cleaner than
                 // Nearest. The 192x192 source bitmap is over-sampled at
@@ -585,14 +636,107 @@ public partial class E2AreaMap
                 TextureFilter = CanvasItem.TextureFilterEnum.LinearWithMipmaps,
                 Visible = true,
             };
-            _areaGridLayer!.AddChild(marker);
-            _e2PoiMarkers.Add(marker);
+            hotspot.AddChild(sprite);
+
+            // E2.2 step 1 -- Area2D hit-test for hover. Mirrors the E1
+            // POI spawn pattern in E1WorldMap.SpawnPois and the E2 legacy
+            // SpawnPois in this same partial's E2AreaMap.cs. The shape is
+            // a RectangleShape2D sized smaller than the visible bitmap so
+            // adjacent markers do not overlap their hit-boxes at low zoom.
+            var area = new Area2D
+            {
+                Name = "Hitbox",
+                InputPickable = true,
+            };
+            var shape = new CollisionShape2D
+            {
+                Shape = new RectangleShape2D { Size = new Vector2(128f, 96f) },
+            };
+            area.AddChild(shape);
+            hotspot.AddChild(area);
+
+            _areaGridLayer!.AddChild(hotspot);
+
+            // Capture poi_id once per closure so the hover handler reads
+            // the right marker entry. Lambdas kept in _e2MarkerHandlers
+            // so the _ExitTree path disconnects with the exact references
+            // used here (Risk #1 captured-reference discipline).
+            var poiId = mission.PoiId;
+            Action mouseEntered = () => OnE2PoiMarkerHoverIn(poiId);
+            Action mouseExited = () => OnE2PoiMarkerHoverOut(poiId);
+            area.MouseEntered += mouseEntered;
+            area.MouseExited += mouseExited;
+
+            _e2PoiMarkers.Add(hotspot);
+            _e2MarkerHotspots[poiId] = hotspot;
+            _e2MarkerHandlers[poiId] = (mouseEntered, mouseExited);
         }
 
         GD.Print(
             $"[E2AreaMap] SpawnE2MissionPoiMarkers : spawned " +
-            $"{_e2PoiMarkers.Count} marker(s) for active E2 missions " +
-            $"({string.Join(", ", HalfgateE2MissionAuthoring.All.Select(m => m.MissionId))}).");
+            $"{_e2PoiMarkers.Count} hotspot(s) for active E2 missions " +
+            $"({string.Join(", ", HalfgateE2MissionAuthoring.All.Select(m => m.MissionId))}), " +
+            $"hover wired={_e2MarkerHandlers.Count}.");
+    }
+
+    /// <summary>
+    /// E2.2 step 1 (2026-05-17) -- hover-in handler on an E2 POI marker.
+    /// Resolves the marker's PoiId to the missions anchored on it via
+    /// <see cref="HalfgateE2MissionTooltip.FindByPoiId"/>, composes the
+    /// tooltip text via <see cref="HalfgateE2MissionTooltip.Compose"/>,
+    /// and feeds it to the <see cref="HoverTooltipController"/> autoload.
+    ///
+    /// <para>
+    /// <b>Empty-mission contract.</b> If no mission is found for the
+    /// poi_id (drift between spawn + lookup) OR the composer returns an
+    /// empty string, we explicitly skip the
+    /// <c>HoverTooltipController.RequestTooltip</c> call. The spec is
+    /// "pas de tooltip si pas de mission" -- the absence of a request is
+    /// observable as "no tooltip surfaces after the 600 ms delay", same
+    /// shape as <see cref="OnCellHoverIn"/>'s fog-state early-return.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>District display name resolution.</b> The hovered marker's
+    /// district is taken from the FIRST matching mission. At E2.1c+ each
+    /// marker is one mission, so the choice is unambiguous. When E2.2+
+    /// lands multiple missions per POI, the marker's
+    /// <see cref="HalfgateE2Mission.TargetDistrict"/> is identical
+    /// across siblings (the POI IS the district anchor), so picking the
+    /// first is still the right answer.
+    /// </para>
+    /// </summary>
+    private void OnE2PoiMarkerHoverIn(string poiId)
+    {
+        var missions = HalfgateE2MissionTooltip
+            .FindByPoiId(HalfgateE2MissionAuthoring.All, poiId)
+            .ToList();
+        if (missions.Count == 0) return;
+
+        var districtLabel = DistrictTypeHelpers.DisplayName(missions[0].TargetDistrict);
+        var text = HalfgateE2MissionTooltip.Compose(districtLabel, missions);
+        if (string.IsNullOrEmpty(text)) return;
+
+        var tooltipController = GetNodeOrNull<HoverTooltipController>("/root/HoverTooltipController");
+        if (tooltipController is null) return;
+
+        var anchor = _e2MarkerHotspots.TryGetValue(poiId, out var hotspot)
+            ? hotspot.GlobalPosition
+            : Vector2.Zero;
+        tooltipController.RequestTooltip(text, anchor);
+    }
+
+    /// <summary>
+    /// E2.2 step 1 (2026-05-17) -- hover-out handler. Symmetric with the
+    /// E1WorldMap.OnPoiHoverOut path : cancel any pending or visible
+    /// tooltip, no anchor needed. The poi_id argument is captured for
+    /// symmetry with hover-in and for future per-marker telemetry, but
+    /// is unused by the cancellation.
+    /// </summary>
+    private void OnE2PoiMarkerHoverOut(string _)
+    {
+        var tooltipController = GetNodeOrNull<HoverTooltipController>("/root/HoverTooltipController");
+        tooltipController?.CancelTooltip();
     }
 
     /// <summary>
@@ -1045,9 +1189,29 @@ public partial class E2AreaMap
         _tileHitTestLayer = null;
         _npcPortraitLayer = null;
         _poiMarker = null;
+        // E2.2 step 1 (2026-05-17) -- disconnect every E2 marker hover
+        // handler with the EXACT lambda reference captured at wire time.
+        // Method-group disconnect would not match because each lambda
+        // closed over a distinct poi_id (Risk #1, same pattern as
+        // _tileHitHandlers above). The _areaGridLayer QueueFree below
+        // disposes the Area2D nodes, but the disconnect must happen
+        // FIRST so the tear-down does not race with a pending hover
+        // signal queued in the same frame.
+        foreach (var (poiId, handlers) in _e2MarkerHandlers)
+        {
+            if (!_e2MarkerHotspots.TryGetValue(poiId, out var hotspot)) continue;
+            if (!IsInstanceValid(hotspot)) continue;
+            var area = hotspot.GetNodeOrNull<Area2D>("Hitbox");
+            if (area is null) continue;
+            area.MouseEntered -= handlers.mouseEntered;
+            area.MouseExited -= handlers.mouseExited;
+        }
+        _e2MarkerHandlers.Clear();
+        _e2MarkerHotspots.Clear();
+
         // E2.1c per-mission marker refs : the _areaGridLayer QueueFree
-        // above already disposes the Sprite2D nodes ; clearing the list
-        // drops the captured refs so a re-Configure starts fresh.
+        // below already disposes the hotspot Node2D subtrees ; clearing
+        // the list drops the captured refs so a re-Configure starts fresh.
         _e2PoiMarkers.Clear();
         _areaGridRevealController = null;
         _areaGridTileShader = null;

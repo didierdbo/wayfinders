@@ -314,6 +314,7 @@
     <Compile Include="..\scripts\screens\HalfgateE2MissionAuthoring.cs" Link="src\HalfgateE2MissionAuthoring.cs" />
     <Compile Include="..\scripts\screens\HalfgateNpcAuthoring.cs" Link="src\HalfgateNpcAuthoring.cs" />
     <Compile Include="..\scripts\screens\HalfgateRumorHooks.cs" Link="src\HalfgateRumorHooks.cs" />
+    <Compile Include="..\scripts\screens\HalfgateE2MissionTooltip.cs" Link="src\HalfgateE2MissionTooltip.cs" />
   </ItemGroup>
 
   <!-- AMENDMENT A4.7 cross-layer reveal projection (Varn-lock 2026-05-16):
