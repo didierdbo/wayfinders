@@ -383,4 +383,14 @@
     <Compile Include="..\scripts\screens\MissionRecruitPanelLogic.cs" Link="src\MissionRecruitPanelLogic.cs" />
   </ItemGroup>
 
+  <!-- E2.2 step 5 (2026-05-17): Compagnie panel + central iso socle.
+       IsoSocketGeometryLogic = flat 2:1 iso rhombus vertices consumed
+       by the IsoSocketPlaceholder Control. The Godot-bound CompanyPanel
+       + IsoSocketPlaceholder live in the client csproj only ; xUnit
+       pins the geometry contract here, integration validated via the
+       F6 smoke. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\IsoSocketGeometryLogic.cs" Link="src\IsoSocketGeometryLogic.cs" />
+  </ItemGroup>
+
 </Project>
