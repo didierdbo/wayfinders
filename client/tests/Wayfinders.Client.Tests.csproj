@@ -311,10 +311,10 @@
     <Compile Include="..\scripts\screens\DistrictType.cs" Link="src\DistrictType.cs" />
     <Compile Include="..\scripts\screens\AreaGridLogic.cs" Link="src\AreaGridLogic.cs" />
     <Compile Include="..\scripts\screens\HalfgateMissionAuthoring.cs" Link="src\HalfgateMissionAuthoring.cs" />
-    <Compile Include="..\scripts\screens\HalfgateE2MissionAuthoring.cs" Link="src\HalfgateE2MissionAuthoring.cs" />
     <Compile Include="..\scripts\screens\HalfgateNpcAuthoring.cs" Link="src\HalfgateNpcAuthoring.cs" />
     <Compile Include="..\scripts\screens\HalfgateRumorHooks.cs" Link="src\HalfgateRumorHooks.cs" />
     <Compile Include="..\scripts\screens\HalfgateE2MissionTooltip.cs" Link="src\HalfgateE2MissionTooltip.cs" />
+    <Compile Include="..\scripts\screens\MissionStoreLogic.cs" Link="src\MissionStoreLogic.cs" />
     <Compile Include="..\scripts\screens\MissionTooltipRows.cs" Link="src\MissionTooltipRows.cs" />
   </ItemGroup>
 

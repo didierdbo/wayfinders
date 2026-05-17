@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Wayfinders.Client.Services.Dtos;
 
 namespace Wayfinders.Client.Scripts.Screens;
 
@@ -9,15 +10,28 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// player hovers an E2-layer POI marker. Pure-C#, Godot-free, mirrors the
 /// <see cref="HalfgateRumorHooks"/> seam : the Godot-bound hover handler
 /// in <c>E2AreaMap.AreaGrid.cs</c> calls <see cref="Compose"/> with the
-/// list of <see cref="HalfgateE2Mission"/>s anchored on the hovered POI,
+/// list of <see cref="EmergentMissionDto"/>s anchored on the hovered POI
 /// and feeds the result to <c>HoverTooltipController.RequestTooltip</c>.
 ///
 /// <para>
-/// <b>Layout (E2.2 step 1 lock).</b> Header line = district display name,
-/// then one bullet per mission with the mission's
-/// <see cref="HalfgateE2Mission.DisplayName"/> on its own line followed by
-/// the indented <see cref="HalfgateE2Mission.NarrativeHook"/>. Two missions
-/// on the same POI are separated by a blank line so the wall of text stays
+/// <b>Section A refactor (Varn-lock 2026-05-17 + Didier brief 2026-05-17).</b>
+/// The composer pivoted from the hardcoded
+/// <c>HalfgateE2MissionAuthoring</c> record (now retired) to the
+/// wire DTO. The rendered shape is unchanged : district header + per-mission
+/// (display name + narrative hook) bullet block. The DisplayName slot is
+/// synthesised from <see cref="EmergentMissionDto.Type"/> via
+/// <see cref="MissionDisplayNames"/> (the wire schema does NOT carry a
+/// DisplayName field — the server's authoritative content is
+/// <see cref="EmergentMissionDto.NarrativeHook"/>, and a short type-derived
+/// label keeps the player's reading rhythm).
+/// </para>
+///
+/// <para>
+/// <b>Layout.</b> Header line = district display name, then one bullet per
+/// mission with the synthesised <see cref="MissionDisplayNames.For"/> label
+/// on its own line followed by the indented
+/// <see cref="EmergentMissionDto.NarrativeHook"/>. Two missions on the
+/// same POI are separated by a blank line so the wall of text stays
 /// readable.
 /// </para>
 ///
@@ -26,32 +40,22 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// mission is supplied. The hover handler in <c>E2AreaMap.AreaGrid.cs</c>
 /// checks for empty and skips the
 /// <c>HoverTooltipController.RequestTooltip</c> call -- satisfies the
-/// "no tooltip if no mission available" spec from the E2.2 step 1 brief
-/// without surfacing a degenerate "no missions" panel.
+/// "no tooltip if no mission available" spec without surfacing a
+/// degenerate "no missions" panel.
 /// </para>
 ///
 /// <para>
-/// <b>Tonal DNA constraint.</b> The mission strings (DisplayName +
-/// NarrativeHook) are authored in <see cref="HalfgateE2MissionAuthoring"/>
-/// against the Pratchett-tone budget (pinned by
-/// <see cref="Wayfinders.Client.Tests.Opening.HalfgateE2MissionAuthoringTests.Every_narrative_hook_fits_the_pratchett_tone_budget"/>).
-/// This composer adds no decoration beyond a leading bullet glyph and the
-/// district label header -- the voice belongs to the mission strings.
-/// </para>
-///
-/// <para>
-/// <b>Why this lives next to <see cref="HalfgateRumorHooks"/> and not
-/// inside the partial.</b> Pure-C#, Godot-free, trivially testable. Same
-/// rationale as <see cref="HalfgateRumorHooks.ComposeCellTooltip"/> :
-/// the engine-coupled hover handler is a thin adapter ; the prose
-/// composition is xUnit-pinned so a silent edit to the layout surfaces
-/// as a red step.
+/// <b>Tonal DNA constraint.</b> The narrative-hook prose is authored
+/// server-side under the Pratchett-tone budget (60-140 char, ends with a
+/// period, no parodic register) — the eval harness pins it. The composer
+/// adds no decoration beyond a leading bullet glyph and the district label
+/// header ; the voice belongs to the mission strings.
 /// </para>
 /// </summary>
 public static class HalfgateE2MissionTooltip
 {
     /// <summary>
-    /// Bullet glyph prefixed to each mission DisplayName. Plain ASCII
+    /// Bullet glyph prefixed to each mission display label. Plain ASCII
     /// hyphen-bullet keeps the font requirements minimal (no unicode
     /// dependency) and renders cleanly in the parchment-tone
     /// <c>HoverTooltip.tscn</c> Label.
@@ -59,36 +63,36 @@ public static class HalfgateE2MissionTooltip
     internal const string MissionBullet = "- ";
 
     /// <summary>
-    /// Indent applied to the narrative hook line under each mission
-    /// DisplayName. Two spaces line up under the start of the
-    /// DisplayName (the bullet glyph + space is 2 chars wide). A tab
-    /// would also work but is renderer-dependent in the Label control ;
-    /// spaces are safe.
+    /// Indent applied to the narrative hook line under each mission's
+    /// display label. Two spaces line up under the start of the label
+    /// (the bullet glyph + space is 2 chars wide). A tab would also work
+    /// but is renderer-dependent in the Label control ; spaces are safe.
     /// </summary>
     internal const string HookIndent = "  ";
 
     /// <summary>
-    /// Compose the tooltip text for a POI hovering surface.
+    /// Compose the tooltip text for a POI hovering surface from the wire
+    /// DTO list.
     /// </summary>
     /// <param name="districtDisplayName">Human-readable header line.
     /// Resolved by the caller via
     /// <see cref="DistrictTypeHelpers.DisplayName"/>. Pre-resolved (rather
     /// than passing the enum) so this composer stays single-responsibility
     /// and the caller controls localisation if it ever lands.</param>
-    /// <param name="missions">Missions anchored on the hovered POI. Empty
-    /// or null yields <see cref="string.Empty"/>. Iterated in the supplied
-    /// order -- the caller (or
-    /// <see cref="HalfgateE2MissionAuthoring.All"/>'s static ordering) owns
-    /// the sort key.</param>
+    /// <param name="missions">Missions anchored on the hovered POI.
+    /// Empty or null yields <see cref="string.Empty"/>. Iterated in the
+    /// supplied order — the caller (or
+    /// <see cref="MissionStore.GetMissionsForPoi"/>'s server-spawn order)
+    /// owns the sort key.</param>
     /// <returns>Final tooltip text (multi-line), or
     /// <see cref="string.Empty"/> when there is nothing to show.</returns>
     public static string Compose(
         string districtDisplayName,
-        IEnumerable<HalfgateE2Mission>? missions)
+        IEnumerable<EmergentMissionDto>? missions)
     {
         if (missions is null) return string.Empty;
 
-        var missionList = missions as IList<HalfgateE2Mission> ?? missions.ToList();
+        var missionList = missions as IList<EmergentMissionDto> ?? missions.ToList();
         if (missionList.Count == 0) return string.Empty;
 
         var sb = new StringBuilder();
@@ -103,7 +107,7 @@ public static class HalfgateE2MissionTooltip
             sb.Append('\n');
             sb.Append('\n');
             sb.Append(MissionBullet);
-            sb.Append(m.DisplayName);
+            sb.Append(MissionDisplayNames.For(m.Type));
             sb.Append('\n');
             sb.Append(HookIndent);
             sb.Append(m.NarrativeHook);
@@ -111,28 +115,36 @@ public static class HalfgateE2MissionTooltip
 
         return sb.ToString();
     }
+}
 
+/// <summary>
+/// Synthesise a short, player-facing label for an <see cref="EmergentMissionDto"/>
+/// from its <see cref="EmergentMissionDto.Type"/> closed-lookup value.
+/// The wire schema does NOT carry a DisplayName field ; the server's
+/// authoritative content is the long-form
+/// <see cref="EmergentMissionDto.NarrativeHook"/>. The label here gives
+/// the eye a one-word anchor above the prose so the tooltip reads like
+/// a quest log entry rather than a wall of paragraph.
+///
+/// <para>
+/// <b>Locked label set (Varn lookup mirror).</b> The two M1 mission types
+/// (<see cref="WorldTickWireFormat.MissionType.ScoutRoute"/> /
+/// <see cref="WorldTickWireFormat.MissionType.ParleyLocal"/>) get one
+/// label each. Adding a future mission type on the wire (M2 grammar
+/// expansion) lands an <c>InlineData</c> entry here ; an unmapped value
+/// falls back to a generic <c>"Mission"</c> label so a wire/spec drift
+/// surfaces visibly but does not crash the tooltip.
+/// </para>
+/// </summary>
+public static class MissionDisplayNames
+{
     /// <summary>
-    /// Convenience filter : pick the subset of <paramref name="missions"/>
-    /// whose <see cref="HalfgateE2Mission.PoiId"/> matches the supplied
-    /// <paramref name="poiId"/>. Forward-compatible with the E2.2+ shape
-    /// where multiple missions can share a POI (e.g. two simultaneous
-    /// Gateway missions). At E2.1c the lookup yields exactly one mission
-    /// per POI (one mission per district, one marker per district).
+    /// Resolve a mission-type slug to its short player-facing label.
     /// </summary>
-    /// <param name="missions">Mission set to filter
-    /// (<see cref="HalfgateE2MissionAuthoring.All"/> at E2.1c).</param>
-    /// <param name="poiId">Stable POI identifier (the
-    /// <see cref="HalfgateE2Mission.PoiId"/> the marker was spawned with).</param>
-    /// <returns>Missions whose <c>PoiId</c> matches, in source order.</returns>
-    public static IEnumerable<HalfgateE2Mission> FindByPoiId(
-        IEnumerable<HalfgateE2Mission> missions,
-        string poiId)
+    public static string For(string missionType) => missionType switch
     {
-        if (missions is null) yield break;
-        foreach (var m in missions)
-        {
-            if (m is not null && m.PoiId == poiId) yield return m;
-        }
-    }
+        WorldTickWireFormat.MissionType.ScoutRoute => "Scouting",
+        WorldTickWireFormat.MissionType.ParleyLocal => "Parley",
+        _ => "Mission",
+    };
 }

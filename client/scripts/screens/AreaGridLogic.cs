@@ -395,7 +395,7 @@ public static class AreaGridLogic
     /// contain at least one cell of the district (the
     /// "zone-eligibility" invariant pinned by
     /// <c>District_centroid_zone_contains_at_least_one_cell_of_district</c>
-    /// in <see cref="HalfgateE2MissionAuthoringTests"/>).
+    /// in <c>HalfgateE2MissionAuthoringTests</c>).
     ///
     /// <para>
     /// <b>Why one zone per district and not "any eligible zone".</b> The

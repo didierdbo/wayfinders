@@ -268,7 +268,7 @@ public partial class E2AreaMap
 
     /// <summary>
     /// E2-layer POI marker hotspot roots, one per active
-    /// <see cref="HalfgateE2Mission"/>. Spawned by
+    /// <c>HalfgateE2Mission</c>. Spawned by
     /// <c>SpawnE2MissionPoiMarkers</c> at E2.1c+ ; each hotspot sits at
     /// the iso-screen position of its target district's centroid
     /// (resolved via <see cref="AreaGridLogic.DistrictCentroid"/>).
@@ -286,7 +286,7 @@ public partial class E2AreaMap
     /// <para>
     /// <b>Per-marker lookups land in two sibling dicts.</b>
     /// <see cref="_e2MarkerHotspots"/> keys hotspot roots by
-    /// <see cref="HalfgateE2Mission.PoiId"/> so the hover handler can
+    /// <c>HalfgateE2Mission.PoiId</c> so the hover handler can
     /// fetch <c>GlobalPosition</c> for the tooltip anchor without
     /// scanning the scene tree. <see cref="_e2MarkerHandlers"/> keeps the
     /// captured <see cref="Action"/> references so <c>TearDownAreaGrid</c>
@@ -299,7 +299,7 @@ public partial class E2AreaMap
 
     /// <summary>
     /// Reverse lookup poi_id -> hotspot Node2D root. Keyed by
-    /// <see cref="HalfgateE2Mission.PoiId"/> (e.g.
+    /// <c>HalfgateE2Mission.PoiId</c> (e.g.
     /// <c>"halfgate.intramuros"</c>). The hover handler reads
     /// <c>GlobalPosition</c> off the hotspot for the tooltip anchor.
     /// Empty at E2.1a / E2.1b ; populated from E2.1c onward.
@@ -309,7 +309,7 @@ public partial class E2AreaMap
     /// <summary>
     /// Per-marker captured handlers so <c>TearDownAreaGrid</c> can
     /// disconnect with the exact lambda references used at wire time.
-    /// Keyed by <see cref="HalfgateE2Mission.PoiId"/>. Method-group
+    /// Keyed by <c>HalfgateE2Mission.PoiId</c>. Method-group
     /// disconnect would not match because each lambda closes over a
     /// distinct PoiId (Risk #1, same pattern as
     /// <see cref="_tileHitHandlers"/>). Empty at E2.1a / E2.1b ;
@@ -464,7 +464,15 @@ public partial class E2AreaMap
         //    lands at E2.2+).
         if (ScopeMode != "E2.1a" && ScopeMode != "E2.1b")
         {
-            SpawnE2MissionPoiMarkers(assetResolver);
+            // Section A : marker spawn pivots to the MissionStore cache.
+            // Subscribe BEFORE the initial rebuild so a poll that lands
+            // between subscribe and rebuild is reconciled by the signal
+            // path. The rebuild reads the current snapshot via
+            // GetMissionsForLayer ; if the snapshot is empty the loop
+            // is a no-op and a later PendingMissionsChanged signal will
+            // fire RebuildE2MissionMarkers in OnPendingMissionsChanged.
+            SubscribeToMissionStoreChanges();
+            RebuildE2MissionMarkers(assetResolver);
         }
 
         // 6. NPC portraits -- gated past E2.1c (land in E2.2 with the
@@ -559,67 +567,112 @@ public partial class E2AreaMap
     }
 
     /// <summary>
-    /// Spawn one POI marker hotspot per active E2-layer mission. Reads
-    /// the mock authoring in <see cref="HalfgateE2MissionAuthoring.All"/>,
-    /// resolves each mission's <see cref="HalfgateE2Mission.TargetDistrict"/>
-    /// to a fractional zone-centre centroid via
-    /// <see cref="AreaGridLogic.DistrictCentroid"/>, translates the
-    /// centroid into iso-screen space via <see cref="IsoFractionalCentre"/>,
-    /// and instantiates one <see cref="Node2D"/> hotspot per mission
-    /// under <see cref="_areaGridLayer"/>.
+    /// Rebuild every POI marker hotspot from the current
+    /// <see cref="MissionStore.GetMissionsForLayer"/> snapshot. One
+    /// marker per active mission targeting <c>e2.halfgate.*</c> ; the
+    /// marker lands at the iso-screen centroid of the district slug
+    /// parsed from the mission's <see cref="EmergentMissionDto.TargetPoi"/>.
+    /// Idempotent : despawns the previous marker set first, then
+    /// re-spawns from scratch (clean-rebuild — simpler than diffing,
+    /// and the M1 cap of 3 markers per district keeps the cost
+    /// negligible).
     ///
     /// <para>
-    /// <b>E2.1c profond refonte (2026-05-16).</b> Each centroid is
-    /// guaranteed to sit on one of the 16 zone-centres
-    /// (= <c>(2*zCol + 0.5, 2*zRow + 0.5)</c>), AND the picked zone is
-    /// guaranteed to contain at least one cell of the target district.
+    /// <b>Section A refactor (Varn-lock 2026-05-17 + Didier brief).</b>
+    /// Pre-Section-A this method spawned three hardcoded markers from
+    /// <c>HalfgateE2MissionAuthoring.All</c> (now retired) regardless of
+    /// active-mission state. Section A makes the marker presence
+    /// <i>conditional on an active ML mission</i> targeting the district
+    /// (Decision 5) : no mission => no marker. The dev-flag re-injection
+    /// path (<c>WAYFINDERS_DEV_MISSION_SEED=halfgate_e2_tuto</c>) is
+    /// handled backend-side by Tess (commit <c>a01e432</c>) — the client
+    /// holds no hardcoded fallback.
     /// </para>
     ///
     /// <para>
-    /// <b>E2.2 step 1 (2026-05-17 -- this slice).</b> The bare Sprite2D
-    /// at E2.1c is now a <see cref="Node2D"/> hotspot containing a
+    /// <b>Unknown-slug discipline.</b> Decision 5 of the spec : if the
+    /// slug-2 of a mission's TargetPoi does not resolve to a known
+    /// <see cref="DistrictType"/>, log a warning and skip the marker.
+    /// Defensive against a backend schema drift (a new district slug
+    /// landing on the wire before the client's
+    /// <see cref="DistrictTypeHelpers.TryParseSlug"/> set is extended).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Per-marker hotspot shape (unchanged from E2.2 step 1).</b>
+    /// Each marker is a <see cref="Node2D"/> hotspot with a
     /// <see cref="Sprite2D"/> visual + <see cref="Area2D"/> hit-test
-    /// (with <see cref="CollisionShape2D"/> + <see cref="RectangleShape2D"/>).
-    /// MouseEntered fires <see cref="OnE2PoiMarkerHoverIn"/>, MouseExited
-    /// fires <see cref="OnE2PoiMarkerHoverOut"/>. The shape matches the
-    /// marker's visible footprint with a small fudge factor for player
-    /// comfort -- losange centres are not pixel-precise hit targets.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Per-marker hit-box size.</b> The POI marker bitmap is 192x192
-    /// pixels (Mira-baked anchor + ring). We pick a 128x96 rectangular
-    /// hit-box centered on the marker so the player can hover slightly
-    /// above or below the ring without losing the tooltip. Smaller than
-    /// the bitmap (192) so two adjacent markers' hit-boxes do not
-    /// overlap when the zoom factor squishes them visually closer.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>What still does NOT happen at E2.2 step 1.</b> No click handler
-    /// (left-click is step 3's "open mission panel" affordance). No
-    /// in-tooltip hover-mission-highlight (step 2). No mission-panel
-    /// slide-in (step 3). The hotspot is hover-only this step.
+    /// (with <see cref="CollisionShape2D"/> +
+    /// <see cref="RectangleShape2D"/>). MouseEntered fires
+    /// <see cref="OnE2PoiMarkerHoverIn"/>, MouseExited fires
+    /// <see cref="OnE2PoiMarkerHoverOut"/>. Hover handlers route through
+    /// <see cref="MissionStore.GetMissionsForPoi"/> with the mission's
+    /// <see cref="EmergentMissionDto.TargetPoi"/> as the key — the
+    /// hardcoded <c>"halfgate.intramuros"</c>-style PoiId is gone ; the
+    /// canonical hierarchical id (<c>"e2.halfgate.intramuros"</c>) is
+    /// the lookup key.
     /// </para>
     /// </summary>
-    private void SpawnE2MissionPoiMarkers(AssetResolver assetResolver)
+    private void RebuildE2MissionMarkers(AssetResolver assetResolver)
     {
+        DespawnE2MissionMarkers();
+
+        var missionStore = GetNodeOrNull<MissionStore>("/root/MissionStore");
+        if (missionStore is null)
+        {
+            GD.PushWarning(
+                "[E2AreaMap] RebuildE2MissionMarkers : MissionStore autoload " +
+                "not found — no markers will spawn this frame. Check " +
+                "project.godot autoload registration.");
+            return;
+        }
+
+        var activeMissions = missionStore.GetMissionsForLayer("e2.halfgate");
+        if (activeMissions.Count == 0)
+        {
+            GD.Print(
+                "[E2AreaMap] RebuildE2MissionMarkers : no e2.halfgate.* " +
+                "missions active — no markers spawned. Backend reports " +
+                "empty list ; waiting for next emergence.");
+            return;
+        }
+
         var markerTexture = assetResolver.Resolve(AreaGridPoiMarkerAssetKey);
 
-        foreach (var mission in HalfgateE2MissionAuthoring.All)
+        foreach (var mission in activeMissions)
         {
-            var centroid = AreaGridLogic.DistrictCentroid(mission.TargetDistrict);
+            // Slug-2 lives between the second and third dot of the
+            // hierarchical id : "e2.halfgate.<slug>" -> slug = TargetPoi
+            // after the second dot. Defensive parse against shorter ids.
+            var targetPoi = mission.TargetPoi;
+            var firstDot = targetPoi.IndexOf('.');
+            var secondDot = firstDot < 0 ? -1 : targetPoi.IndexOf('.', firstDot + 1);
+            if (secondDot < 0 || secondDot >= targetPoi.Length - 1)
+            {
+                GD.PushWarning(
+                    $"[E2AreaMap] RebuildE2MissionMarkers : mission id={mission.Id} " +
+                    $"has target_poi='{targetPoi}' without a slug-2 segment — " +
+                    "skipping marker (decision 5 unknown-slug fallback).");
+                continue;
+            }
+            var slug = targetPoi.Substring(secondDot + 1);
+
+            if (!DistrictTypeHelpers.TryParseSlug(slug, out var district))
+            {
+                GD.PushWarning(
+                    $"[E2AreaMap] RebuildE2MissionMarkers : mission id={mission.Id} " +
+                    $"target_poi='{targetPoi}' resolved to unknown district slug " +
+                    $"'{slug}' — skipping marker (decision 5 unknown-slug " +
+                    "fallback).");
+                continue;
+            }
+
+            var centroid = AreaGridLogic.DistrictCentroid(district);
             var screenCentre = IsoFractionalCentre(centroid.Col, centroid.Row);
 
-            // Hotspot root carries the Position so children sit relative
-            // to it. ZIndex stacks the marker above the tile layer (the
-            // tiles are at ZIndex = col within Y-sort, max 7 ; marker at
-            // 5 reads above any tile at the same Y-sort band).
             var hotspot = new Node2D
             {
-                // Name encodes mission_id so the remote scene inspector
-                // makes the marker easy to find. Stable across runs.
-                Name = $"E2PoiMarker_{mission.MissionId}",
+                Name = $"E2PoiMarker_{mission.Id}",
                 Position = screenCentre,
                 ZIndex = 5,
             };
@@ -629,20 +682,11 @@ public partial class E2AreaMap
                 Name = "Visual",
                 Texture = markerTexture,
                 Centered = true,
-                // LinearWithMipmaps matches the tile rendering : at the
-                // default zoom the marker's ring edge reads cleaner than
-                // Nearest. The 192x192 source bitmap is over-sampled at
-                // the rendered ~48 px so mipmaps win on the downscale.
                 TextureFilter = CanvasItem.TextureFilterEnum.LinearWithMipmaps,
                 Visible = true,
             };
             hotspot.AddChild(sprite);
 
-            // E2.2 step 1 -- Area2D hit-test for hover. Mirrors the E1
-            // POI spawn pattern in E1WorldMap.SpawnPois and the E2 legacy
-            // SpawnPois in this same partial's E2AreaMap.cs. The shape is
-            // a RectangleShape2D sized smaller than the visible bitmap so
-            // adjacent markers do not overlap their hit-boxes at low zoom.
             var area = new Area2D
             {
                 Name = "Hitbox",
@@ -657,26 +701,92 @@ public partial class E2AreaMap
 
             _areaGridLayer!.AddChild(hotspot);
 
-            // Capture poi_id once per closure so the hover handler reads
-            // the right marker entry. Lambdas kept in _e2MarkerHandlers
-            // so the _ExitTree path disconnects with the exact references
-            // used here (Risk #1 captured-reference discipline).
-            var poiId = mission.PoiId;
-            Action mouseEntered = () => OnE2PoiMarkerHoverIn(poiId);
-            Action mouseExited = () => OnE2PoiMarkerHoverOut(poiId);
+            // Key is target_poi (NOT the legacy halfgate.<slug> PoiId)
+            // because MissionStore.GetMissionsForPoi takes the canonical
+            // hierarchical id.
+            var hotspotKey = targetPoi;
+            Action mouseEntered = () => OnE2PoiMarkerHoverIn(hotspotKey);
+            Action mouseExited = () => OnE2PoiMarkerHoverOut(hotspotKey);
             area.MouseEntered += mouseEntered;
             area.MouseExited += mouseExited;
 
             _e2PoiMarkers.Add(hotspot);
-            _e2MarkerHotspots[poiId] = hotspot;
-            _e2MarkerHandlers[poiId] = (mouseEntered, mouseExited);
+            _e2MarkerHotspots[hotspotKey] = hotspot;
+            _e2MarkerHandlers[hotspotKey] = (mouseEntered, mouseExited);
         }
 
         GD.Print(
-            $"[E2AreaMap] SpawnE2MissionPoiMarkers : spawned " +
-            $"{_e2PoiMarkers.Count} hotspot(s) for active E2 missions " +
-            $"({string.Join(", ", HalfgateE2MissionAuthoring.All.Select(m => m.MissionId))}), " +
-            $"hover wired={_e2MarkerHandlers.Count}.");
+            $"[E2AreaMap] RebuildE2MissionMarkers : spawned " +
+            $"{_e2PoiMarkers.Count} hotspot(s) for " +
+            $"{activeMissions.Count} active mission(s) on e2.halfgate.*. " +
+            $"missions=[{string.Join(", ", activeMissions.Select(m => m.Id))}].");
+    }
+
+    /// <summary>
+    /// Disconnect every E2 marker handler with the captured lambda
+    /// reference and free the hotspot Node2D subtrees. Idempotent : safe
+    /// to call before any spawn pass. Called by
+    /// <see cref="RebuildE2MissionMarkers"/> and by
+    /// <see cref="TearDownAreaGrid"/>.
+    /// </summary>
+    private void DespawnE2MissionMarkers()
+    {
+        foreach (var (key, handlers) in _e2MarkerHandlers)
+        {
+            if (!_e2MarkerHotspots.TryGetValue(key, out var hotspot)) continue;
+            if (!IsInstanceValid(hotspot)) continue;
+            var area = hotspot.GetNodeOrNull<Area2D>("Hitbox");
+            if (area is null) continue;
+            area.MouseEntered -= handlers.mouseEntered;
+            area.MouseExited -= handlers.mouseExited;
+        }
+        _e2MarkerHandlers.Clear();
+
+        foreach (var hotspot in _e2PoiMarkers)
+        {
+            if (IsInstanceValid(hotspot)) hotspot.QueueFree();
+        }
+        _e2PoiMarkers.Clear();
+        _e2MarkerHotspots.Clear();
+    }
+
+    /// <summary>
+    /// Captured handler reference for the
+    /// <see cref="MissionStore.PendingMissionsChanged"/> subscription.
+    /// Stored so <see cref="TearDownAreaGrid"/> can disconnect with the
+    /// exact same delegate (Risk #1).
+    /// </summary>
+    private MissionStore.PendingMissionsChangedEventHandler? _missionStoreChangedHandler;
+
+    /// <summary>
+    /// Subscribe to MissionStore live updates so the marker set
+    /// follows the active-mission set without requiring an E2 re-entry.
+    /// Idempotent : disconnects any previous handler before re-wiring.
+    /// </summary>
+    private void SubscribeToMissionStoreChanges()
+    {
+        var missionStore = GetNodeOrNull<MissionStore>("/root/MissionStore");
+        if (missionStore is null) return;
+
+        if (_missionStoreChangedHandler is not null)
+        {
+            missionStore.PendingMissionsChanged -= _missionStoreChangedHandler;
+        }
+        _missionStoreChangedHandler = OnPendingMissionsChanged;
+        missionStore.PendingMissionsChanged += _missionStoreChangedHandler;
+    }
+
+    /// <summary>
+    /// Live-update handler. The MissionStore signal carries no payload
+    /// (coarse-grained by design — see <c>MissionStore.cs</c>) ; we
+    /// re-fetch the full snapshot and rebuild from scratch.
+    /// </summary>
+    private void OnPendingMissionsChanged()
+    {
+        if (_areaGridLayer is null || !IsInstanceValid(_areaGridLayer)) return;
+        var assetResolver = GetNodeOrNull<AssetResolver>("/root/AssetResolver");
+        if (assetResolver is null) return;
+        RebuildE2MissionMarkers(assetResolver);
     }
 
     /// <summary>
@@ -711,26 +821,44 @@ public partial class E2AreaMap
     /// district is taken from the FIRST matching mission. At E2.1c+ each
     /// marker is one mission, so the choice is unambiguous. When E2.2+
     /// lands multiple missions per POI, the marker's
-    /// <see cref="HalfgateE2Mission.TargetDistrict"/> is identical
+    /// <c>HalfgateE2Mission.TargetDistrict</c> is identical
     /// across siblings (the POI IS the district anchor), so picking the
     /// first is still the right answer.
     /// </para>
     /// </summary>
-    private void OnE2PoiMarkerHoverIn(string poiId)
+    private void OnE2PoiMarkerHoverIn(string targetPoi)
     {
-        var missions = HalfgateE2MissionTooltip
-            .FindByPoiId(HalfgateE2MissionAuthoring.All, poiId)
-            .ToList();
+        // Section A refactor (Varn-lock 2026-05-17 + Didier brief) :
+        // resolve the hovered marker's missions from MissionStore (the
+        // authoritative client-side cache of /api/missions/active)
+        // instead of the retired hardcoded HalfgateE2MissionAuthoring
+        // record. The lookup key is the canonical hierarchical
+        // target_poi (e.g. "e2.halfgate.gateway"), captured at hotspot
+        // spawn time in RebuildE2MissionMarkers.
+        var missionStore = GetNodeOrNull<MissionStore>("/root/MissionStore");
+        if (missionStore is null) return;
+
+        var missions = missionStore.GetMissionsForPoi(targetPoi);
         if (missions.Count == 0) return;
 
-        var districtLabel = DistrictTypeHelpers.DisplayName(missions[0].TargetDistrict);
+        // Derive the district label from the first matching mission's
+        // target_poi slug-2 segment. All siblings on the same target_poi
+        // share the district (the POI IS the district anchor) ; picking
+        // the first is correct for any multi-mission collapse.
+        var firstDot = targetPoi.IndexOf('.');
+        var secondDot = firstDot < 0 ? -1 : targetPoi.IndexOf('.', firstDot + 1);
+        if (secondDot < 0 || secondDot >= targetPoi.Length - 1) return;
+        var slug = targetPoi.Substring(secondDot + 1);
+        if (!DistrictTypeHelpers.TryParseSlug(slug, out var district)) return;
+
+        var districtLabel = DistrictTypeHelpers.DisplayName(district);
         var payload = MissionTooltipRows.Compose(districtLabel, missions);
         if (payload.Rows.Count == 0) return;
 
         var tooltipController = GetNodeOrNull<HoverTooltipController>("/root/HoverTooltipController");
         if (tooltipController is null) return;
 
-        var anchor = _e2MarkerHotspots.TryGetValue(poiId, out var hotspot)
+        var anchor = _e2MarkerHotspots.TryGetValue(targetPoi, out var hotspot)
             ? hotspot.GetGlobalTransformWithCanvas().Origin
             : Vector2.Zero;
         tooltipController.RequestMissionTooltip(payload, anchor, OnMissionRowClicked);
@@ -1216,30 +1344,26 @@ public partial class E2AreaMap
         _tileHitTestLayer = null;
         _npcPortraitLayer = null;
         _poiMarker = null;
-        // E2.2 step 1 (2026-05-17) -- disconnect every E2 marker hover
-        // handler with the EXACT lambda reference captured at wire time.
-        // Method-group disconnect would not match because each lambda
-        // closed over a distinct poi_id (Risk #1, same pattern as
-        // _tileHitHandlers above). The _areaGridLayer QueueFree below
-        // disposes the Area2D nodes, but the disconnect must happen
-        // FIRST so the tear-down does not race with a pending hover
-        // signal queued in the same frame.
-        foreach (var (poiId, handlers) in _e2MarkerHandlers)
-        {
-            if (!_e2MarkerHotspots.TryGetValue(poiId, out var hotspot)) continue;
-            if (!IsInstanceValid(hotspot)) continue;
-            var area = hotspot.GetNodeOrNull<Area2D>("Hitbox");
-            if (area is null) continue;
-            area.MouseEntered -= handlers.mouseEntered;
-            area.MouseExited -= handlers.mouseExited;
-        }
-        _e2MarkerHandlers.Clear();
-        _e2MarkerHotspots.Clear();
+        // Section A (2026-05-17) — DespawnE2MissionMarkers owns the
+        // disconnect-by-captured-reference discipline for the dynamic
+        // marker set (Risk #1, same pattern as _tileHitHandlers above).
+        // Called BEFORE the _areaGridLayer QueueFree so a pending hover
+        // signal queued in the same frame cannot race the teardown.
+        DespawnE2MissionMarkers();
 
-        // E2.1c per-mission marker refs : the _areaGridLayer QueueFree
-        // below already disposes the hotspot Node2D subtrees ; clearing
-        // the list drops the captured refs so a re-Configure starts fresh.
-        _e2PoiMarkers.Clear();
+        // Unsubscribe from MissionStore live updates with the exact
+        // delegate captured at wire time so a future PendingMissionsChanged
+        // emission cannot re-target a freed E2AreaMap instance.
+        if (_missionStoreChangedHandler is not null)
+        {
+            var missionStore = GetNodeOrNull<MissionStore>("/root/MissionStore");
+            if (missionStore is not null)
+            {
+                missionStore.PendingMissionsChanged -= _missionStoreChangedHandler;
+            }
+        }
+        _missionStoreChangedHandler = null;
+
         _areaGridRevealController = null;
         _areaGridTileShader = null;
 

@@ -88,6 +88,10 @@ namespace Wayfinders.Client.Services.Dtos;
 [JsonSerializable(typeof(WorldTickRequestDto))]
 [JsonSerializable(typeof(WorldTickResponseDto))]
 [JsonSerializable(typeof(EmergentMissionDto))]
+// Section A (Varn-lock 2026-05-17): GET /api/missions/active returns
+// list[EmergentMission] — register the IList<EmergentMissionDto> shape
+// for source-gen deserialisation in ApiClient.GetActiveMissionsAsync.
+[JsonSerializable(typeof(IList<EmergentMissionDto>))]
 // 4b — typed CharacterState mirror for company_personas. Pydantic
 // schema source : wayfinders/ml/schemas/character.py (Varn 2026-04-30).
 // Wire format doc : Owner's Inbox/2026-05-10-Wayfinders-CharacterState-wire-format.md.

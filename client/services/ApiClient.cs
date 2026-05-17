@@ -708,6 +708,83 @@ public partial class ApiClient : Node
     }
 
     /// <summary>
+    /// Hits <c>GET /api/missions/active</c> and deserialises the response
+    /// into a typed list of <see cref="EmergentMissionDto"/> via the
+    /// source-generated <see cref="ApiJsonContext"/>. Section A endpoint
+    /// (Varn-lock 2026-05-17, Tess commit a01e432).
+    ///
+    /// <para>
+    /// <b>What this method does.</b> Same shape as
+    /// <see cref="GetUnitsAsync"/> : linked CTS for cancellation,
+    /// <c>ConfigureAwait(false)</c> on every <c>await</c>, every catch arm
+    /// produces a typed <see cref="ApiError"/>. The endpoint returns the
+    /// authoritative list of active missions on the server (ordered by
+    /// tick spawn ascending) ; client-side <see cref="MissionStore"/>
+    /// polls this on every <c>WorldSimTick.TickAdvanced</c>.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Empty list contract.</b> A JSON <c>[]</c> response is
+    /// <see cref="Result{T, E}.Success"/> with an empty list — NOT a
+    /// failure. The server returns <c>[]</c> legitimately when no
+    /// mission has emerged yet (pre-tick-1) or every mission has been
+    /// concluded ; conflating with failure would force callers to
+    /// special-case the boot path.
+    /// </para>
+    /// </summary>
+    /// <param name="ct">Caller's cancellation token. Linked with the
+    /// autoload's shutdown token.</param>
+    public async Task<Result<IReadOnlyList<EmergentMissionDto>, ApiError>> GetActiveMissionsAsync(
+        CancellationToken ct = default)
+    {
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdownCts.Token);
+
+        try
+        {
+            var missions = await _httpClient
+                .GetFromJsonAsync(
+                    "/api/missions/active",
+                    ApiJsonContext.Default.IListEmergentMissionDto,
+                    linkedCts.Token)
+                .ConfigureAwait(false);
+
+            if (missions is null)
+            {
+                return Result.Fail<IReadOnlyList<EmergentMissionDto>, ApiError>(
+                    new ApiError.DeserializationError("/api/missions/active returned JSON null instead of an array"));
+            }
+
+            return Result.Ok<IReadOnlyList<EmergentMissionDto>, ApiError>((IReadOnlyList<EmergentMissionDto>)missions);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested || _shutdownCts.IsCancellationRequested)
+        {
+            return Result.Fail<IReadOnlyList<EmergentMissionDto>, ApiError>(new ApiError.Cancelled());
+        }
+        catch (OperationCanceledException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/missions/active timeout: {ex.Message}");
+            return Result.Fail<IReadOnlyList<EmergentMissionDto>, ApiError>(
+                new ApiError.NotReachable($"timeout: {ex.Message}"));
+        }
+        catch (HttpRequestException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/missions/active network error: {ex.Message}");
+            return Result.Fail<IReadOnlyList<EmergentMissionDto>, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Net.Http.HttpIOException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/missions/active transport error: {ex.Message}");
+            return Result.Fail<IReadOnlyList<EmergentMissionDto>, ApiError>(new ApiError.NotReachable(ex.Message));
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            GD.PushWarning($"[ApiClient] /api/missions/active JSON parse error: {ex.Message}");
+            return Result.Fail<IReadOnlyList<EmergentMissionDto>, ApiError>(
+                new ApiError.DeserializationError(ex.Message));
+        }
+    }
+
+    /// <summary>
     /// Hits <c>GET /api/world/poi_tree</c> and parses the response
     /// using a one-shot <see cref="JsonDocument"/> rather than the
     /// source-gen pipeline. Used at boot by

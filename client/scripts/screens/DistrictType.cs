@@ -162,4 +162,33 @@ public static class DistrictTypeHelpers
         DistrictType.Littoral       => (0.560f, 0.640f, 0.682f, 1.0f),
         _                            => (1.000f, 1.000f, 1.000f, 1.0f),
     };
+
+    /// <summary>
+    /// Inverse of <see cref="AssetKeySuffix"/> — resolve a Varn-locked
+    /// district slug (snake_case, as it appears in
+    /// <c>EmergentMissionDto.TargetPoi</c> after the layer + city
+    /// segments) to its enum. Returns <c>true</c> on a known slug,
+    /// <c>false</c> on anything else (the caller logs and skips the
+    /// marker per Decision 5 of the Varn-lock 2026-05-17 §A.1 contract).
+    ///
+    /// <para>
+    /// <b>Section A consumer.</b> The E2 marker spawner parses the
+    /// slug-2 segment of a mission's TargetPoi (e.g. <c>"gateway"</c>
+    /// from <c>"e2.halfgate.gateway"</c>) and feeds it here to resolve
+    /// the centroid via <see cref="AreaGridLogic.DistrictCentroid"/>.
+    /// </para>
+    /// </summary>
+    public static bool TryParseSlug(string slug, out DistrictType district)
+    {
+        switch (slug)
+        {
+            case "intramuros":      district = DistrictType.Intramuros;     return true;
+            case "wall":            district = DistrictType.Wall;           return true;
+            case "gateway":         district = DistrictType.Gateway;        return true;
+            case "outskirts":       district = DistrictType.Outskirts;      return true;
+            case "hinterland_agri": district = DistrictType.HinterlandAgri; return true;
+            case "littoral":        district = DistrictType.Littoral;       return true;
+            default:                district = DistrictType.Intramuros;     return false;
+        }
+    }
 }

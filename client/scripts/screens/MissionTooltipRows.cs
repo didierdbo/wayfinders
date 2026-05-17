@@ -1,37 +1,39 @@
 using System.Collections.Generic;
 using System.Linq;
+using Wayfinders.Client.Services.Dtos;
 
 namespace Wayfinders.Client.Scripts.Screens;
 
 /// <summary>
 /// E2.2 step 2 (2026-05-17) -- pure-C# structured form of the E2 mission
-/// tooltip. Step 1 collapsed every mission for a POI into a single
-/// multi-line string via <see cref="HalfgateE2MissionTooltip.Compose"/> ;
-/// step 2 needs each mission rendered as its own <i>interactive row</i>
-/// (hover-highlight, cursor=pointing-hand, future click). The single-string
-/// shape cannot back per-row highlight/click -- we need a typed list of
-/// rows the Godot-bound builder can iterate to spawn one Button per row.
+/// tooltip. Step 1's single-string composer (<see cref="HalfgateE2MissionTooltip"/>)
+/// renders the same content into one multi-line string ; step 2 needs each
+/// mission rendered as its own <i>interactive row</i> (hover-highlight,
+/// cursor=pointing-hand, click). The single-string shape cannot back per-row
+/// highlight/click — we need a typed list of rows the Godot-bound builder
+/// can iterate to spawn one Button per row.
 ///
 /// <para>
-/// <b>Why a NEW helper and not a refactor of
-/// <see cref="HalfgateE2MissionTooltip"/>.</b> The step 1 composer is
-/// pinned by 11 xUnit tests as the canonical "compose a single tooltip
-/// string for a list of missions" surface. The 5 OTHER callers of
-/// <c>HoverTooltipController.RequestTooltip</c> (E1 POI, E2 cell, E2 NPC
-/// portrait, E3 POI, plus the legacy E2 dispatch path) still consume a
-/// single string -- they have no per-row interactive shape and do not need
-/// one this slice. Keeping <see cref="HalfgateE2MissionTooltip"/> stable
-/// preserves those tests AND those callers ; the new structured surface
-/// lives next to it for the one caller (E2 POI marker hover) that needs
-/// rows. When E3 or another screen later needs interactive rows, this
-/// helper is reused -- pas avant.
+/// <b>Section A refactor (Varn-lock 2026-05-17 + Didier brief 2026-05-17).</b>
+/// The builder pivoted from the hardcoded
+/// <c>HalfgateE2MissionAuthoring</c> record (now retired) to the
+/// wire DTO. The row record's three slots stay (<see cref="MissionTooltipRow.MissionId"/>
+/// / <see cref="MissionTooltipRow.DisplayName"/> /
+/// <see cref="MissionTooltipRow.NarrativeHook"/>) ; the values are now
+/// derived from <see cref="EmergentMissionDto"/> :
+/// <list type="bullet">
+///   <item><c>MissionId</c> ← <see cref="EmergentMissionDto.Id"/></item>
+///   <item><c>DisplayName</c> ← <see cref="MissionDisplayNames.For"/> with
+///         <see cref="EmergentMissionDto.Type"/> as the input</item>
+///   <item><c>NarrativeHook</c> ← <see cref="EmergentMissionDto.NarrativeHook"/></item>
+/// </list>
 /// </para>
 ///
 /// <para>
 /// <b>Forward-compatibility.</b> The row record carries
-/// <see cref="MissionTooltipRow.MissionId"/> so the future step 3 click
-/// handler can dispatch to a mission-panel-slide-in without going back to
-/// the authoring lookup. The DisplayName + NarrativeHook are baked in at
+/// <see cref="MissionTooltipRow.MissionId"/> so the click handler can
+/// dispatch to a mission-panel-slide-in without going back to the
+/// authoring lookup. The DisplayName + NarrativeHook are baked in at
 /// row-creation time so the Godot-bound builder has zero authoring
 /// dependency.
 /// </para>
@@ -47,14 +49,14 @@ public static class MissionTooltipRows
     /// <see cref="MissionTooltipPayload.DistrictDisplayName"/>.</param>
     /// <param name="missions">Missions anchored on the hovered POI.
     /// Iterated in supplied order -- caller (or
-    /// <see cref="HalfgateE2MissionAuthoring.All"/>'s static ordering)
+    /// <see cref="MissionStore.GetMissionsForPoi"/>'s server-spawn order)
     /// owns the sort key. Null or empty yields a payload with an empty
     /// row list (the Godot-bound caller then suppresses the tooltip
     /// rather than rendering an empty card, matching the step 1
     /// "pas de tooltip si pas de mission" contract).</param>
     public static MissionTooltipPayload Compose(
         string districtDisplayName,
-        IEnumerable<HalfgateE2Mission>? missions)
+        IEnumerable<EmergentMissionDto>? missions)
     {
         if (missions is null)
         {
@@ -65,8 +67,8 @@ public static class MissionTooltipRows
 
         var rows = missions
             .Select(m => new MissionTooltipRow(
-                MissionId: m.MissionId,
-                DisplayName: m.DisplayName,
+                MissionId: m.Id,
+                DisplayName: MissionDisplayNames.For(m.Type),
                 NarrativeHook: m.NarrativeHook))
             .ToList();
 
@@ -76,16 +78,17 @@ public static class MissionTooltipRows
 
 /// <summary>
 /// One row in the E2 mission tooltip. Mirrors the subset of
-/// <see cref="HalfgateE2Mission"/> the tooltip actually surfaces, plus the
-/// stable <see cref="MissionId"/> the future click handler will dispatch
-/// on. Pure-data record so the Godot-bound builder can iterate cheaply.
+/// <see cref="EmergentMissionDto"/> the tooltip actually surfaces, plus
+/// the stable <see cref="MissionId"/> the click handler dispatches on.
+/// Pure-data record so the Godot-bound builder can iterate cheaply.
 /// </summary>
-/// <param name="MissionId">Stable mission identifier. Forward-routed to
-/// the step 3 click handler.</param>
-/// <param name="DisplayName">Player-facing title (Pratchett-tone, 1
-/// line).</param>
-/// <param name="NarrativeHook">Single-line rumor hook (Pratchett-tone,
-/// indented under the DisplayName in the rendered row).</param>
+/// <param name="MissionId">Stable mission identifier (from
+/// <see cref="EmergentMissionDto.Id"/>). Forward-routed to the click
+/// handler.</param>
+/// <param name="DisplayName">Player-facing short label (synthesised from
+/// the mission's type via <see cref="MissionDisplayNames"/>, 1 line).</param>
+/// <param name="NarrativeHook">Server-rendered narrative hook
+/// (Pratchett-tone, indented under the DisplayName in the rendered row).</param>
 public sealed record MissionTooltipRow(
     string MissionId,
     string DisplayName,

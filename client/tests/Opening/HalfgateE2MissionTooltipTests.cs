@@ -1,27 +1,58 @@
 using System.Collections.Generic;
-using System.Linq;
 using Wayfinders.Client.Scripts.Screens;
+using Wayfinders.Client.Services.Dtos;
 
 namespace Wayfinders.Client.Tests.Opening;
 
 /// <summary>
-/// Pin the E2.2 step 1 tooltip composer + the per-POI mission lookup.
-/// Composer is pure-C# (no Godot binding) ; the tests anchor the layout
-/// shape (header, bullet glyph, indent, blank-line separator) so a silent
-/// edit surfaces as a red step. The Godot-bound hover wiring in
-/// <c>E2AreaMap.AreaGrid.cs</c> (Area2D + tooltip controller call) is
-/// exercised via the E2.2 step 1 manual F6 smoke (hover the 3 markers,
-/// observe the tooltips after 600 ms).
+/// Section A refactor (Varn-lock 2026-05-17 + Didier brief 2026-05-17) —
+/// pin the E2 mission tooltip composer's new DTO-based contract. The
+/// hardcoded <c>HalfgateE2Mission</c> record + its three Tutorial entries
+/// are retired ; the composer now consumes the wire DTO
+/// (<see cref="EmergentMissionDto"/>). The rendered shape stays the same :
+/// district header + per-mission bullet block. The DisplayName slot is
+/// synthesised from <see cref="EmergentMissionDto.Type"/> via
+/// <see cref="MissionDisplayNames"/>.
 /// </summary>
 public sealed class HalfgateE2MissionTooltipTests
 {
+    // ---- Test helpers ----
+
+    private static EmergentMissionDto Scout(string id, string targetPoi, string hook) =>
+        new(
+            Id: id,
+            Type: WorldTickWireFormat.MissionType.ScoutRoute,
+            NarrativeHook: hook,
+            EligiblePersonas: new List<string>(),
+            Difficulty: WorldTickWireFormat.DifficultyBucket.Mid,
+            Region: "halfgate",
+            DeadlineTicks: null,
+            Outcome: null,
+            Seed: 0L,
+            TargetPoi: targetPoi);
+
+    private static EmergentMissionDto Parley(string id, string targetPoi, string hook) =>
+        new(
+            Id: id,
+            Type: WorldTickWireFormat.MissionType.ParleyLocal,
+            NarrativeHook: hook,
+            EligiblePersonas: new List<string>(),
+            Difficulty: WorldTickWireFormat.DifficultyBucket.Mid,
+            Region: "halfgate",
+            DeadlineTicks: null,
+            Outcome: null,
+            Seed: 0L,
+            TargetPoi: targetPoi);
+
+    // ---- Compose contracts ----
+
     [Fact]
     public void Compose_with_null_missions_returns_empty()
     {
         // The hover handler relies on the empty-string contract to decide
-        // "do not surface a tooltip" (matches the spec : pas de tooltip
-        // si pas de mission). A non-empty return here would surface a
-        // degenerate "Intramuros\n" tooltip with no body.
+        // "do not surface a tooltip" (spec : pas de tooltip si pas de
+        // mission). A non-empty return here would surface a degenerate
+        // header-only tooltip.
         Assert.Equal(string.Empty, HalfgateE2MissionTooltip.Compose("Intramuros", null));
     }
 
@@ -32,49 +63,60 @@ public sealed class HalfgateE2MissionTooltipTests
             string.Empty,
             HalfgateE2MissionTooltip.Compose(
                 "Intramuros",
-                System.Array.Empty<HalfgateE2Mission>()));
+                System.Array.Empty<EmergentMissionDto>()));
     }
 
     [Fact]
     public void Compose_with_one_mission_starts_with_district_header()
     {
-        var text = HalfgateE2MissionTooltip.Compose(
-            "Intramuros",
-            new[] { HalfgateE2MissionAuthoring.TutorialIntramuros });
+        var mission = Parley("ml_001", "e2.halfgate.intramuros", "The Cadastre suspects a name.");
+        var text = HalfgateE2MissionTooltip.Compose("Intramuros", new[] { mission });
 
         // Header is the FIRST line, nothing decorative before it.
         Assert.StartsWith("Intramuros\n", text);
     }
 
     [Fact]
-    public void Compose_with_one_mission_includes_display_name_and_hook()
+    public void Compose_with_one_mission_includes_type_label_and_hook()
     {
-        var mission = HalfgateE2MissionAuthoring.TutorialIntramuros;
+        var mission = Parley("ml_002", "e2.halfgate.intramuros",
+            "The footings, this time, are notarised.");
         var text = HalfgateE2MissionTooltip.Compose("Intramuros", new[] { mission });
 
-        // Both Varn-authored mission strings must round-trip into the
-        // final tooltip surface. The composer is not allowed to truncate
-        // or paraphrase.
-        Assert.Contains(mission.DisplayName, text);
+        // Wire authoritative content (NarrativeHook) round-trips verbatim.
         Assert.Contains(mission.NarrativeHook, text);
+
+        // The synthesised display label for parley_local landings here.
+        // Pinned so a silent rename in MissionDisplayNames surfaces red.
+        Assert.Contains("Parley", text);
+    }
+
+    [Fact]
+    public void Compose_with_scout_mission_uses_scouting_label()
+    {
+        var mission = Scout("ml_003", "e2.halfgate.gateway", "Someone has been walking through.");
+        var text = HalfgateE2MissionTooltip.Compose("Gateway", new[] { mission });
+
+        // scout_route -> "Scouting" (Varn lookup mirror).
+        Assert.Contains("Scouting", text);
     }
 
     [Fact]
     public void Compose_with_one_mission_prefixes_display_name_with_bullet()
     {
-        var mission = HalfgateE2MissionAuthoring.TutorialGateway;
+        var mission = Scout("ml_004", "e2.halfgate.gateway", "Toll-takers, anxious.");
         var text = HalfgateE2MissionTooltip.Compose("Gateway", new[] { mission });
 
         // Bullet glyph (locked at "- ") must appear immediately before
-        // the DisplayName. A silent change to a different glyph would
-        // shift the visual rhythm of the tooltip.
-        Assert.Contains(HalfgateE2MissionTooltip.MissionBullet + mission.DisplayName, text);
+        // the synthesised display label. A silent change to a different
+        // glyph would shift the visual rhythm of the tooltip.
+        Assert.Contains(HalfgateE2MissionTooltip.MissionBullet + "Scouting", text);
     }
 
     [Fact]
     public void Compose_with_one_mission_indents_the_narrative_hook()
     {
-        var mission = HalfgateE2MissionAuthoring.TutorialLittoral;
+        var mission = Parley("ml_005", "e2.halfgate.littoral", "A boat. An hour. A name.");
         var text = HalfgateE2MissionTooltip.Compose("Littoral", new[] { mission });
 
         // The narrative hook must sit on its own line, indented under the
@@ -86,20 +128,18 @@ public sealed class HalfgateE2MissionTooltipTests
     [Fact]
     public void Compose_with_two_missions_separates_them_with_a_blank_line()
     {
-        // Forward-compatibility check : E2.1c has one mission per POI,
-        // but the E2.2+ schema can land multiple. The composer must keep
-        // a blank line between missions so the wall of text stays
-        // legible.
+        // Forward-compatibility check : the M1 cap of 3 visible districts
+        // allows multiple missions on the same district. The composer
+        // must keep a blank line between missions so the wall of text
+        // stays legible.
         var missions = new[]
         {
-            HalfgateE2MissionAuthoring.TutorialIntramuros,
-            HalfgateE2MissionAuthoring.TutorialGateway,
+            Parley("ml_006", "e2.halfgate.intramuros", "The Cadastre, again."),
+            Scout("ml_007",  "e2.halfgate.intramuros", "And the road past it."),
         };
         var text = HalfgateE2MissionTooltip.Compose("Intramuros", missions);
 
-        // Both mission bodies must be present.
-        Assert.Contains(missions[0].DisplayName, text);
-        Assert.Contains(missions[1].DisplayName, text);
+        // Both narrative hooks must be present.
         Assert.Contains(missions[0].NarrativeHook, text);
         Assert.Contains(missions[1].NarrativeHook, text);
 
@@ -109,7 +149,7 @@ public sealed class HalfgateE2MissionTooltipTests
             missions[0].NarrativeHook
             + "\n\n"
             + HalfgateE2MissionTooltip.MissionBullet
-            + missions[1].DisplayName;
+            + "Scouting";
         Assert.Contains(separator, text);
     }
 
@@ -117,93 +157,35 @@ public sealed class HalfgateE2MissionTooltipTests
     public void Compose_preserves_mission_order_from_caller()
     {
         // The composer is not allowed to sort. The caller
-        // (HalfgateE2MissionAuthoring.All static order, or a future
-        // priority-sorted upstream) owns ordering. We pin Littoral
-        // BEFORE Intramuros to surface a sort regression.
+        // (MissionStore.GetMissionsForPoi's server-spawn order) owns
+        // ordering. We pin Scouting BEFORE Parley to surface a sort
+        // regression.
         var missions = new[]
         {
-            HalfgateE2MissionAuthoring.TutorialLittoral,
-            HalfgateE2MissionAuthoring.TutorialIntramuros,
+            Scout("ml_008",  "e2.halfgate.gateway", "First : the road."),
+            Parley("ml_009", "e2.halfgate.gateway", "Second : the people."),
         };
-        var text = HalfgateE2MissionTooltip.Compose("Halfgate", missions);
+        var text = HalfgateE2MissionTooltip.Compose("Gateway", missions);
 
-        var littoralIdx = text.IndexOf(missions[0].DisplayName);
-        var intramurosIdx = text.IndexOf(missions[1].DisplayName);
+        var scoutIdx = text.IndexOf("Scouting");
+        var parleyIdx = text.IndexOf("Parley");
 
-        Assert.True(littoralIdx >= 0);
-        Assert.True(intramurosIdx >= 0);
-        Assert.True(littoralIdx < intramurosIdx,
-            $"Mission order was not preserved : Littoral idx={littoralIdx} " +
-            $"should be before Intramuros idx={intramurosIdx}.");
+        Assert.True(scoutIdx >= 0);
+        Assert.True(parleyIdx >= 0);
+        Assert.True(scoutIdx < parleyIdx,
+            $"Mission order was not preserved : Scouting idx={scoutIdx} " +
+            $"should be before Parley idx={parleyIdx}.");
     }
 
-    // ---- FindByPoiId ----
+    // ---- MissionDisplayNames lookup contract ----
 
-    [Fact]
-    public void FindByPoiId_returns_empty_when_no_match()
+    [Theory]
+    [InlineData(WorldTickWireFormat.MissionType.ScoutRoute, "Scouting")]
+    [InlineData(WorldTickWireFormat.MissionType.ParleyLocal, "Parley")]
+    [InlineData("unknown_mission_type", "Mission")]
+    [InlineData("", "Mission")]
+    public void MissionDisplayNames_For_returns_expected_label(string missionType, string expected)
     {
-        // A typo'd poi_id (drift between marker spawn + hover lookup)
-        // must yield an empty enumeration -- the composer then returns
-        // string.Empty -- the hover handler then skips RequestTooltip.
-        // Defensive : a silent fall-through to "all missions" would be a
-        // bad surprise.
-        var matches = HalfgateE2MissionTooltip.FindByPoiId(
-            HalfgateE2MissionAuthoring.All,
-            "halfgate.does_not_exist");
-        Assert.Empty(matches);
-    }
-
-    [Fact]
-    public void FindByPoiId_returns_the_single_mission_for_an_e2_1c_poi()
-    {
-        // E2.1c invariant : one mission per POI, one POI per district.
-        // The lookup must return exactly one entry per Varn-locked poi_id.
-        foreach (var expected in HalfgateE2MissionAuthoring.All)
-        {
-            var matches = HalfgateE2MissionTooltip
-                .FindByPoiId(HalfgateE2MissionAuthoring.All, expected.PoiId)
-                .ToList();
-            Assert.Single(matches);
-            Assert.Equal(expected.MissionId, matches[0].MissionId);
-        }
-    }
-
-    [Fact]
-    public void FindByPoiId_returns_multiple_missions_for_a_shared_poi_id()
-    {
-        // Forward-compatibility : E2.2+ may land multiple missions on the
-        // same POI (e.g. two simultaneous Gateway contracts). The lookup
-        // must enumerate all matches without dedup, in source order. We
-        // synthesise a duplicate-poi_id set to pin this without touching
-        // the Varn-locked HalfgateE2MissionAuthoring.All.
-        var custom = new List<HalfgateE2Mission>
-        {
-            HalfgateE2MissionAuthoring.TutorialIntramuros,
-            HalfgateE2MissionAuthoring.TutorialGateway,
-            // Synthesised second Intramuros-anchored mission, same PoiId
-            // as TutorialIntramuros, distinct MissionId.
-            new(
-                MissionId: "mission_synthetic_intramuros_second",
-                DisplayName: "Intramuros : a second concern",
-                NarrativeHook: "Another matter has surfaced, also concerning the inner ledgers.",
-                PoiLayer: RevealLayer.E2,
-                PoiId: "halfgate.intramuros",
-                TargetDistrict: DistrictType.Intramuros,
-                PopEffectTilesToPartialLayer:
-                    new Dictionary<RevealLayer, IReadOnlyList<GridCoord>>(),
-                SuccessEffectRevealRule: MissionRevealRule.None),
-        };
-
-        var matches = HalfgateE2MissionTooltip
-            .FindByPoiId(custom, "halfgate.intramuros")
-            .ToList();
-
-        Assert.Equal(2, matches.Count);
-        Assert.Equal(
-            HalfgateE2MissionAuthoring.IntramurosMissionId,
-            matches[0].MissionId);
-        Assert.Equal(
-            "mission_synthetic_intramuros_second",
-            matches[1].MissionId);
+        Assert.Equal(expected, MissionDisplayNames.For(missionType));
     }
 }
