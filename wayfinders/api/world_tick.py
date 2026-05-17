@@ -5,7 +5,9 @@ Varn's scope doc (2026-05-10 §6) and Tess's tech decisions (§2):
 
   1. Cadence gate: a mission window opens every ``_CADENCE_MIN`` to
      ``_CADENCE_MAX`` ticks (default 5-10), determined deterministically
-     from ``seed``.  Ticks outside the window return ``None``.
+     from ``seed``.  Tick 1 is an unconditional first window (Varn-lock
+     2026-05-17) — guarantees ≥1 mission before E2 entry in BootScene →
+     E1 → click POI → E2 flow.  Ticks outside the window return ``None``.
 
   2. Softmax over ``{scout_route, parley_local, no_emergence}`` via the
      Predictor (UC1 encoder → concat → MLP head — same backbone).
@@ -28,9 +30,18 @@ Varn's scope doc (2026-05-10 §6) and Tess's tech decisions (§2):
      template; ``eligible_personas`` is computed by
      ``filter_eligible_personas()`` (Varn-lock 2026-05-10 §2).
 
+  5. POI targeting: missions now emit e2.{region}.{district} for regions
+     with visible E2 districts (Varn-lock 2026-05-17).  Only halfgate is
+     e2-enabled in M1; other regions fall back to e1.{region}.
+
 All randomness is seeded from the caller-provided ``seed`` — the server
 holds no global RNG state.  Same ``(tick, seed, context_prose)`` always
 produces the same mission.
+
+Dev flag: ``WAYFINDERS_DEV_MISSION_SEED`` env var.  When set, the cadence
+gate is bypassed (any tick is a window) and the seed from the var is used
+for deterministic mission-type + district selection.  Free-form string for
+M1; closed preset lookup may be added at M2.
 
 OPEN — Varn-flagged items:
   - ``region`` is derived from ``context_prose`` by a heuristic in M1 that
@@ -39,12 +50,15 @@ OPEN — Varn-flagged items:
     M2 will pass it explicitly from WorldState.
   - The proxy logit derivation is a M1 approximation.  A proper multi-class
     head (Varn §5 "bolt-on or sibling") is M2 scope.
+  - Multi-region E2 extension (M2): add entries to VISIBLE_E2_DISTRICTS_BY_REGION
+    for brescaille, fendelune, veillemont, roches-closes when their E2 scenes land.
 """
 
 from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import random
 import uuid
 from collections.abc import Iterable
@@ -200,14 +214,24 @@ def _in_cadence_window(tick: int, seed: int) -> bool:
     """Return True if tick falls inside a cadence window.
 
     The window interval is sampled from [_CADENCE_MIN, _CADENCE_MAX] using
-    the seed.  The window is open when ``tick % interval == 0`` (first tick
-    is always a window since ``0 % anything == 0``).
+    the seed.  The window is open when ``tick % interval == 0``.
+
+    Varn-lock 2026-05-17 (Decision 3): tick 1 is an unconditional first window.
+    This guarantees ≥1 mission before E2 entry in the BootScene → E1 → click
+    POI Halfgate → E2 flow.  Tick 0 is structurally pre-game in the Godot
+    lifecycle; tick 1 is the first deterministic post-_Ready frame.
+
+    Default cadence (5-10 ticks) resumes from tick 2 onwards, unchanged from
+    M1 spec lock 2026-05-10.
 
     Determinism: same (tick, seed) → same result.
     """
+    # Varn-lock 2026-05-17: tick 1 is an unconditional first window.
+    if tick == 1:
+        return True
     rng = random.Random(seed ^ 0xDEAD_BEEF)  # domain-separate from mission sampling
     interval = rng.randint(_CADENCE_MIN, _CADENCE_MAX)
-    # tick 0 is always a window (first tick bootstraps the chain).
+    # tick 0 is always a window (0 % anything == 0).
     return tick % interval == 0
 
 
@@ -345,18 +369,82 @@ def filter_eligible_personas(
 
 
 # ---------------------------------------------------------------------------
-# PoiId helpers — converts legacy RegionId to hierarchical PoiId (Varn v2)
+# PoiId helpers — layer-and-district-aware picker (Varn-lock 2026-05-17)
 # ---------------------------------------------------------------------------
+
+# Varn-locked 2026-05-17 (Decision 1 §A.2).
+# Maps RegionId → ordered tuple of district slugs visible as E2 markers in M1.
+# M1 cap: only halfgate has E2-visible districts (3 districts, E2.1c lock).
+# Extension to other regions is M2 scope (add an entry per region when the
+# corresponding E2 scene lands).
+# DO NOT edit the slug set or their order without a Varn ratification step.
+VISIBLE_E2_DISTRICTS_BY_REGION: dict[str, tuple[str, ...]] = {
+    "halfgate": ("intramuros", "gateway", "littoral"),
+    # brescaille, fendelune, veillemont, roches-closes: M2 scope.
+}
+
+# Varn-locked 2026-05-17 (Decision 1 §A.2, Q1 override: ORDER is locked).
+# Maps EmergenceMissionType → ordered preference over district slugs.
+# The ORDER is the affinity distribution (narrative grounding):
+#   scout_route  favours peripheral/transit zones → gateway first.
+#   parley_local favours civic/named zones → intramuros first.
+# Tone-tuning belongs in narrative_hook prose, not in target selection.
+# DO NOT reorder or change slug set without a Varn ratification step.
+MISSION_TYPE_DISTRICT_AFFINITY: dict[str, tuple[str, ...]] = {
+    "scout_route": ("gateway", "littoral", "intramuros"),
+    "parley_local": ("intramuros", "gateway", "littoral"),
+}
+
+
+def _pick_target_poi(
+    mission_type: EmergenceMissionType,
+    region: RegionId,
+    seed: int,
+) -> PoiId:
+    """Pick the layer-and-district-aware target_poi for an emergent mission.
+
+    Rule (Varn-lock 2026-05-17 §A):
+      - If the region has visible E2 districts, pick one from the
+        mission_type's affinity list (intersected with the visible set),
+        seeded deterministically from ``seed``.
+        Returns ``e2.{region}.{slug}``.
+      - Otherwise (M1: any region other than halfgate), fall back to
+        ``e1.{region}``.
+
+    Determinism: same (seed, mission_type, region) → same target_poi.
+    The affinity order is the distribution anchor; the seeded RNG breaks
+    ties when multiple districts are eligible.
+
+    Args:
+        mission_type: Varn-locked EmergenceMissionType.
+        region:       Varn-locked RegionId.
+        seed:         Caller-provided tick seed (domain-separated internally).
+
+    Returns:
+        A valid PoiId at the appropriate layer.
+    """
+    visible = VISIBLE_E2_DISTRICTS_BY_REGION.get(region, ())
+    if not visible:
+        # M1: region has no E2 markers — cap at e1 layer.
+        return f"e1.{region}"
+    affinity = MISSION_TYPE_DISTRICT_AFFINITY[mission_type]
+    eligible = tuple(d for d in affinity if d in visible)
+    # Domain-separate from cadence and sampling RNGs.
+    rng = random.Random(seed ^ 0xE2_AFF1)
+    chosen = rng.choice(eligible)
+    return f"e2.{region}.{chosen}"
 
 
 def _region_to_poi_id(region: RegionId) -> PoiId:
     """Convert a Varn-locked RegionId to its e1 PoiId equivalent.
 
-    M1 emission rule: all emergent missions are capped at layer e1 (Varn spec v2
-    §2 — 'M1 capped layer e1 uniquement').  The PoiId is trivially ``e1.{region}``.
+    Kept for backward compatibility with ``mission_resolve.py`` which
+    reconstructs the target_poi from a ``RegionId`` on the wire.  Resolution
+    and conclude payloads carry ``region`` for backward compat (Varn-lock
+    2026-05-10); the resolved PoiId from the original emergent mission is not
+    resent on the wire.
 
-    M2+: when e2/e3 layers open, this function will be replaced by a direct
-    PoiId lookup against the poi_tree.json manifest.
+    New code should call ``_pick_target_poi`` instead.
 
     Args:
         region: A valid RegionId from the Varn-locked closed lookup.
@@ -393,6 +481,8 @@ class EmergenceEngine:
 
         Algorithm:
           1. Cadence gate — if not in window, return ``mission=None``.
+             Dev flag: if WAYFINDERS_DEV_MISSION_SEED is set, bypass the
+             cadence gate (any tick is a window).
           2. Get proxy logits via predictor (or uniform if not ready).
           3. Softmax + seed-seeded sampling.
           4. M1 fallback: if sampled == no_emergence, use argmax of
@@ -409,8 +499,31 @@ class EmergenceEngine:
         seed = request.seed
         context_prose = request.context_prose
 
+        # --- Dev seed override (WAYFINDERS_DEV_MISSION_SEED) ---
+        # When set: bypass cadence gate, use the env-var string as an
+        # additional seed component for reproducible dev/visual-regression
+        # work.  The value is hashed to an integer via SHA-256 to avoid
+        # assuming it is numeric (free-form M1 convention per Varn-lock
+        # 2026-05-17 Q4).
+        dev_seed_raw = os.environ.get("WAYFINDERS_DEV_MISSION_SEED", "")
+        dev_seed_active = bool(dev_seed_raw)
+        if dev_seed_active:
+            # Mix the env-var string into the seed for deterministic output.
+            # Mask to int64 range so _stable_mission_id (signed=True 8-byte pack)
+            # does not overflow regardless of the env-var content.
+            dev_seed_bytes = hashlib.sha256(dev_seed_raw.encode()).digest()[:8]
+            dev_seed_int = int.from_bytes(dev_seed_bytes, "little") & 0x7FFF_FFFF_FFFF_FFFF
+            seed = (seed ^ dev_seed_int) & 0x7FFF_FFFF_FFFF_FFFF
+            logger.debug(
+                "world_tick: WAYFINDERS_DEV_MISSION_SEED=%r active — cadence bypassed, "
+                "seed mixed to %d",
+                dev_seed_raw,
+                seed,
+            )
+
         # --- 1. Cadence gate ---
-        if not _in_cadence_window(tick, seed):
+        in_window = dev_seed_active or _in_cadence_window(tick, seed)
+        if not in_window:
             logger.debug("world_tick: tick=%d seed=%d — outside cadence window", tick, seed)
             return WorldTickResponse(mission=None, tick=tick)
 
@@ -444,7 +557,9 @@ class EmergenceEngine:
 
         # --- 5. Assemble mission ---
         region = _extract_region_from_prose(context_prose, seed=seed)
-        target_poi = _region_to_poi_id(region)
+        # Varn-lock 2026-05-17: use _pick_target_poi (e2 layer for halfgate,
+        # e1 fallback for other regions in M1).
+        target_poi = _pick_target_poi(mission_type, region, seed)
         difficulty: DescriptorBucket = "mid"  # forced M1 (sampler disabled per spec §6)
         eligible = filter_eligible_personas(
             mission_type=mission_type,

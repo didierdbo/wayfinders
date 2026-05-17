@@ -13,7 +13,11 @@ Endpoints:
 * ``POST /api/world/tick`` — Mission-emergence tick. Takes a ``WorldTickRequest``
   (tick index, seed, context_prose) and returns a ``WorldTickResponse``
   (emergent mission or None). Always returns 200; degrades gracefully to
-  uniform sampling when the predictor is not ready.
+  uniform sampling when the predictor is not ready.  Side-effect: adds the
+  emitted mission to the session-scoped MissionStore (if a mission emerged).
+* ``GET /api/missions/active`` — Active mission list (Varn-lock 2026-05-17 §A).
+  Returns ``list[EmergentMission]`` ordered by spawn tick ascending.  Missions
+  remain active until resolved or concluded.  Session-scoped (clears on restart).
 * ``GET /api/world/poi_tree`` — POI hierarchy manifest. Returns the Varn-locked
   ``poi_tree.json`` (2026-05-15 spec v2 §2). Read-only, static per server
   version; the client should cache this at startup. Structure: flat dict keyed
@@ -22,12 +26,13 @@ Endpoints:
   ``/api/world/mission/conclude``). Takes a ``MissionResolveRequest`` (mission
   fields + client-decided outcome + assigned personas) and returns
   ``PersonaLegacyTag`` objects. Kept for backward-compat with M1 tests.
+  Side-effect: removes the mission from the MissionStore.
 * ``POST /api/world/mission/conclude`` — Mission conclusion. Takes a
   ``MissionConcludeRequest`` (mission metadata + persona stat snapshots + seed
   + tick_due) and returns a server-computed ``MissionConcludeResponse``
   (weighted outcome roll + PersonaLegacyTags + roll_breakdown). One round-trip,
   atomically computed. Always returns 200. Stateless (NPC-autonomy lock
-  2026-05-09).
+  2026-05-09).  Side-effect: removes the mission from the MissionStore.
 
 Run locally::
 
@@ -61,6 +66,7 @@ from wayfinders.api.mission_resolve import (
     MissionResolveResponse,
     resolve_mission,
 )
+from wayfinders.api.mission_store import MissionStore
 from wayfinders.api.models import (
     HealthResponse,
     UC1InfoResponse,
@@ -71,7 +77,7 @@ from wayfinders.api.models import (
 from wayfinders.api.predictor import Predictor, PredictorNotReadyError
 from wayfinders.api.seed_data import UNITS
 from wayfinders.api.world_tick import EmergenceEngine
-from wayfinders.api.world_tick_models import WorldTickRequest, WorldTickResponse
+from wayfinders.api.world_tick_models import EmergentMission, WorldTickRequest, WorldTickResponse
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +113,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.poi_tree.get("version", "?"),
         len(app.state.poi_tree) - 1,  # subtract the "version" key
     )
+    # Session-scoped mission store (Varn-lock 2026-05-17 §A).
+    # Tracks active EmergentMissions across tick/resolve/conclude calls.
+    # Not persistent across server restarts (M1 — no save layer).
+    app.state.mission_store = MissionStore()
+    logger.info("Lifespan: mission store initialised.")
     yield
     # Cleanup: nothing to release (encoder/head are Python objects, GC handles them).
     logger.info("Lifespan: shutdown.")
@@ -213,6 +224,7 @@ def world_tick(payload: WorldTickRequest, request: Request) -> WorldTickResponse
     Implements the M1 cadence-gated emergence algorithm:
 
     1. Cadence gate: a mission window opens every 5-10 ticks (seed-driven).
+       Tick 1 is an unconditional first window (Varn-lock 2026-05-17).
        Ticks outside the window return ``mission=None``.
     2. Within a window: UC1 proxy logits → softmax → seed-seeded sampling
        over ``{scout_route, parley_local, no_emergence}``.
@@ -228,10 +240,46 @@ def world_tick(payload: WorldTickRequest, request: Request) -> WorldTickResponse
     The ``seed`` must be caller-derived from ``(world_seed, tick)`` — the
     server holds no global RNG state.  Same ``(tick, seed, context_prose)``
     always returns the same mission.
+
+    Side-effect: if a mission emerges, it is added to the session-scoped
+    ``MissionStore`` so ``GET /api/missions/active`` reflects it immediately.
     """
     predictor: Predictor = request.app.state.predictor
+    mission_store: MissionStore = request.app.state.mission_store
     engine = EmergenceEngine(predictor=predictor)
-    return engine.process_tick(payload)
+    response = engine.process_tick(payload)
+    # Feed emitted mission into the session store (if one emerged).
+    if response.mission is not None:
+        mission_store.add(response.mission, spawn_tick=payload.tick)
+    return response
+
+
+@app.get(
+    "/api/missions/active",
+    response_model=list[EmergentMission],
+    tags=["world"],
+    summary="Active mission list",
+)
+def missions_active(request: Request) -> list[EmergentMission]:
+    """Return all currently-active emergent missions.
+
+    "Active" means: emitted by POST /api/world/tick and not yet resolved or
+    concluded via POST /api/world/mission/resolve or /conclude.
+
+    Ordering: by spawn tick ascending (deterministic; ties broken by insertion
+    order which tracks UUID hash uniqueness).
+
+    The client (Rune's MissionStore autoload) calls this at E2 entry to
+    bootstrap its local mission state from the server's session store.
+
+    Session-scoped: the store is cleared on server restart.  In production
+    the client's GameState.PendingMissions is the authoritative source; this
+    endpoint is a convenience mirror for the initial query.
+
+    Always returns HTTP 200.  Returns an empty list when no missions are active.
+    """
+    mission_store: MissionStore = request.app.state.mission_store
+    return mission_store.active()
 
 
 @app.get(
@@ -271,7 +319,7 @@ def get_poi_tree(request: Request) -> JSONResponse:
     tags=["world"],
     summary="Mission resolution — produce PersonaLegacyTags",
 )
-def mission_resolve(payload: MissionResolveRequest) -> MissionResolveResponse:
+def mission_resolve(payload: MissionResolveRequest, request: Request) -> MissionResolveResponse:
     """Resolve a mission and return the ``PersonaLegacyTag`` objects for the client.
 
     Stateless: no ``GameState`` is persisted server-side.  The server
@@ -292,9 +340,16 @@ def mission_resolve(payload: MissionResolveRequest) -> MissionResolveResponse:
       tags are still created (the resolution hook does not re-filter eligibility;
       that is the gameplay layer's responsibility).
 
+    Side-effect: removes the mission from the session-scoped MissionStore so
+    ``GET /api/missions/active`` no longer returns it.
+
     Always returns HTTP 200.
     """
-    return resolve_mission(payload)
+    result = resolve_mission(payload)
+    # Remove from session store (idempotent — safe if already absent).
+    mission_store: MissionStore = request.app.state.mission_store
+    mission_store.remove(payload.mission_id)
+    return result
 
 
 @app.post(
@@ -303,7 +358,7 @@ def mission_resolve(payload: MissionResolveRequest) -> MissionResolveResponse:
     tags=["world"],
     summary="Mission conclusion — server-computed weighted outcome + PersonaLegacyTags",
 )
-def mission_conclude(payload: MissionConcludeRequest) -> MissionConcludeResponse:
+def mission_conclude(payload: MissionConcludeRequest, request: Request) -> MissionConcludeResponse:
     """Conclude a mission: server computes outcome roll + creates PersonaLegacyTags atomically.
 
     The outcome is NOT supplied by the client.  The server derives it
@@ -324,6 +379,13 @@ def mission_conclude(payload: MissionConcludeRequest) -> MissionConcludeResponse
     ``assigned_personas`` must contain at least one persona (422 if empty —
     client must filter ``decline`` before calling this endpoint).
 
+    Side-effect: removes the mission from the session-scoped MissionStore so
+    ``GET /api/missions/active`` no longer returns it.
+
     Always returns HTTP 200.
     """
-    return conclude_mission(payload)
+    result = conclude_mission(payload)
+    # Remove from session store (idempotent — safe if already absent).
+    mission_store: MissionStore = request.app.state.mission_store
+    mission_store.remove(payload.mission_id)
+    return result

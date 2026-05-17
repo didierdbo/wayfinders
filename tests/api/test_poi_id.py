@@ -249,10 +249,14 @@ class TestWorldTickTargetPoi:
         assert mission is not None
         assert "target_poi" in mission
 
-    def test_target_poi_matches_e1_pattern(
+    def test_target_poi_matches_valid_poi_pattern(
         self, client_ready: tuple[TestClient, MagicMock]
     ) -> None:
-        """M1 cap: target_poi must always be an e1 PoiId (e1.{region})."""
+        """target_poi must match the Varn-locked PoiId regex.
+
+        Supersedes the old e1-only assertion (Varn-lock 2026-05-17): halfgate
+        now emits e2.halfgate.* PoiIds; other regions still emit e1.{region}.
+        """
         tc, _ = client_ready
         seed = 42
         in_window_tick = next(t for t in range(200) if _in_cadence_window(t, seed))
@@ -263,12 +267,17 @@ class TestWorldTickTargetPoi:
         mission = response.json()["mission"]
         assert mission is not None
         poi = mission["target_poi"]
-        assert re.match(r"^e1\.[a-z0-9\-]+$", poi), f"M1 target_poi must be e1 layer, got {poi!r}"
+        assert re.match(_POI_ID_PATTERN, poi), (
+            f"target_poi does not match PoiId schema pattern, got {poi!r}"
+        )
 
-    def test_target_poi_region_consistency(
-        self, client_ready: tuple[TestClient, MagicMock]
-    ) -> None:
-        """target_poi must be e1.{region} — consistent with the region field."""
+    def test_target_poi_region_in_poi(self, client_ready: tuple[TestClient, MagicMock]) -> None:
+        """target_poi must contain the mission's region slug.
+
+        Updated for Varn-lock 2026-05-17: halfgate emits e2.halfgate.<district>;
+        other regions emit e1.{region}.  Both shapes embed the region slug at
+        position 1 (after the 'e{layer}.' prefix).
+        """
         tc, _ = client_ready
         seed = 42
         in_window_tick = next(t for t in range(200) if _in_cadence_window(t, seed))
@@ -278,7 +287,15 @@ class TestWorldTickTargetPoi:
 
         mission = response.json()["mission"]
         assert mission is not None
-        assert mission["target_poi"] == f"e1.{mission['region']}"
+        region = mission["region"]
+        poi = mission["target_poi"]
+        # e1.halfgate → ['e1', 'halfgate']
+        # e2.halfgate.gateway → ['e2', 'halfgate', 'gateway']
+        # slug at position 1 must match region.
+        parts = poi.split(".")
+        assert parts[1] == region, (
+            f"PoiId slug[1]={parts[1]!r} does not match region={region!r} in {poi!r}"
+        )
 
     def test_target_poi_valid_poi_id(self, client_ready: tuple[TestClient, MagicMock]) -> None:
         """target_poi in response must pass PoiId validation."""

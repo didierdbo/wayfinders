@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "description": "Reference closed lookups for world_tick POI picker. Rune's C# MissionStore.GetMissionsForLayer and any client-side picker mirror must match these tables exactly. Varn-locked 2026-05-17.",
+  "varn_lock_date": "2026-05-17",
+  "notes": "These lookups are Varn-locked (slug set AND order). Do not reorder or change the slug set without a Varn ratification step. See consolidated spec varn-mission-ml-and-invariants-consolidated-2026-05-17.md §A.2 Q1.",
+  "VISIBLE_E2_DISTRICTS_BY_REGION": {
+    "halfgate": ["intramuros", "gateway", "littoral"],
+    "_comment": "M1 cap: only halfgate has E2-visible districts (3 districts, E2.1c lock). Other regions (brescaille, fendelune, veillemont, roches-closes) have no E2 districts in M1 — server falls back to e1.{region}. Extension to other regions is M2 scope."
+  },
+  "MISSION_TYPE_DISTRICT_AFFINITY": {
+    "scout_route": ["gateway", "littoral", "intramuros"],
+    "parley_local": ["intramuros", "gateway", "littoral"],
+    "_comment": "Order is the affinity distribution (Varn-locked). scout_route favours peripheral/transit zones (gateway first). parley_local favours civic/named zones (intramuros first). The seeded RNG picks from eligible (affinity ∩ visible) in this order."
+  },
+  "pick_target_poi_contract": {
+    "algorithm": "1. If region in VISIBLE_E2_DISTRICTS_BY_REGION: eligible = [d for d in MISSION_TYPE_DISTRICT_AFFINITY[mission_type] if d in VISIBLE_E2_DISTRICTS_BY_REGION[region]]; rng = Random(seed XOR 0xE2AFF1); chosen = rng.choice(eligible); return f'e2.{region}.{chosen}'. 2. Else: return f'e1.{region}'.",
+    "seed_domain_separator": "0xE2AFF1",
+    "determinism": "Same (seed, mission_type, region) always yields same target_poi.",
+    "test_vectors": [
+      {
+        "description": "halfgate + scout_route, seed=0",
+        "inputs": {"region": "halfgate", "mission_type": "scout_route", "seed": 0},
+        "expected_layer": "e2",
+        "expected_region": "halfgate",
+        "note": "Exact district depends on RNG(0 XOR 0xE2AFF1).choice(['gateway','littoral','intramuros']). Run test_pick_target_poi_determinism for pinned value."
+      },
+      {
+        "description": "brescaille fallback",
+        "inputs": {"region": "brescaille", "mission_type": "scout_route", "seed": 42},
+        "expected_target_poi": "e1.brescaille"
+      },
+      {
+        "description": "fendelune fallback",
+        "inputs": {"region": "fendelune", "mission_type": "parley_local", "seed": 99},
+        "expected_target_poi": "e1.fendelune"
+      },
+      {
+        "description": "veillemont fallback",
+        "inputs": {"region": "veillemont", "mission_type": "scout_route", "seed": 1},
+        "expected_target_poi": "e1.veillemont"
+      },
+      {
+        "description": "roches-closes fallback",
+        "inputs": {"region": "roches-closes", "mission_type": "parley_local", "seed": 7},
+        "expected_target_poi": "e1.roches-closes"
+      }
+    ]
+  }
+}
