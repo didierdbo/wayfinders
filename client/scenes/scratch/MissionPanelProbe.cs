@@ -91,6 +91,7 @@ public partial class MissionPanelProbe : Node2D
     private GameState? _gameState;
     private ApiClient? _apiClient;
     private WorldSimTick? _worldSimTick;
+    private MissionStore? _missionStore;
 
     private string? _selectedPersonaId;
     private int _currentTick;
@@ -117,6 +118,7 @@ public partial class MissionPanelProbe : Node2D
         _gameState = GetTree()?.Root?.GetNodeOrNull<GameState>("GameState");
         _apiClient = GetTree()?.Root?.GetNodeOrNull<ApiClient>("ApiClient");
         _worldSimTick = GetTree()?.Root?.GetNodeOrNull<WorldSimTick>("WorldSimTick");
+        _missionStore = GetTree()?.Root?.GetNodeOrNull<MissionStore>("MissionStore");
 
         if (_gameState is null) GD.PushError("[PROBE Mission] GameState autoload missing");
         if (_apiClient is null) GD.PushError("[PROBE Mission] ApiClient autoload missing");
@@ -469,8 +471,9 @@ public partial class MissionPanelProbe : Node2D
             GD.Print($"[LEGACY TAG] persona={tag.PersonaId} mission={tag.MissionId} type={tag.MissionType} outcome={tag.Outcome}");
         }
 
-        // Drop the mission off the queue (head pop).
-        _gameState.PendingMissions.RemoveAt(0);
+        // §A.8.D5 cascade — drop via MissionStore.RemoveById
+        // (GameState.PendingMissions is now a read-only projection).
+        _missionStore?.RemoveById(mission.Id);
 
         // Render the toast.
         if (_toastLabel is not null)

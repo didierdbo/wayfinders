@@ -20,9 +20,10 @@ namespace Wayfinders.Client.Services;
 ///         running).</item>
 ///   <item>When the response carries an
 ///         <see cref="EmergentMissionDto"/>, marshal back to the
-///         main thread, append it to
-///         <c>GameState.PendingMissions</c>, and emit
-///         <see cref="MissionEmerged"/>.</item>
+///         main thread, route it through <see cref="MissionStore.IngestEmerged"/>
+///         (Varn §A.8.D5 R3+R4, 2026-05-17 — the projection cascade
+///         retired the direct <c>GameState.PendingMissions.Add</c>
+///         path) and emit <see cref="MissionEmerged"/>.</item>
 /// </list>
 ///
 /// <para>
@@ -52,7 +53,7 @@ namespace Wayfinders.Client.Services;
 /// <see cref="ApiClient.TickAsync"/> resumes on a thread-pool thread
 /// after the HTTP round-trip (<c>ConfigureAwait(false)</c>). The
 /// continuation in <see cref="OnTickResponseAsync"/> mutates
-/// <see cref="GameState.PendingMissions"/> and emits a
+/// <see cref="MissionStore"/> and emits a
 /// <see cref="Signal"/> — both scene-tree-touching ops. We marshal
 /// back to the main thread via
 /// <c>CallDeferred</c> + a private dispatch handler. The Godot
@@ -124,7 +125,7 @@ public partial class WorldSimTick : Node
 
     /// <summary>Emitted on the main thread when an
     /// <see cref="EmergentMissionDto"/> lands in
-    /// <see cref="GameState.PendingMissions"/>. Subscribers (e.g. the
+    /// <see cref="MissionStore.AllActive"/>. Subscribers (e.g. the
     /// Mission panel) listen and pop a UI affordance.</summary>
     [Signal]
     public delegate void MissionEmergedEventHandler(string missionId);
@@ -139,6 +140,16 @@ public partial class WorldSimTick : Node
     private CancellationTokenSource _shutdownCts = null!;
     private ApiClient? _apiClient;
     private GameState? _gameState;
+    /// <summary>
+    /// Lazily-resolved reference to the <see cref="MissionStore"/>
+    /// autoload. Autoload boot order (project.godot) places
+    /// <c>MissionStore</c> AFTER <c>WorldSimTick</c>, so we cannot
+    /// eagerly cache the reference in <c>_Ready</c>. The first
+    /// mission-emerged dispatch resolves it via
+    /// <c>GetTree().Root.GetNodeOrNull&lt;MissionStore&gt;("MissionStore")</c>
+    /// once and reuses the reference for subsequent dispatches.
+    /// </summary>
+    private MissionStore? _missionStore;
     private int _inFlight;
 
     public override void _Ready()
@@ -239,11 +250,16 @@ public partial class WorldSimTick : Node
                     {
                         // Marshal the mission shape via a typed
                         // payload. CallDeferred accepts Variant args ;
-                        // we package the mission into a Godot
-                        // Dictionary so the deferred handler can
-                        // re-hydrate the C# record without crossing
-                        // the marshalling boundary on a non-Godot
-                        // type.
+                        // we package the mission into individual Variant
+                        // slots so the deferred handler can re-hydrate
+                        // the C# record without crossing the marshalling
+                        // boundary on a non-Godot type.
+                        //
+                        // §A.8.D3 update : RecruitTargetNpcId is the new
+                        // wire field. Variant marshalling rejects null
+                        // strings ; we pass empty string at the boundary
+                        // and the deferred handler maps "" back to null
+                        // for non-recruit types.
                         CallDeferred(MethodName.OnMissionEmergedDeferred,
                             mission.Id,
                             mission.Type,
@@ -252,7 +268,8 @@ public partial class WorldSimTick : Node
                             mission.Difficulty,
                             mission.Seed,
                             mission.TargetPoi,
-                            new Godot.Collections.Array<string>(mission.EligiblePersonas));
+                            new Godot.Collections.Array<string>(mission.EligiblePersonas),
+                            mission.RecruitTargetNpcId ?? "");
                     }
                     break;
                 case Result<WorldTickResponseDto, ApiError>.Failure fail:
@@ -317,12 +334,24 @@ public partial class WorldSimTick : Node
     private static string BuildContextProse() => M1ContextProseStub;
 
     /// <summary>
-    /// Main-thread handler for an emerged mission. Mutates
-    /// <see cref="GameState.PendingMissions"/> and emits the
-    /// <see cref="MissionEmerged"/> signal. Called via
+    /// Main-thread handler for an emerged mission. Routes the rehydrated
+    /// <see cref="EmergentMissionDto"/> through
+    /// <see cref="MissionStore.IngestEmerged"/> (Varn §A.8.D5 cascade,
+    /// 2026-05-17 — replaces the direct
+    /// <c>GameState.PendingMissions.Add</c> path that lived here pre-
+    /// cascade) and emits <see cref="MissionEmerged"/>. Called via
     /// <see cref="GodotObject.CallDeferred"/> from the async
     /// continuation — the engine guarantees this runs on the main
     /// thread on the next process frame.
+    ///
+    /// <para>
+    /// <b>RecruitTargetNpcId marshalling.</b>
+    /// <see cref="GodotObject.CallDeferred"/> rejects null strings at
+    /// the Variant edge. The sender (<see cref="ProcessTickAsync"/>)
+    /// packs null as the empty string ; this handler reverses the
+    /// mapping. Non-recruit missions arrive with the empty string and
+    /// re-materialise as <c>null</c> on the DTO.
+    /// </para>
     /// </summary>
     private void OnMissionEmergedDeferred(
         string id,
@@ -332,7 +361,8 @@ public partial class WorldSimTick : Node
         string difficulty,
         long seed,
         string targetPoi,
-        Godot.Collections.Array<string> eligiblePersonas)
+        Godot.Collections.Array<string> eligiblePersonas,
+        string recruitTargetNpcId)
     {
         var mission = new EmergentMissionDto(
             Id: id,
@@ -344,12 +374,38 @@ public partial class WorldSimTick : Node
             DeadlineTicks: null,
             Outcome: null,
             Seed: seed,
-            TargetPoi: targetPoi);
+            TargetPoi: targetPoi,
+            RecruitTargetNpcId: string.IsNullOrEmpty(recruitTargetNpcId) ? null : recruitTargetNpcId);
 
-        if (_gameState is not null)
-            _gameState.PendingMissions.Add(mission);
+        // Resolve the MissionStore lazily on first dispatch ; the
+        // autoload boot order places WorldSimTick before MissionStore
+        // so an eager resolve in _Ready would miss it.
+        if (_missionStore is null || !IsInstanceValid(_missionStore))
+        {
+            _missionStore = GetTree()?.Root?.GetNodeOrNull<MissionStore>("MissionStore");
+        }
+        if (_missionStore is not null)
+        {
+            _missionStore.IngestEmerged(mission);
+        }
+        else
+        {
+            // Fallback : without a MissionStore the projection on
+            // GameState.PendingMissions is permanently empty. Warn
+            // loudly so the missing autoload surfaces ; the mission
+            // is otherwise dropped (we deliberately do NOT keep a
+            // shadow list on GameState — the §A.8.D5 cascade retired
+            // that path).
+            GD.PushWarning(
+                $"[WorldSimTick] MissionStore autoload missing — mission {mission.Id} dropped " +
+                "(GameState.PendingMissions projection will stay empty)");
+        }
 
-        GD.Print($"[MISSION SPAWN] tick={_cadence.Tick} id={mission.Id} type={mission.Type} region={mission.Region} target_poi={mission.TargetPoi} eligible=[{string.Join(",", mission.EligiblePersonas)}]");
+        GD.Print(
+            $"[MISSION SPAWN] tick={_cadence.Tick} id={mission.Id} type={mission.Type} " +
+            $"region={mission.Region} target_poi={mission.TargetPoi} " +
+            $"npc={mission.RecruitTargetNpcId ?? "(n/a)"} " +
+            $"eligible=[{string.Join(",", mission.EligiblePersonas)}]");
         EmitSignal(SignalName.MissionEmerged, mission.Id);
     }
 

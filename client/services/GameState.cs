@@ -27,11 +27,14 @@ namespace Wayfinders.Client.Services;
 ///         <c>WorldTickRequest.company_personas</c> every tick. M1
 ///         starts empty ; populated by 4c (Compagnie panel) and / or
 ///         a debug seeder (4d test scene).</item>
-///   <item><see cref="PendingMissions"/> — list of
-///         <see cref="EmergentMissionDto"/> awaiting player
-///         affectation. Locked as a list (NOT a single slot) by
-///         Didier 2026-05-10 because the 5-10-tick cadence can stack
-///         missions while the player is away from the panel.</item>
+///   <item><see cref="PendingMissions"/> — <b>§A.8.D5 R4 (2026-05-17)</b> :
+///         read-only projection over <see cref="MissionStore.AllActive"/>.
+///         The mutable backing list that lived here pre-§A.8 has been
+///         retired ; writers now go through <see cref="MissionStore"/>
+///         (<see cref="MissionStore.IngestEmerged"/> from
+///         <see cref="WorldSimTick"/>, <see cref="MissionStore.RemoveById"/>
+///         from the M1Slice accept / decline paths after their POST
+///         to the new mission-action endpoints lands).</item>
 ///   <item><see cref="PersonaLegacy"/> — per-persona list of
 ///         <see cref="PersonaLegacyTagDto"/> earned across resolved
 ///         missions. Mirrors the server's
@@ -101,6 +104,9 @@ namespace Wayfinders.Client.Services;
 /// <see cref="WorldSimTick"/> for the canonical
 /// <c>CallDeferred</c> pattern that marshals async results back to
 /// the main thread before mutating these slots.
+/// Exception : <see cref="PendingMissions"/> is now a read-only
+/// projection over <see cref="MissionStore.AllActive"/> (§A.8.D5 R4).
+/// Writers route through <see cref="MissionStore"/>.
 /// </para>
 /// </summary>
 public partial class GameState : Node
@@ -328,22 +334,66 @@ public partial class GameState : Node
     public List<CharacterStateDto> CompanyPersonas { get; } = new();
 
     /// <summary>
-    /// Missions that have emerged and await player affectation. List
-    /// (not a single slot) because the 5-10-tick cadence (Varn
-    /// 2026-05-10) can stack missions while the player has the
-    /// Mission panel closed. Locked as a list by Didier 2026-05-10
-    /// (memory <c>project_wayfinders_mission_emergence.md</c>).
+    /// Read-only projection over <see cref="MissionStore.AllActive"/>
+    /// (Varn §A.8.D5 R4, 2026-05-17). The mutable backing list that
+    /// used to live here pre-§A.8 is retired ; writers now route
+    /// through <see cref="MissionStore"/> :
+    /// <list type="bullet">
+    ///   <item><see cref="WorldSimTick.OnMissionEmergedDeferred"/>
+    ///         calls <see cref="MissionStore.IngestEmerged"/> when a
+    ///         tick produces a mission.</item>
+    ///   <item>The M1Slice accept / decline paths call
+    ///         <see cref="MissionStore.RemoveById"/> after they POST
+    ///         the matching mission-action endpoint
+    ///         (<c>/api/missions/&lt;id&gt;/{accept,decline}</c>) to
+    ///         the backend.</item>
+    /// </list>
     ///
     /// <para>
-    /// <b>Lifecycle.</b> Appended by
-    /// <see cref="WorldSimTick.OnMissionEmergedDeferred"/> on the
-    /// main thread when a tick produces a mission. Removed by the
-    /// Mission panel after the player accepts (mission moves to
-    /// <see cref="ActiveMissions"/>) or declines (mission resolved
-    /// immediately via the legacy <c>/resolve</c> endpoint).
+    /// <b>Lazy MissionStore resolution.</b> The autoload boot order
+    /// in <c>project.godot</c> places <c>GameState</c> BEFORE
+    /// <c>MissionStore</c> so <c>_Ready</c> cannot eagerly cache a
+    /// reference. The projection getter resolves the MissionStore via
+    /// <c>GetTree().Root.GetNodeOrNull&lt;MissionStore&gt;("MissionStore")</c>
+    /// on first read and caches the reference. If the autoload is
+    /// missing (test harness, scene loaded before autoload), the
+    /// projection returns
+    /// <see cref="System.Array.Empty{EmergentMissionDto}"/> — safe
+    /// empty list, no null surface.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Read-only seam.</b> The return type is
+    /// <see cref="IReadOnlyList{T}"/> so legacy callers that did
+    /// <c>PendingMissions.Add(...)</c> / <c>RemoveAt(0)</c> fail at
+    /// compile time and get migrated to the
+    /// <see cref="MissionStore"/> API. Index access (<c>[0]</c>,
+    /// <c>Count</c>) keeps working unchanged.
     /// </para>
     /// </summary>
-    public List<EmergentMissionDto> PendingMissions { get; } = new();
+    public IReadOnlyList<EmergentMissionDto> PendingMissions
+    {
+        get
+        {
+            if (_missionStore is null || !IsInstanceValid(_missionStore))
+            {
+                _missionStore = GetTree()?.Root?.GetNodeOrNull<MissionStore>("MissionStore");
+            }
+            return _missionStore is null
+                ? System.Array.Empty<EmergentMissionDto>()
+                : _missionStore.AllActive;
+        }
+    }
+
+    /// <summary>
+    /// Cached reference to the <see cref="MissionStore"/> autoload.
+    /// Resolved lazily on first <see cref="PendingMissions"/> read
+    /// (autoload boot order places GameState before MissionStore).
+    /// Re-resolved if the cached reference is freed (engine teardown
+    /// races) -- <see cref="GodotObject.IsInstanceValid"/> check on
+    /// every access.
+    /// </summary>
+    private MissionStore? _missionStore;
 
     /// <summary>
     /// Missions accepted by the player and counting down to

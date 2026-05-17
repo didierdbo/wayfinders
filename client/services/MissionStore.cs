@@ -9,21 +9,36 @@ using Wayfinders.Client.Services.Dtos;
 namespace Wayfinders.Client.Services;
 
 /// <summary>
-/// Section A autoload (Varn-lock 2026-05-17 + Didier brief 2026-05-17) —
-/// authoritative client-side cache of the active emergent missions.
-/// Polls <c>GET /api/missions/active</c> via <see cref="ApiClient"/> on
-/// every <see cref="WorldSimTick.TickAdvanced"/> signal, replaces its
-/// internal cache, and fires <see cref="PendingMissionsChanged"/> when
-/// the snapshot differs from the previous one.
+/// Section A autoload (Varn-lock 2026-05-17 + §A.8.D5 cascade
+/// 2026-05-17) — authoritative client-side cache of the active emergent
+/// missions. Polls <c>GET /api/missions/active</c> via
+/// <see cref="ApiClient"/> on every <see cref="WorldSimTick.TickAdvanced"/>
+/// signal, replaces its internal cache, and fires
+/// <see cref="PendingMissionsChanged"/> when the snapshot differs from
+/// the previous one. Source of truth that <c>GameState.PendingMissions</c>
+/// projects over (R4 of the recruit cascade, 2026-05-17).
+///
+/// <para>
+/// <b>§A.8.D5 cascade (R3+R4, 2026-05-17).</b>
+/// <see cref="GameState.PendingMissions"/> is now a read-only projection
+/// that returns <see cref="AllActive"/> verbatim — the brief retires the
+/// independent mutable list on <see cref="GameState"/>. All writers go
+/// through this store : the world-tick emergence handler calls
+/// <see cref="IngestEmerged"/>, the M1Slice accept / decline paths call
+/// <see cref="RemoveById"/> after they POST the matching mission action
+/// to the backend. The polling continuation then reconciles the cache
+/// against the authoritative server state.
+/// </para>
 ///
 /// <para>
 /// <b>Why an autoload, not a static helper.</b> The Varn-lock §A.3 draft
 /// pinned a static helper that projected over <c>GameState.PendingMissions</c>.
 /// Didier's 2026-05-17 brief supersedes that : with Tess's backend now
 /// holding an authoritative session-scoped MissionStore
-/// (commit <c>a01e432</c>), the cleanest model is a client-side autoload
-/// that polls the backend's authoritative list. The autoload sits in the
-/// scene tree, gets <c>_Ready</c> / <c>_ExitTree</c>, owns a long-lived
+/// (commits <c>a01e432</c> + <c>5131d5f</c>), the cleanest model is a
+/// client-side autoload that polls the backend's authoritative list.
+/// The autoload sits in the scene tree, gets <c>_Ready</c> /
+/// <c>_ExitTree</c>, owns a long-lived
 /// <see cref="CancellationTokenSource"/> tied to its own lifetime, and
 /// re-subscribes / disconnects from <see cref="WorldSimTick"/> cleanly.
 /// </para>
@@ -34,30 +49,26 @@ namespace Wayfinders.Client.Services;
 /// world-sim tick (configured on the <see cref="WorldSimTick"/> autoload
 /// via <c>TickIntervalSeconds</c>). Rationale : the backend's authoritative
 /// changes are driven by <c>POST /api/world/tick</c> (mission emergence)
-/// and <c>POST /api/world/mission/{resolve,conclude}</c> (mission removal).
-/// Polling at the same cadence as the tick guarantees we observe
-/// emergence within one tick of it happening, and inherits the cadence
-/// override path (a probe scene that bumps <c>TickIntervalSeconds</c>
-/// to 0.1 s for a smoke test gets a faster MissionStore poll for free).
+/// and the §A.8.D5 action endpoints (accept / decline / conclude / resolve).
+/// Polling at the same cadence as the tick guarantees we observe state
+/// transitions within one tick of them happening.
 /// </para>
 ///
 /// <para>
-/// <b>Cache vs <see cref="GameState.PendingMissions"/>.</b> The brief
-/// (§A.5) asks <see cref="GameState.PendingMissions"/> to project from
-/// <see cref="AllActive"/>. Today, <see cref="GameState.PendingMissions"/>
-/// is a mutable <see cref="List{T}"/> that <see cref="WorldSimTick"/>
-/// appends to and <c>M1Slice</c> / <c>MissionPanelProbe</c> removes from.
-/// Retrofitting it to a computed projection would break those write paths
-/// (the next poll would resurrect a mission the player just accepted).
-/// Section A scope limits us to the E2 visibility surface ; the dual-source
-/// transitional shape is the deliberate scope choice and is flagged for a
-/// follow-up unification (probable landing : E2.3+ recruit-panel slice
-/// when the M1Slice flow itself migrates to the polled model).
+/// <b>Cap defense (Varn §A.8.D3 belt-and-braces).</b> The server's
+/// <c>MissionStore.try_add()</c> enforces the recruit cap N=3 (silent
+/// refusal). The client defensively drops the 4th+ recruit mission in
+/// both <see cref="IngestEmerged"/> and the polling reconciliation
+/// (<see cref="ApplyPollResult"/>). The cap excess is logged at warning
+/// level — under normal operation we never hit it ; if we do it surfaces
+/// a server bug.
 /// </para>
 ///
 /// <para>
 /// <b>What this autoload IS the source of truth for.</b>
 /// <list type="bullet">
+///   <item><see cref="GameState.PendingMissions"/> — read-only projection
+///         (§A.8.D5 R4).</item>
 ///   <item>E2 marker spawn / despawn — <see cref="GetMissionsForLayer"/>
 ///         with prefix <c>"e2.halfgate"</c> drives one marker per active
 ///         mission at the resolved district centroid.</item>
@@ -69,27 +80,13 @@ namespace Wayfinders.Client.Services;
 /// </para>
 ///
 /// <para>
-/// <b>What this autoload is NOT (yet).</b>
-/// <list type="bullet">
-///   <item>The source for the E1 Halfgate POI tooltip. That reads
-///         <see cref="GameState.PendingMissions"/> directly via
-///         <c>IsoMapE1Probe.PopulateMissionsSection</c>. Unchanged this
-///         slice.</item>
-///   <item>The source for the M1Slice / MissionPanelProbe accept flow.
-///         Those mutate <see cref="GameState.PendingMissions"/> directly.
-///         Unchanged this slice.</item>
-/// </list>
-/// </para>
-///
-/// <para>
 /// <b>Signal granularity — coarse <see cref="PendingMissionsChanged"/>.</b>
-/// One parameterless signal per cache replacement when the snapshot
-/// differs (mission added, removed, or content changed). No diff payload
-/// in M1 ; the consumer (<c>E2AreaMap</c>) is cheap to re-render
-/// (≤6 markers per the M1 cap) and re-projecting from
+/// One parameterless signal per cache mutation (poll-driven replacement,
+/// <see cref="IngestEmerged"/>, <see cref="RemoveById"/>). No diff payload
+/// in M1 ; the consumers (<c>E2AreaMap</c>, the M1Slice mission panel)
+/// are cheap to re-render and re-projecting from
 /// <see cref="GetMissionsForLayer"/> is simpler than reasoning about
-/// partial diffs. M2 may introduce a typed delta if the consumer count
-/// grows.
+/// partial diffs.
 /// </para>
 ///
 /// <para>
@@ -99,27 +96,40 @@ namespace Wayfinders.Client.Services;
 /// hop back to the main thread via <c>CallDeferred</c>, same pattern as
 /// <see cref="WorldSimTick.OnMissionEmergedDeferred"/>. The autoload
 /// owns a shutdown CTS tied to <c>_ExitTree</c> so any in-flight poll
-/// is cancelled cleanly on application exit.
+/// is cancelled cleanly on application exit. <see cref="IngestEmerged"/>
+/// and <see cref="RemoveById"/> are MAIN-THREAD only (callers marshal
+/// through <c>CallDeferred</c> if they resume off the main thread).
 /// </para>
 /// </summary>
 public partial class MissionStore : Node
 {
     /// <summary>
-    /// Fired on the main thread when <see cref="AllActive"/> has been
-    /// replaced and the new snapshot differs from the previous one.
-    /// Consumers re-project from <see cref="GetMissionsForLayer"/> /
-    /// <see cref="GetMissionsForPoi"/> at every emission. Coarse-grained
-    /// by design (no add/remove deltas) — see the class XML doc for the
-    /// rationale.
+    /// Cap enforced both server-side (Tess commit 5131d5f) and
+    /// client-side belt-and-braces. M1 strict recruit-only mode allows
+    /// at most one recruit mission per roster NPC ; the roster has 3
+    /// entries (kira / dorn / vell). A 4th recruit mission arriving
+    /// through any path is dropped + logged at warning level.
+    /// </summary>
+    internal const int RecruitMissionCap = 3;
+
+    /// <summary>
+    /// Fired on the main thread when <see cref="AllActive"/> mutates
+    /// (poll replaced the snapshot with a different one,
+    /// <see cref="IngestEmerged"/> appended a mission, or
+    /// <see cref="RemoveById"/> dropped one). Consumers re-project from
+    /// <see cref="GetMissionsForLayer"/> / <see cref="GetMissionsForPoi"/>
+    /// at every emission. Coarse-grained by design (no add/remove
+    /// deltas) — see the class XML doc for the rationale.
     /// </summary>
     [Signal]
     public delegate void PendingMissionsChangedEventHandler();
 
     /// <summary>
     /// Backing cache. Mutated only on the main thread (via the
-    /// <see cref="CallDeferred"/> hop from the polling continuation).
-    /// Returned as <see cref="IReadOnlyList{T}"/> via
-    /// <see cref="AllActive"/> so consumers cannot accidentally mutate
+    /// <see cref="CallDeferred"/> hop from the polling continuation, or
+    /// directly by <see cref="IngestEmerged"/> /
+    /// <see cref="RemoveById"/>). Returned as <see cref="IReadOnlyList{T}"/>
+    /// via <see cref="AllActive"/> so consumers cannot accidentally mutate
     /// the source of truth.
     /// </summary>
     private List<EmergentMissionDto> _activeMissions = new();
@@ -205,6 +215,110 @@ public partial class MissionStore : Node
         _shutdownCts.Cancel();
         _shutdownCts.Dispose();
         GD.Print("[MissionStore] disposed");
+    }
+
+    /// <summary>
+    /// §A.8.D5 cascade — ingest a freshly-emerged mission into the cache
+    /// without waiting for the next poll. Called by
+    /// <see cref="WorldSimTick.OnMissionEmergedDeferred"/> the instant
+    /// <c>/api/world/tick</c> returns with a mission, so the marker /
+    /// tooltip / E1 reveal pipeline lights up on the SAME engine frame
+    /// as the emergence (instead of one polling cycle later).
+    ///
+    /// <para>
+    /// <b>Main-thread only.</b> The caller is responsible for marshalling
+    /// via <c>CallDeferred</c> if the response continuation resumed off
+    /// the main thread (WorldSimTick.OnMissionEmergedDeferred does this).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Idempotence.</b> If a mission with the same
+    /// <see cref="EmergentMissionDto.Id"/> is already in the cache the
+    /// call is a silent no-op (Trace log). Handles the rare case where
+    /// the tick response races a poll that already absorbed the mission.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Cap defense (Varn §A.8.D3).</b> If accepting this mission
+    /// would push the recruit-type count past
+    /// <see cref="RecruitMissionCap"/> the mission is DROPPED with a
+    /// warning. Server-side <c>try_add</c> already enforces the cap ;
+    /// reaching this branch on the client means a server bug or a
+    /// race condition.
+    /// </para>
+    /// </summary>
+    public void IngestEmerged(EmergentMissionDto mission)
+    {
+        if (mission is null) return;
+
+        // Idempotence : second arrival of the same mission id is a no-op.
+        for (var i = 0; i < _activeMissions.Count; i++)
+        {
+            if (_activeMissions[i].Id == mission.Id)
+            {
+                GD.PrintRaw($"[MissionStore] IngestEmerged id={mission.Id} : already present, no-op\n");
+                return;
+            }
+        }
+
+        // Cap defense : refuse a 4th+ recruit mission.
+        if (mission.Type == WorldTickWireFormat.MissionType.Recruit)
+        {
+            var currentRecruitCount = CountRecruitMissions(_activeMissions);
+            if (currentRecruitCount >= RecruitMissionCap)
+            {
+                GD.PushWarning(
+                    $"[MissionStore] IngestEmerged id={mission.Id} npc={mission.RecruitTargetNpcId} : " +
+                    $"recruit cap N={RecruitMissionCap} already reached (server bug ?) — dropping");
+                return;
+            }
+        }
+
+        _activeMissions.Add(mission);
+        GD.Print(
+            $"[MissionStore] ingested id={mission.Id} type={mission.Type} " +
+            $"npc={mission.RecruitTargetNpcId ?? "(n/a)"} target_poi={mission.TargetPoi} " +
+            $"-> {_activeMissions.Count} active");
+        EmitSignal(SignalName.PendingMissionsChanged);
+    }
+
+    /// <summary>
+    /// §A.8.D5 cascade — remove a mission from the local cache by id.
+    /// Called by M1Slice after a successful POST to
+    /// <c>/api/missions/&lt;id&gt;/accept</c> or
+    /// <c>/api/missions/&lt;id&gt;/decline</c> to drop the mission from
+    /// the projection without waiting for the next poll. The next poll
+    /// reconciles the cache against the authoritative server state.
+    ///
+    /// <para>
+    /// <b>Idempotence.</b> Removing a missing id is a silent no-op
+    /// (Trace log). Same shape as the
+    /// <see cref="System.Collections.Generic.List{T}.RemoveAll(System.Predicate{T})"/>
+    /// semantic.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Main-thread only.</b> Callers that resume off the main thread
+    /// (HTTP continuations) marshal via <c>CallDeferred</c> first.
+    /// </para>
+    /// </summary>
+    public bool RemoveById(string missionId)
+    {
+        if (string.IsNullOrEmpty(missionId)) return false;
+        for (var i = _activeMissions.Count - 1; i >= 0; i--)
+        {
+            if (_activeMissions[i].Id == missionId)
+            {
+                _activeMissions.RemoveAt(i);
+                GD.Print(
+                    $"[MissionStore] removed id={missionId} " +
+                    $"-> {_activeMissions.Count} active");
+                EmitSignal(SignalName.PendingMissionsChanged);
+                return true;
+            }
+        }
+        GD.PrintRaw($"[MissionStore] RemoveById id={missionId} : not found, no-op\n");
+        return false;
     }
 
     /// <summary>
@@ -303,13 +417,24 @@ public partial class MissionStore : Node
     /// content hash can be added later if M2 introduces in-flight
     /// content updates.
     /// </para>
+    ///
+    /// <para>
+    /// <b>Cap defense (Varn §A.8.D3 belt-and-braces).</b> If the
+    /// authoritative server response somehow contains &gt;N=3 recruit
+    /// missions the surplus is trimmed locally + a warning is logged.
+    /// Under normal operation this is unreachable (server enforces
+    /// <c>try_add</c> cap). Defensive against a race or a future test
+    /// fixture that bypasses the server cap.
+    /// </para>
     /// </summary>
     private void ApplyPollResult(IReadOnlyList<EmergentMissionDto> snapshot, int tick)
     {
-        if (SnapshotMatchesCurrent(snapshot)) return;
+        var effective = EnforceRecruitCap(snapshot, tick);
+
+        if (SnapshotMatchesCurrent(effective)) return;
 
         var previousCount = _activeMissions.Count;
-        _activeMissions = snapshot.ToList();
+        _activeMissions = effective.ToList();
 
         GD.Print(
             $"[MissionStore] cache updated (tick={tick}) : " +
@@ -317,6 +442,50 @@ public partial class MissionStore : Node
             $"[{string.Join(", ", _activeMissions.Select(m => m.Id))}]");
 
         EmitSignal(SignalName.PendingMissionsChanged);
+    }
+
+    /// <summary>
+    /// Trim a poll snapshot down to at most
+    /// <see cref="RecruitMissionCap"/> recruit-type missions. Non-recruit
+    /// missions pass through untouched. Logs at warning level when the
+    /// trim actually happens.
+    /// </summary>
+    private static IReadOnlyList<EmergentMissionDto> EnforceRecruitCap(
+        IReadOnlyList<EmergentMissionDto> snapshot, int tick)
+    {
+        if (CountRecruitMissions(snapshot) <= RecruitMissionCap) return snapshot;
+
+        var trimmed = new List<EmergentMissionDto>(snapshot.Count);
+        var recruitsSoFar = 0;
+        var dropped = 0;
+        foreach (var mission in snapshot)
+        {
+            if (mission.Type == WorldTickWireFormat.MissionType.Recruit)
+            {
+                if (recruitsSoFar >= RecruitMissionCap)
+                {
+                    dropped++;
+                    continue;
+                }
+                recruitsSoFar++;
+            }
+            trimmed.Add(mission);
+        }
+        GD.PushWarning(
+            $"[MissionStore] poll (tick={tick}) returned {snapshot.Count} missions " +
+            $"with >{RecruitMissionCap} recruit-type — dropping {dropped} surplus " +
+            $"(server cap bypass ? race ?)");
+        return trimmed;
+    }
+
+    private static int CountRecruitMissions(IReadOnlyList<EmergentMissionDto> missions)
+    {
+        var n = 0;
+        for (var i = 0; i < missions.Count; i++)
+        {
+            if (missions[i].Type == WorldTickWireFormat.MissionType.Recruit) n++;
+        }
+        return n;
     }
 
     private bool SnapshotMatchesCurrent(IReadOnlyList<EmergentMissionDto> snapshot)

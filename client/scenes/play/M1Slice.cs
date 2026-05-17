@@ -278,6 +278,14 @@ public partial class M1Slice : Node2D
     private GameState? _gameState;
     private ApiClient? _apiClient;
     private WorldSimTick? _worldSimTick;
+    /// <summary>
+    /// Varn §A.8.D5 cascade (2026-05-17) — the M1Slice accept / decline
+    /// paths now route mission-cache mutations through the
+    /// <see cref="MissionStore"/> autoload (instead of mutating
+    /// <c>GameState.PendingMissions</c> directly, which is now a
+    /// read-only projection). Resolved at <c>ResolveBindings</c> time.
+    /// </summary>
+    private MissionStore? _missionStore;
 
     // Slide state for the Compagnie panel — Compagnie's slide machine
     // is reused via CompagniePanelLogic (Pattern P2).
@@ -456,6 +464,7 @@ public partial class M1Slice : Node2D
         _gameState = GetTree()?.Root?.GetNodeOrNull<GameState>("GameState");
         _apiClient = GetTree()?.Root?.GetNodeOrNull<ApiClient>("ApiClient");
         _worldSimTick = GetTree()?.Root?.GetNodeOrNull<WorldSimTick>("WorldSimTick");
+        _missionStore = GetTree()?.Root?.GetNodeOrNull<MissionStore>("MissionStore");
     }
 
     /// <summary>
@@ -1079,9 +1088,15 @@ public partial class M1Slice : Node2D
             mission, personaId, tickStarted: _currentTick);
         _gameState.ActiveMissions.Add(active);
 
-        // Pop from pending — same defensive helper as the M1 path.
-        var poppedId = PopHeadMission(_gameState.PendingMissions);
-        Log($"[ACTIVE START] mission={mission.Id} persona={personaId} tickStarted={active.TickStarted} tickDue={active.TickDue} (popped pending : {poppedId ?? "(queue was already empty)"})");
+        // §A.8.D5 cascade — pop from MissionStore (the projection
+        // root). GameState.PendingMissions is now a read-only view ;
+        // the mutation lives on MissionStore.RemoveById. R5 layers
+        // the POST /api/missions/<id>/accept call on top of this so
+        // the server's authoritative list stays in sync via the
+        // next poll.
+        var removed = _missionStore?.RemoveById(mission.Id) ?? false;
+        var poppedId = removed ? mission.Id : null;
+        Log($"[ACTIVE START] mission={mission.Id} persona={personaId} tickStarted={active.TickStarted} tickDue={active.TickDue} (removed from store : {poppedId ?? "(not present)"})");
 
         // Flip the persona's visual indicator (NPC autonomy : the
         // persona Node3D is NOT re-parented).
@@ -1850,13 +1865,14 @@ public partial class M1Slice : Node2D
             Log($"[LEGACY TAG STORED] persona={tag.PersonaId} mission={tag.MissionId} outcome={tag.Outcome}");
         }
 
-        // 5c — pop via the pure-C# helper so the empty-list defensive
-        // branch is exercised here AND testable in xUnit. The runtime
-        // had been calling RemoveAt(0) blindly, which would throw if
-        // a concurrent tick resolution emptied the queue while the
-        // resolve round-trip was in flight.
-        var poppedId = PopHeadMission(_gameState.PendingMissions);
-        Log($"[5c] popped head mission : {poppedId ?? "(queue was already empty)"}");
+        // §A.8.D5 cascade — pop from MissionStore.RemoveById (the
+        // projection root). GameState.PendingMissions is now a
+        // read-only view ; the legacy PopHeadMission helper still
+        // lives in M1SliceLogic for xUnit coverage of the FIFO
+        // invariants, but the runtime path routes through the store.
+        var removed = _missionStore?.RemoveById(mission.Id) ?? false;
+        var poppedId = removed ? mission.Id : null;
+        Log($"[5c] removed mission from store : {poppedId ?? "(not present)"}");
 
         // 5c — emit MissionResolved AFTER state mutation so listeners
         // see the post-resolve world (PendingMissions popped, tags
