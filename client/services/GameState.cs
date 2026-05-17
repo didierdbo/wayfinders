@@ -61,6 +61,19 @@ namespace Wayfinders.Client.Services;
 /// </para>
 ///
 /// <para>
+/// <b>I-23 typed LocationContext promotion (Varn-lock 2026-05-17 Section B).</b>
+/// The legacy <c>Dictionary&lt;string, object&gt; LocationContext</c>
+/// slot is replaced by a typed <see cref="LocationContextState"/> record
+/// plus four setter methods and the <see cref="LocationContextChanged"/>
+/// signal. Migration was zero-cost (the dict had no readers and no
+/// writers in the codebase). The new property has four nullable string
+/// fields : <c>CurrentCityId</c>, <c>CurrentDistrictId</c>,
+/// <c>SelectedNpcId</c>, <c>SelectedPoiId</c>. Writers populate fields
+/// as the player navigates ; readers must tolerate null (a fresh boot
+/// snapshot returns <see cref="LocationContextState.Empty"/>).
+/// </para>
+///
+/// <para>
 /// <b>Why an autoload, not static.</b> Same rationale as
 /// <see cref="ApiClient"/>: the autoload lives in the scene tree, can be
 /// remote-inspected, has predictable _Ready/_ExitTree lifetimes, and
@@ -127,6 +140,53 @@ public partial class GameState : Node
     public delegate void TileRevealStateChangedEventHandler(Vector2I cell, int oldState, int newState);
 
     /// <summary>
+    /// Fired after any field of <see cref="LocationContext"/> mutates
+    /// via one of the typed setters
+    /// (<see cref="SetCurrentCityId"/>,
+    /// <see cref="SetCurrentDistrictId"/>,
+    /// <see cref="SetSelectedNpcId"/>,
+    /// <see cref="SetSelectedPoiId"/>) or
+    /// <see cref="ClearLocationContext"/>.
+    ///
+    /// <para>
+    /// <b>No-op suppression.</b> The setters compare the old field
+    /// value to the new one (record equality, free for nullable
+    /// strings) and skip the signal emission when they are identical.
+    /// This matches the <see cref="SetTileRevealState"/> discipline
+    /// (idempotent setter, silent no-op on unchanged value).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Wire format.</b> <paramref name="field"/> is one of
+    /// <c>"CurrentCityId"</c> / <c>"CurrentDistrictId"</c> /
+    /// <c>"SelectedNpcId"</c> / <c>"SelectedPoiId"</c> — the literal
+    /// property name of <see cref="LocationContextState"/>. The
+    /// old/new values are passed through the variadic
+    /// <see cref="GodotObject.EmitSignal(StringName, Variant[])"/>
+    /// surface ; null values are converted to <c>(Variant)default</c>
+    /// at the emission site (Godot's <c>Variant</c> implicit operator
+    /// rejects <c>null</c> strings at compile time even though the
+    /// engine accepts a null-Variant at runtime). Consumers that want
+    /// a typed dispatch on the field name should branch on the literal
+    /// string ; consumers that want the full snapshot should just read
+    /// <see cref="LocationContext"/>.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Varn-lock 2026-05-17 Section B.</b> Replaces the implicit
+    /// "writers and readers will marshal through a string-keyed dict"
+    /// contract with one explicit signal at the autoload edge.
+    /// Disconnection discipline is the consumer's responsibility
+    /// (Rune-coaching Risk #1, signal-leak trap).
+    /// </para>
+    /// </summary>
+    [Signal]
+    public delegate void LocationContextChangedEventHandler(
+        string field,
+        string oldValue,
+        string newValue);
+
+    /// <summary>
     /// True if a save exists. J1: always false on boot, no persistence.
     /// J3+: replaced with a real save-system check.
     /// </summary>
@@ -139,12 +199,114 @@ public partial class GameState : Node
     public string? LastVisitedScreenId { get; set; }
 
     /// <summary>
-    /// Free-form bag of cross-screen state. J1: empty. J3+ keys include
-    /// "current_city_id", "current_district_id", "selected_pnj_id", etc.
-    /// Same rationale as <see cref="Wayfinders.Client.Scripts.Screens.ScreenContext"/> —
-    /// concrete-first, promote to typed properties when usage becomes clear.
+    /// Typed cross-screen "where am I / who's selected" snapshot.
+    /// Replaces the free-form <c>Dictionary&lt;string, object&gt;</c>
+    /// that this slot held before the I-23 typed promotion
+    /// (Varn-lock 2026-05-17 Section B). All four fields nullable +
+    /// default null ; readers MUST tolerate null. Mutate via the
+    /// typed setter methods only :
+    /// <list type="bullet">
+    ///   <item><see cref="SetCurrentCityId"/></item>
+    ///   <item><see cref="SetCurrentDistrictId"/></item>
+    ///   <item><see cref="SetSelectedNpcId"/></item>
+    ///   <item><see cref="SetSelectedPoiId"/></item>
+    ///   <item><see cref="ClearLocationContext"/></item>
+    /// </list>
+    /// Each setter emits <see cref="LocationContextChanged"/> exactly
+    /// once when the field actually changes ; no-op writes are
+    /// silently suppressed (same idempotence discipline as
+    /// <see cref="SetTileRevealState"/>).
     /// </summary>
-    public Dictionary<string, object> LocationContext { get; } = new();
+    public LocationContextState LocationContext { get; private set; } = LocationContextState.Empty;
+
+    /// <summary>Set <see cref="LocationContextState.CurrentCityId"/>.
+    /// Pass null to clear. Emits <see cref="LocationContextChanged"/>
+    /// with field name <c>"CurrentCityId"</c> only if the value
+    /// actually changes.</summary>
+    public void SetCurrentCityId(string? cityId)
+    {
+        var old = LocationContext.CurrentCityId;
+        if (old == cityId) return;
+        LocationContext = LocationContext with { CurrentCityId = cityId };
+        EmitLocationContextChanged("CurrentCityId", old, cityId);
+    }
+
+    /// <summary>Set <see cref="LocationContextState.CurrentDistrictId"/>.
+    /// Pass null to clear. Emits <see cref="LocationContextChanged"/>
+    /// with field name <c>"CurrentDistrictId"</c> only if the value
+    /// actually changes.</summary>
+    public void SetCurrentDistrictId(string? districtId)
+    {
+        var old = LocationContext.CurrentDistrictId;
+        if (old == districtId) return;
+        LocationContext = LocationContext with { CurrentDistrictId = districtId };
+        EmitLocationContextChanged("CurrentDistrictId", old, districtId);
+    }
+
+    /// <summary>Set <see cref="LocationContextState.SelectedNpcId"/>.
+    /// Pass null to clear. Emits <see cref="LocationContextChanged"/>
+    /// with field name <c>"SelectedNpcId"</c> only if the value
+    /// actually changes.</summary>
+    public void SetSelectedNpcId(string? npcId)
+    {
+        var old = LocationContext.SelectedNpcId;
+        if (old == npcId) return;
+        LocationContext = LocationContext with { SelectedNpcId = npcId };
+        EmitLocationContextChanged("SelectedNpcId", old, npcId);
+    }
+
+    /// <summary>Set <see cref="LocationContextState.SelectedPoiId"/>.
+    /// Pass null to clear. Emits <see cref="LocationContextChanged"/>
+    /// with field name <c>"SelectedPoiId"</c> only if the value
+    /// actually changes.</summary>
+    public void SetSelectedPoiId(string? poiId)
+    {
+        var old = LocationContext.SelectedPoiId;
+        if (old == poiId) return;
+        LocationContext = LocationContext with { SelectedPoiId = poiId };
+        EmitLocationContextChanged("SelectedPoiId", old, poiId);
+    }
+
+    /// <summary>
+    /// Reset <see cref="LocationContext"/> to
+    /// <see cref="LocationContextState.Empty"/> (all four fields null).
+    /// Fires one <see cref="LocationContextChanged"/> per field that
+    /// was non-null before the reset. Called by
+    /// <c>OpeningBootstrap.OnNewGamePressed</c> per Varn-lock §B.3
+    /// reset rule. Does NOT fire on E1 ↔ E2 ↔ E3 ladder transitions —
+    /// those flows mutate individual fields surgically via the typed
+    /// setters above.
+    /// </summary>
+    public void ClearLocationContext()
+    {
+        SetCurrentCityId(null);
+        SetCurrentDistrictId(null);
+        SetSelectedNpcId(null);
+        SetSelectedPoiId(null);
+    }
+
+    /// <summary>
+    /// Centralised emit helper that converts the two nullable
+    /// <c>string?</c> old/new values to <see cref="Variant"/>
+    /// arguments at the call site. The empty <c>Variant</c>
+    /// (<c>default(Variant)</c>) is the Godot wire representation of
+    /// "null" : the engine accepts it, but the C# implicit
+    /// <c>string -&gt; Variant</c> operator refuses a <c>null</c>
+    /// argument at compile time. Consumers reading the signal
+    /// receive the empty-Variant slot when the old/new value was null
+    /// ; deserialising back to <c>string?</c> at the receiver edge is
+    /// <c>arg.AsString()</c> which returns an empty string for the
+    /// empty Variant (consumers compare against
+    /// <see cref="string.IsNullOrEmpty(string)"/>).
+    /// </summary>
+    private void EmitLocationContextChanged(string field, string? oldValue, string? newValue)
+    {
+        EmitSignal(
+            SignalName.LocationContextChanged,
+            field,
+            oldValue is null ? default : Variant.From(oldValue),
+            newValue is null ? default : Variant.From(newValue));
+    }
 
     /// <summary>
     /// Typed roster snapshot the world-tick autoload packs into
