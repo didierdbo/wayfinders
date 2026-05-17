@@ -993,7 +993,7 @@ public partial class E2AreaMap : Control, IScreen
         if (string.IsNullOrEmpty(text)) return;
 
         var anchor = _poiHotspots.TryGetValue(poiId, out var hotspot)
-            ? hotspot.GlobalPosition
+            ? hotspot.GetGlobalTransformWithCanvas().Origin
             : Vector2.Zero;
         tooltipController.RequestTooltip(text, anchor);
     }

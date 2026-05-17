@@ -721,7 +721,7 @@ public partial class E2AreaMap
         if (tooltipController is null) return;
 
         var anchor = _e2MarkerHotspots.TryGetValue(poiId, out var hotspot)
-            ? hotspot.GlobalPosition
+            ? hotspot.GetGlobalTransformWithCanvas().Origin
             : Vector2.Zero;
         tooltipController.RequestTooltip(text, anchor);
     }
@@ -1089,7 +1089,7 @@ public partial class E2AreaMap
         if (tooltipController is null) return;
 
         var anchor = _tileHitAreas.TryGetValue(coord, out var area)
-            ? area.GlobalPosition
+            ? area.GetGlobalTransformWithCanvas().Origin
             : Vector2.Zero;
         tooltipController.RequestTooltip(text, anchor);
     }
@@ -1136,7 +1136,7 @@ public partial class E2AreaMap
         if (tooltipController is null) return;
 
         var anchor = _npcPortraitRoots.TryGetValue(npcId, out var root)
-            ? root.GlobalPosition
+            ? root.GetGlobalTransformWithCanvas().Origin
             : Vector2.Zero;
         tooltipController.RequestTooltip(text, anchor);
     }

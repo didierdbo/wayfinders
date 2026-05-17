@@ -39,11 +39,15 @@ namespace Wayfinders.Client.Services;
 ///
 /// <para>
 /// <b>Why a Node not a RefCounted.</b> The autoload contract requires a
-/// <see cref="Node"/>. The tooltip child Control is parented to this
-/// node (and lives behind the modal CanvasLayer because the autoload
-/// itself sits at <c>/root/HoverTooltipController</c>). For higher
-/// z-order stacking later we will add a <see cref="CanvasLayer"/> wrapper
-/// — not needed for J3's E2 tooltip-over-POI use case.
+/// <see cref="Node"/>. The tooltip Control lives inside an internal
+/// <see cref="CanvasLayer"/> wrapper (<see cref="TooltipCanvasLayer"/>,
+/// layer = 100) so it always renders <i>above</i> every screen-local
+/// CanvasLayer (DecorationLayer = 2, ChromeLayer = 3, etc.) and is
+/// immune to the world Camera2D's canvas_transform — anchors are
+/// therefore expressed in <b>screen-space pixels</b>, not world coords.
+/// Callsites must pass
+/// <c>hotspot.GetGlobalTransformWithCanvas().Origin</c> for Node2D
+/// hotspots, never the raw <c>GlobalPosition</c>.
 /// </para>
 /// </summary>
 public partial class HoverTooltipController : Node
@@ -66,6 +70,17 @@ public partial class HoverTooltipController : Node
     /// </summary>
     private static readonly Vector2 TooltipOffset = new(-8, -56);
 
+    /// <summary>
+    /// CanvasLayer the tooltip is parented into. Set high enough
+    /// (= 100) to stack above every screen's chrome layers (currently
+    /// max layer = 3 for ChromeLayer across E1/E2/E3). A CanvasLayer's
+    /// canvas_transform is identity by default — coordinates here are
+    /// raw viewport pixels, which matches what
+    /// <c>Node2D.GetGlobalTransformWithCanvas().Origin</c> returns.
+    /// </summary>
+    private const int TooltipCanvasLayerIndex = 100;
+
+    private CanvasLayer? _tooltipCanvasLayer;
     private PanelContainer? _tooltipPanel;
     private Label? _tooltipLabel;
     private SceneTreeTimer? _pendingTimer;
@@ -80,13 +95,20 @@ public partial class HoverTooltipController : Node
             return;
         }
 
+        _tooltipCanvasLayer = new CanvasLayer
+        {
+            Name = "TooltipCanvasLayer",
+            Layer = TooltipCanvasLayerIndex,
+        };
+        AddChild(_tooltipCanvasLayer);
+
         _tooltipPanel = scene.Instantiate<PanelContainer>();
         _tooltipLabel = _tooltipPanel.GetNode<Label>("Label");
         _tooltipPanel.Modulate = new Color(1, 1, 1, 0);
         _tooltipPanel.Visible = false;
-        AddChild(_tooltipPanel);
+        _tooltipCanvasLayer.AddChild(_tooltipPanel);
 
-        GD.Print("[HoverTooltipController] ready");
+        GD.Print($"[HoverTooltipController] mounted in CanvasLayer layer={TooltipCanvasLayerIndex}");
     }
 
     /// <summary>
@@ -95,12 +117,16 @@ public partial class HoverTooltipController : Node
     /// recent hover wins.
     /// </summary>
     /// <param name="text">Final tooltip text (already interpolated).</param>
-    /// <param name="anchorGlobalPosition">
-    /// Global screen position used as the anchor for the tooltip's
-    /// top-left corner. The actual paint position adds
-    /// <see cref="TooltipOffset"/>.
+    /// <param name="anchorScreenPosition">
+    /// <b>Screen-space</b> (viewport pixel) position used as the anchor
+    /// for the tooltip's top-left corner. The actual paint position adds
+    /// <see cref="TooltipOffset"/>. For Node2D hotspots, callers must
+    /// pass <c>hotspot.GetGlobalTransformWithCanvas().Origin</c>, not
+    /// the raw <c>GlobalPosition</c> — the tooltip lives in a dedicated
+    /// CanvasLayer (identity transform) and is not subject to the world
+    /// Camera2D's canvas_transform.
     /// </param>
-    public void RequestTooltip(string text, Vector2 anchorGlobalPosition)
+    public void RequestTooltip(string text, Vector2 anchorScreenPosition)
     {
         if (_tooltipPanel is null || _tooltipLabel is null) return;
 
@@ -111,7 +137,7 @@ public partial class HoverTooltipController : Node
         _fadeTween = null;
 
         _pendingTimer = GetTree().CreateTimer(HoverDelaySeconds);
-        _pendingTimer.Timeout += () => OnHoverDelayElapsed(text, anchorGlobalPosition);
+        _pendingTimer.Timeout += () => OnHoverDelayElapsed(text, anchorScreenPosition);
     }
 
     /// <summary>
@@ -132,7 +158,7 @@ public partial class HoverTooltipController : Node
         _fadeTween.TweenCallback(Callable.From(HideAfterFadeOut));
     }
 
-    private void OnHoverDelayElapsed(string text, Vector2 anchorGlobalPosition)
+    private void OnHoverDelayElapsed(string text, Vector2 anchorScreenPosition)
     {
         // If CancelTooltip ran between schedule and timer fire,
         // _pendingTimer is null — bail before mutating the panel.
@@ -142,7 +168,11 @@ public partial class HoverTooltipController : Node
         _pendingTimer = null;
 
         _tooltipLabel.Text = text;
-        _tooltipPanel.GlobalPosition = anchorGlobalPosition + TooltipOffset;
+        // The tooltip lives inside a dedicated CanvasLayer (identity
+        // canvas_transform), so setting Position with screen-space
+        // pixels places it directly under the cursor's world-projected
+        // anchor without any further transform math.
+        _tooltipPanel.Position = anchorScreenPosition + TooltipOffset;
         _tooltipPanel.Visible = true;
 
         _fadeTween?.Kill();
