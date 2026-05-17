@@ -505,6 +505,15 @@ public partial class IsoMapE1Probe : Node2D
     // everywhere → shader alpha=0) and fades in as the reveal map
     // updates at flip midpoint. Null when UseRevealShader=false.
     private readonly Dictionary<Vector2I, Sprite2D> _faceBOverlaySprites = new();
+    // §A.8.D1 R6 — Mission-gated Halfgate POI reveal (Varn-lock 2026-05-17).
+    // The POI is no longer auto-faded-in at the end of the reveal cinematic ;
+    // ScheduleRevealAsync now waits for a recruit mission targeting
+    // "e1.halfgate" or "e2.halfgate.*" to land in MissionStore.AllActive
+    // before firing FadeInPoiAsync. The MissionStore autoload is the
+    // §A.8.D5 projection root ; the subscription unwinds in _ExitTree.
+    private Wayfinders.Client.Services.MissionStore? _missionStore;
+    private Wayfinders.Client.Services.MissionStore.PendingMissionsChangedEventHandler? _missionStoreChangedHandler;
+
     // Pure-C# state holder for the 64×64 reveal map (Godot-free seam).
     // Owns the float[64,64] reveal_level matrix and the R8 byte
     // encoding ; the runtime mirrors writes into _revealMapImage +
@@ -747,6 +756,10 @@ public partial class IsoMapE1Probe : Node2D
         _poiRouter = null;
         _routerHoveredHandler = null;
         _routerClickedHandler = null;
+
+        // §A.8.D1 R6 — unwind the MissionStore subscription if still
+        // attached (scene exited mid-wait).
+        UnwireMissionStoreSubscription();
 
         base._ExitTree();
     }
@@ -2030,7 +2043,23 @@ public partial class IsoMapE1Probe : Node2D
         }
 
         _revealCompleted = true;
-        GD.Print($"[PROBE IsoMapE1Probe] flip completed at t≈{RevealTriggerDelaySec + RevealTotalDurationSec:F2}s — starting POI Halfgate fade-in ({PoiFadeInDurationSec:F2}s)");
+        GD.Print($"[PROBE IsoMapE1Probe] flip completed at t≈{RevealTriggerDelaySec + RevealTotalDurationSec:F2}s — waiting for Halfgate mission before POI fade-in (Varn §A.8.D1 strict gating)");
+
+        // §A.8.D1 R6 — wait for a recruit mission targeting Halfgate
+        // (e1.halfgate or e2.halfgate.*) to land in MissionStore.AllActive
+        // before revealing the POI. Tick==1 is unconditional server-side
+        // (Varn §A.8.D2) so the wait is bounded by one world-tick interval
+        // (~5s wall-clock). If the scene is freed mid-wait we observe the
+        // IsInstanceValid drop and short-circuit. This replaces the
+        // legacy unconditional fade-in (backlog B1, closed won't fix).
+        await WaitForHalfgateMissionAsync();
+
+        if (!IsInstanceValid(this) || !IsInsideTree())
+        {
+            return;
+        }
+
+        GD.Print($"[PROBE IsoMapE1Probe] Halfgate mission present — starting POI fade-in ({PoiFadeInDurationSec:F2}s)");
 
         // PR3-6 integration : make the POI node visible just before the
         // fade-in tween starts. Until now Visible=false ensured the PR5
@@ -3506,4 +3535,122 @@ public partial class IsoMapE1Probe : Node2D
 
         GD.Print($"[PROBE IsoMapE1Probe] info SINGLE_TILE cell=({SingleTileCellGx},{SingleTileCellGy}) iso=({expectedCamPos.X:F2},{expectedCamPos.Y:F2}) viewport={viewportSize.X:F0}x{viewportSize.Y:F0} ; zoom={_currentZoom:F2}x (override ZoomMax={ZoomMax:F2}) ; flip/POI/tooltip/reveal DISABLED ; BackgroundLayer OFF ; preflight 5/5");
     }
+    /// <summary>
+    /// §A.8.D1 R6 — wait for a recruit mission targeting Halfgate
+    /// (target_poi descendant of "e1.halfgate" or "e2.halfgate") to
+    /// land in <see cref="MissionStore.AllActive"/> before allowing
+    /// the POI reveal to fire. Returns immediately if such a mission
+    /// is already present.
+    ///
+    /// <para>
+    /// <b>Gating rule.</b> The legacy unconditional fade-in path
+    /// (backlog B1) is closed won't fix per Varn §A.8.D1. The POI on
+    /// E1 is strictly mission-gated : if no mission has arrived by
+    /// the end of the cinematic, the player waits one tick window
+    /// (Varn §A.8.D2 guarantees the first mission arrives at tick==1
+    /// unconditionally — typical wall-clock latency ~5s with the
+    /// default TickIntervalSeconds).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Subscription discipline.</b> We attach
+    /// <see cref="OnMissionStoreChangedDuringReveal"/> as the captured
+    /// handler reference (Risk #1 captured-reference signal-leak
+    /// discipline). The wait completes when the signal fires with a
+    /// matching mission ; the handler unsubscribes itself at that
+    /// point. <see cref="_ExitTree"/> also unsubscribes defensively
+    /// in case the scene unloads mid-wait.
+    /// </para>
+    /// </summary>
+    private async Task WaitForHalfgateMissionAsync()
+    {
+        EnsureMissionStoreRef();
+        if (_missionStore is null)
+        {
+            GD.PushWarning("[PROBE IsoMapE1Probe] MissionStore autoload missing — POI reveal would never fire ; skipping the gate (fallback to legacy unconditional reveal so the cinematic does not deadlock)");
+            return;
+        }
+
+        if (HasHalfgateMissionActive())
+        {
+            GD.Print("[PROBE IsoMapE1Probe] Halfgate mission already in MissionStore.AllActive — reveal proceeds immediately");
+            return;
+        }
+
+        GD.Print("[PROBE IsoMapE1Probe] no Halfgate mission yet — subscribing to PendingMissionsChanged");
+        var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>(System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Wayfinders.Client.Services.MissionStore.PendingMissionsChangedEventHandler handler = () =>
+        {
+            if (HasHalfgateMissionActive())
+            {
+                // Signal-leak discipline : remove ourselves at the
+                // matching emission so a future poll that re-triggers
+                // PendingMissionsChanged (mission concluded, etc.)
+                // does not re-fire the wait completion.
+                if (_missionStore is not null && _missionStoreChangedHandler is not null)
+                {
+                    _missionStore.PendingMissionsChanged -= _missionStoreChangedHandler;
+                    _missionStoreChangedHandler = null;
+                }
+                tcs.TrySetResult(true);
+            }
+        };
+        _missionStoreChangedHandler = handler;
+        _missionStore.PendingMissionsChanged += handler;
+
+        await tcs.Task;
+    }
+
+    /// <summary>
+    /// §A.8.D1 — true iff MissionStore.AllActive contains at least one
+    /// mission whose <c>target_poi</c> equals or descends from
+    /// <c>e1.halfgate</c> or <c>e2.halfgate</c> (the canonical Varn-lock
+    /// 2026-05-15 v2 §2 layer-prefix rule, mirrored locally so this
+    /// scene stays Godot-only without dragging in MissionStoreLogic).
+    /// </summary>
+    private bool HasHalfgateMissionActive()
+    {
+        if (_missionStore is null) return false;
+        var active = _missionStore.AllActive;
+        for (int i = 0; i < active.Count; i++)
+        {
+            var tp = active[i].TargetPoi;
+            if (string.IsNullOrEmpty(tp)) continue;
+            if (tp == "e1.halfgate" || tp.StartsWith("e1.halfgate.", System.StringComparison.Ordinal)
+                || tp == "e2.halfgate" || tp.StartsWith("e2.halfgate.", System.StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Lazily resolve the <see cref="MissionStore"/> autoload reference
+    /// the first time the gate fires. Autoload boot order should make
+    /// the store available by the time the reveal cinematic finishes
+    /// (~5s after _Ready), but we still null-check defensively.
+    /// </summary>
+    private void EnsureMissionStoreRef()
+    {
+        if (_missionStore is not null && IsInstanceValid(_missionStore)) return;
+        _missionStore = GetTree()?.Root?.GetNodeOrNull<Wayfinders.Client.Services.MissionStore>("MissionStore");
+    }
+
+    /// <summary>
+    /// Defensive teardown : unsubscribe the
+    /// <see cref="MissionStore.PendingMissionsChanged"/> handler if
+    /// the wait was still in flight. Called from <see cref="_ExitTree"/>.
+    /// </summary>
+    private void UnwireMissionStoreSubscription()
+    {
+        if (_missionStore is not null && IsInstanceValid(_missionStore) && _missionStoreChangedHandler is not null)
+        {
+            _missionStore.PendingMissionsChanged -= _missionStoreChangedHandler;
+        }
+        _missionStoreChangedHandler = null;
+        _missionStore = null;
+    }
+
 }
