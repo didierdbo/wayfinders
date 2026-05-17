@@ -345,4 +345,20 @@
     <Compile Include="..\services\Dtos\LocationContextState.cs" Link="src\LocationContextState.cs" />
   </ItemGroup>
 
+  <!-- I-10 NpcRuntimeState (Varn-lock 2026-05-17 Section D): pure-C#
+       per-NPC mutable runtime state record (NpcId required, IsRecruited,
+       RecruitedAtTick, KnownTilesAppliedTo, PortraitState, LastSeenTick).
+       Lives on the NpcRegistry autoload via a lazy-spawn cache + GetState
+       / GetOrCreateState / SetState / MutateState surface. Godot-free
+       by design (cells stringified as "col,row", portrait state as slug)
+       so xUnit pins the record shape (defaults, with-expression
+       immutability, value equality, set-typed KnownTilesAppliedTo,
+       mutator-delegate round trip). The Node-bound NpcStateChanged
+       signal-firing surface on NpcRegistry itself stays in the client
+       csproj only and is validated via integration smoke at E2.3
+       recruit-panel landing. -->
+  <ItemGroup>
+    <Compile Include="..\services\Dtos\NpcRuntimeState.cs" Link="src\NpcRuntimeState.cs" />
+  </ItemGroup>
+
 </Project>
