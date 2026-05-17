@@ -265,6 +265,105 @@ public sealed class MissionTooltipRowLogicTests
     }
 
     // ====================================================================
+    // Halfgate E1 cross-layer alias -- Varn §A.8.D1 R9 (2026-05-17 bug B fix)
+    // ====================================================================
+
+    [Fact]
+    public void HalfgateE1CrossLayer_e1_halfgate_matches_e2_halfgate_descendants()
+    {
+        // The whole point of the cross-layer predicate : when the player
+        // hovers the E1 Halfgate POI, the tooltip must surface missions
+        // emitted by the ML at the E2 layer (target_poi = "e2.halfgate.<district>").
+        // Pure prefix-match would miss these because the layer prefix
+        // changes from e1 to e2.
+        var predicate = MissionTooltipRowLogic.HalfgateE1CrossLayerPredicate(PrefixMatch);
+
+        Assert.True(predicate("e2.halfgate.gateway", "e1.halfgate"));
+        Assert.True(predicate("e2.halfgate.intramuros", "e1.halfgate"));
+        Assert.True(predicate("e2.halfgate.littoral", "e1.halfgate"));
+        Assert.True(predicate("e2.halfgate", "e1.halfgate"));    // exact e2 root
+    }
+
+    [Fact]
+    public void HalfgateE1CrossLayer_e1_halfgate_still_matches_itself_via_base_predicate()
+    {
+        // Backward compat : a legacy mission targeting "e1.halfgate"
+        // directly (not e2.*) must still match when hovering e1.halfgate.
+        // The base prefix-match handles this ; the wrapper must not regress it.
+        var predicate = MissionTooltipRowLogic.HalfgateE1CrossLayerPredicate(PrefixMatch);
+        Assert.True(predicate("e1.halfgate", "e1.halfgate"));
+        Assert.True(predicate("e1.halfgate.extra", "e1.halfgate"));
+    }
+
+    [Fact]
+    public void HalfgateE1CrossLayer_e1_halfgate_rejects_unrelated_regions()
+    {
+        // The alias is scoped to the Halfgate pair ; missions on other
+        // E1 regions (e.g. e1.veylant) or on e2 sub-maps of other regions
+        // must NOT leak into the E1 Halfgate tooltip.
+        var predicate = MissionTooltipRowLogic.HalfgateE1CrossLayerPredicate(PrefixMatch);
+
+        Assert.False(predicate("e1.veylant", "e1.halfgate"));
+        Assert.False(predicate("e2.veylant.docks", "e1.halfgate"));
+        Assert.False(predicate("", "e1.halfgate"));
+        Assert.False(predicate("e2.halfgate2.gateway", "e1.halfgate")); // sibling-prefix trap
+    }
+
+    [Fact]
+    public void HalfgateE1CrossLayer_non_halfgate_hovered_id_falls_back_to_base_predicate()
+    {
+        // When the hovered POI is NOT "e1.halfgate" (e.g. hovering an
+        // E2 district marker directly), the wrapper must behave EXACTLY
+        // like the injected base predicate -- no cross-layer expansion.
+        // Otherwise hovering e2.halfgate.gateway would over-collect.
+        var predicate = MissionTooltipRowLogic.HalfgateE1CrossLayerPredicate(PrefixMatch);
+
+        // From e2.halfgate.gateway, only exact + same-layer-descendant match.
+        Assert.True(predicate("e2.halfgate.gateway", "e2.halfgate.gateway"));
+        Assert.True(predicate("e2.halfgate.gateway.tavern", "e2.halfgate.gateway"));
+        // Cross-layer alias does NOT kick in for non-Halfgate ancestor.
+        Assert.False(predicate("e2.halfgate.intramuros", "e2.halfgate.gateway"));
+        Assert.False(predicate("e1.halfgate", "e2.halfgate.gateway"));
+    }
+
+    [Fact]
+    public void Build_with_cross_layer_predicate_aggregates_e2_halfgate_missions_under_e1_halfgate_hover()
+    {
+        // End-to-end pin : hovered = "e1.halfgate" + missions emitted by
+        // the M1 backend at e2.halfgate.<district> level -> all three
+        // surface in the tooltip rows. This is the regression check for
+        // Didier's bug B (R9, 2026-05-17) : the player sees the popped
+        // mission in the E1 Halfgate tooltip.
+        var missions = new[]
+        {
+            NewMission(id: "ml_kira", targetPoi: "e2.halfgate.gateway"),
+            NewMission(id: "ml_dorn", targetPoi: "e2.halfgate.intramuros"),
+            NewMission(id: "ml_vell", targetPoi: "e2.halfgate.littoral"),
+            NewMission(id: "ml_other", targetPoi: "e1.veylant"),  // unrelated, excluded
+        };
+
+        var predicate = MissionTooltipRowLogic.HalfgateE1CrossLayerPredicate(PrefixMatch);
+        var result = MissionTooltipRowLogic.Build("e1.halfgate", missions, predicate);
+
+        Assert.Equal(3, result.TotalMatching);
+        Assert.Equal(3, result.Rows.Count);
+        // Sort is by Id ordinal, so dorn / kira / other-letters check.
+        Assert.Contains("ml_dorn", result.Rows[0]);
+        Assert.Contains("ml_kira", result.Rows[1]);
+        Assert.Contains("ml_vell", result.Rows[2]);
+    }
+
+    [Fact]
+    public void HalfgateE1CrossLayer_null_base_predicate_throws()
+    {
+        // Defensive : the wrapper must throw rather than silently degrade
+        // if the caller forgets to inject the base predicate. This is
+        // the same shape as Build's null-predicate guard.
+        Assert.Throws<System.ArgumentNullException>(() =>
+            MissionTooltipRowLogic.HalfgateE1CrossLayerPredicate(null!));
+    }
+
+    // ====================================================================
     // Helpers
     // ====================================================================
 

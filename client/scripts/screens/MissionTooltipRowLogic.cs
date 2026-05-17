@@ -153,6 +153,64 @@ public static class MissionTooltipRowLogic
         return new FormatResult(taken, overflow, matching.Count);
     }
 
+    /// <summary>
+    /// Cross-layer alias predicate for the Halfgate E1↔E2 canonical
+    /// pair (§A.8.D1, Varn-lock 2026-05-17 strict mode).
+    ///
+    /// <para>
+    /// <b>Why this exists.</b> The pure
+    /// <see cref="Wayfinders.Client.Services.PoiTreeService.IsDescendantOf"/>
+    /// is a string-prefix match : <c>"e2.halfgate.gateway"</c> is NOT a
+    /// descendant of <c>"e1.halfgate"</c> (the layer prefix changes from
+    /// e1 to e2). But the Varn spec §A.8.D1 names <c>e1.halfgate</c> and
+    /// <c>e2.halfgate.*</c> as the SAME logical region : the E1 worldmap
+    /// shows the Halfgate area, the E2 sub-map drills into its three
+    /// districts. The E1 tooltip therefore aggregates missions targeting
+    /// any descendant of <c>e2.halfgate</c> (the M1 backend emits exactly
+    /// those <c>target_poi</c> values).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Scope.</b> Today the alias is hard-coded to the single
+    /// Halfgate pair because M1 only has Halfgate on the worldmap. M2+
+    /// (other E1 regions get E2 sub-maps) generalises to a registered
+    /// alias map living next to <see cref="PoiTreeService"/>. The
+    /// E1↔E2 pair lives here for now because the only consumer is the
+    /// E1 Halfgate tooltip ; widening it prematurely would just be
+    /// abstraction folklore.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Falls back to pure prefix-match.</b> For any
+    /// <paramref name="hoveredPoiId"/> other than <c>"e1.halfgate"</c>
+    /// this predicate behaves exactly like the injected
+    /// <paramref name="baseIsDescendantOf"/> — so callers that hover an
+    /// E2 marker (e.g. <c>"e2.halfgate.gateway"</c>) keep their existing
+    /// exact-descendant semantics.
+    /// </para>
+    /// </summary>
+    public static Func<string, string, bool> HalfgateE1CrossLayerPredicate(
+        Func<string, string, bool> baseIsDescendantOf)
+    {
+        if (baseIsDescendantOf is null) throw new ArgumentNullException(nameof(baseIsDescendantOf));
+        return (candidate, ancestor) =>
+        {
+            // Pure prefix-match always applies (handles "e1.halfgate" exact + any same-layer descendant).
+            if (baseIsDescendantOf(candidate, ancestor)) return true;
+
+            // Cross-layer alias : hovering e1.halfgate also matches any
+            // mission targeting e2.halfgate or its descendants. This is
+            // the canonical Varn §A.8.D1 mapping. Any other hovered POI
+            // gets the pure prefix-match behaviour above.
+            if (ancestor == "e1.halfgate" && !string.IsNullOrEmpty(candidate))
+            {
+                if (candidate == "e2.halfgate") return true;
+                if (candidate.StartsWith("e2.halfgate.", StringComparison.Ordinal)) return true;
+            }
+            return false;
+        };
+    }
+
     /// <summary>Result of <see cref="Build"/>.</summary>
     /// <param name="Rows">Up to <see cref="DisplayCap"/> formatted rows.</param>
     /// <param name="OverflowCount">Number of additional matching
