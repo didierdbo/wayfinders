@@ -81,8 +81,13 @@ public partial class IsoCharacterPlaceholder : Control
     private const float LabelBandPx = 32f;
 
     /// <summary>Padding inside the Control's rect, around the
-    /// silhouette + label.</summary>
-    private const float PaddingPx = 12f;
+    /// silhouette + label. Aliased to
+    /// <see cref="IsoSocketCharacterPlacementLogic.OccupantPaddingPx"/>
+    /// (the single source of truth) so the Control's <c>_Draw</c> and
+    /// the socle's placement helper share the exact same constant ;
+    /// the helper lives in the pure-C# layer so xUnit can pin it
+    /// without dragging Godot into the test host.</summary>
+    public const float PaddingPx = IsoSocketCharacterPlacementLogic.OccupantPaddingPx;
 
     /// <summary>True 2:1 iso projection (a.k.a. dimetric) -- depth is
     /// exactly half the projected width. The prior D=W/3 cut produced
@@ -93,6 +98,33 @@ public partial class IsoCharacterPlaceholder : Control
     private const float SideFaceMultiplier = 0.7f;
     private const float TopFaceMultiplier = 1.15f;
 
+    /// <summary>
+    /// Vertical extent (px) of the visible iso body alone -- the sum of
+    /// projected depth D and projected height H of the parallelepiped,
+    /// excluding the top padding band, the label band, and the bottom
+    /// padding band. This is the "real" body the placement helper needs
+    /// to align with the socle rhombus' top apex ; using the Control's
+    /// total <c>Size.Y</c> would silently include the padding + label
+    /// slack and shift the perso up off the socle (Didier smoke
+    /// 2026-05-17 -- the "perso flotte au-dessus du socle" bug after
+    /// fix 7956c94).
+    ///
+    /// <para>
+    /// Derived from cmin : D + H = <c>cmin.Y - labelBand - 2 * PaddingPx</c>.
+    /// Default mode = 336 - 32 - 24 = 280. Compact mode = 244 - 0 - 24 = 220.
+    /// Source of truth lives in
+    /// <see cref="IsoSocketCharacterPlacementLogic"/> (Godot-free, xUnit-
+    /// pinned) ; these aliases let the Control's runtime resolve them
+    /// without a roundtrip through the helper class.
+    /// </para>
+    /// </summary>
+    public const float DefaultIsoBodyHeight = IsoSocketCharacterPlacementLogic.DefaultIsoBodyHeight;
+
+    /// <summary>Compact-mode counterpart of
+    /// <see cref="DefaultIsoBodyHeight"/>. Aliased to
+    /// <see cref="IsoSocketCharacterPlacementLogic.CompactIsoBodyHeight"/>.</summary>
+    public const float CompactIsoBodyHeight = IsoSocketCharacterPlacementLogic.CompactIsoBodyHeight;
+
     /// <summary>Modulate colour applied to the entire Control when
     /// greyed-out (step 6). Half-alpha desaturated parchment so the
     /// silhouette reads as "still here, but inactive".</summary>
@@ -102,6 +134,17 @@ public partial class IsoCharacterPlaceholder : Control
     /// reads as "what you are carrying" without occluding the drop
     /// targets underneath.</summary>
     private const float DragPreviewAlpha = 0.55f;
+
+    /// <summary>CanvasLayer index for the drag preview overlay. Higher
+    /// than every other UI CanvasLayer in the project (tooltip = 100,
+    /// recruit panel = 110, company panel = 111, modal = 10, drag
+    /// proxy in M1Slice = 20) so the drag ghost always reads as the
+    /// top-most pixel. Godot 4's <see cref="Control.SetDragPreview"/>
+    /// otherwise places the preview in the root viewport's canvas
+    /// (layer 0), where any CanvasLayer &gt; 0 occludes it (Didier
+    /// smoke 2026-05-17 -- "drag preview disparaît derrière
+    /// CompanyPanel").</summary>
+    private const int DragPreviewCanvasLayerIndex = 200;
 
     private Label? _nameLabel;
     private string? _npcId;
@@ -126,6 +169,14 @@ public partial class IsoCharacterPlaceholder : Control
     /// Suppresses the drag source (the perso is "on the socle" -- you
     /// pick it up from the socle, not from here, while in this state).</summary>
     private bool _greyedOut;
+
+    /// <summary>Vertical extent (px) of the visible iso body for the
+    /// currently active rendering mode. = <see cref="DefaultIsoBodyHeight"/>
+    /// in default mode, <see cref="CompactIsoBodyHeight"/> in compact mode.
+    /// Use this (NOT the Control's <c>Size.Y</c>) when aligning the
+    /// silhouette's base with an external anchor (e.g. the socle rhombus
+    /// top apex via <see cref="IsoSocketCharacterPlacementLogic"/>).</summary>
+    public float ActiveIsoBodyHeight => _compactMode ? CompactIsoBodyHeight : DefaultIsoBodyHeight;
 
     /// <summary>
     /// Fired when a reverse drag (from the Compagnie socle back to
@@ -253,39 +304,7 @@ public partial class IsoCharacterPlaceholder : Control
             [IsoSocketDropLogic.PayloadKeySource] = IsoSocketDropLogic.DragSourceRecruitPanel,
         };
 
-        // Drag preview = a half-alpha compact silhouette wrapped in a
-        // Control so we can centre it under the cursor. Godot 4
-        // SetDragPreview anchors the wrapper's (0, 0) on the mouse
-        // position ; without the wrapper, the silhouette's top-left
-        // corner ends up under the cursor (the perso "fuit" the mouse
-        // to the bottom-right, smoke 6 bug 2026-05-17).
-        //
-        // Centroid-under-cursor over sticky-to-atPosition : the preview
-        // is compact (120x244) while the source is hero-sized (160x336),
-        // so a proportional atPosition mapping would visually shift the
-        // clicked pixel anyway. Centering matches the modern tactical
-        // RPG idiom (XCOM, Wartales, Battle Brothers) and stays
-        // predictable when hovering multiple drop targets.
-        var preview = new IsoCharacterPlaceholder
-        {
-            Name = "DragPreview",
-            Modulate = new Color(1f, 1f, 1f, DragPreviewAlpha),
-            MouseFilter = MouseFilterEnum.Ignore,
-        };
-        preview.SetCompactMode(true);
-        preview.SetNpc(_npcId);
-        var previewSize = CompactMinSize;
-        preview.Position = new Vector2(-previewSize.X * 0.5f, -previewSize.Y * 0.5f);
-        preview.Size = previewSize;
-
-        var wrapper = new Control
-        {
-            Name = "DragPreviewWrapper",
-            MouseFilter = MouseFilterEnum.Ignore,
-        };
-        wrapper.AddChild(preview);
-        SetDragPreview(wrapper);
-
+        SetDragPreview(BuildDragPreview(_npcId));
         return payload;
     }
 
@@ -360,6 +379,89 @@ public partial class IsoCharacterPlaceholder : Control
     // -------------------------------------------------------------------
     // Internals
     // -------------------------------------------------------------------
+
+    /// <summary>
+    /// Build the half-alpha compact silhouette wrapper handed to
+    /// <see cref="Control.SetDragPreview"/>. The wrapper is a Control
+    /// (Godot 4 requires a Control here) but the visible silhouette is
+    /// hosted inside a child <see cref="CanvasLayer"/> at index
+    /// <see cref="DragPreviewCanvasLayerIndex"/> = 200, which renders
+    /// above every other UI CanvasLayer in the project regardless of
+    /// where Godot reparents the wrapper.
+    ///
+    /// <para>
+    /// The wrapper's <see cref="DragPreviewFollowMouse._Process"/> copies
+    /// the global mouse position into the CanvasLayer's <c>Offset</c>
+    /// on every frame so the silhouette tracks the cursor (a
+    /// CanvasLayer ignores its Node parent's transform -- without the
+    /// per-frame offset, the silhouette would draw fixed at screen 0,0).
+    /// </para>
+    ///
+    /// <para>
+    /// Compact + centred-under-cursor (XCOM / Wartales idiom) ; the
+    /// wrapper's own rect stays zero-size + ignored by mouse so it does
+    /// not steal hover events from the drop targets underneath.
+    /// </para>
+    /// </summary>
+    internal static Control BuildDragPreview(string npcId)
+    {
+        var wrapper = new DragPreviewFollowMouse
+        {
+            Name = "DragPreviewWrapper",
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+
+        var overlay = new CanvasLayer
+        {
+            Name = "DragPreviewOverlay",
+            Layer = DragPreviewCanvasLayerIndex,
+        };
+        wrapper.AddChild(overlay);
+        wrapper.Overlay = overlay;
+
+        var silhouette = new IsoCharacterPlaceholder
+        {
+            Name = "DragPreview",
+            Modulate = new Color(1f, 1f, 1f, DragPreviewAlpha),
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        silhouette.SetCompactMode(true);
+        silhouette.SetNpc(npcId);
+        var previewSize = CompactMinSize;
+        // Centre the silhouette on the CanvasLayer origin so the
+        // wrapper just has to slide the layer's Offset to land the
+        // silhouette's centre exactly under the cursor.
+        silhouette.Position = new Vector2(-previewSize.X * 0.5f, -previewSize.Y * 0.5f);
+        silhouette.Size = previewSize;
+        overlay.AddChild(silhouette);
+
+        return wrapper;
+    }
+
+    /// <summary>
+    /// Wrapper Control returned by <see cref="BuildDragPreview"/>.
+    /// Hosts a child <see cref="CanvasLayer"/> at layer 200 (the
+    /// silhouette overlay) and copies the viewport mouse position
+    /// into the layer's <c>Offset</c> every frame so the silhouette
+    /// follows the cursor. Required because <c>SetDragPreview</c>
+    /// expects a Control AND Godot does not propagate the wrapper's
+    /// transform into a child CanvasLayer (each CanvasLayer is its
+    /// own render root, independent of its Node parent's transform).
+    /// </summary>
+    private partial class DragPreviewFollowMouse : Control
+    {
+        public CanvasLayer? Overlay { get; set; }
+
+        public override void _Process(double delta)
+        {
+            _ = delta;
+            if (Overlay is null || !IsInstanceValid(Overlay)) return;
+            // Use the viewport mouse position : the wrapper itself is
+            // 0-sized + MouseFilter.Ignore so its local transform is
+            // irrelevant ; the CanvasLayer paints in screen space.
+            Overlay.Offset = GetViewport().GetMousePosition();
+        }
+    }
 
     private MouseFilterEnum ResolveMouseFilter()
         => _role == SourceRole.Decorative

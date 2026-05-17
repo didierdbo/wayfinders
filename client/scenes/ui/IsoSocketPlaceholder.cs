@@ -244,34 +244,13 @@ public partial class IsoSocketPlaceholder : Control
             [IsoSocketDropLogic.PayloadKeySource] = IsoSocketDropLogic.DragSourceCompanySocle,
         };
 
-        // Preview = a half-alpha compact silhouette of the occupant,
-        // wrapped + centred under the cursor (same discipline as
-        // IsoCharacterPlaceholder._GetDragData ; the wrapper exists
-        // because Godot 4 anchors SetDragPreview at the child's (0,0)
-        // = top-left, otherwise the perso fuit la souris vers le bas).
-        var preview = new IsoCharacterPlaceholder
-        {
-            Name = "DragPreview",
-            Modulate = new Color(1f, 1f, 1f, 0.55f),
-            MouseFilter = MouseFilterEnum.Ignore,
-        };
-        preview.SetCompactMode(true);
-        preview.SetNpc(_occupiedNpcId);
-        // Same source of truth as the character placeholder's
-        // _GetDragData : the publicly exposed CompactMinSize constant
-        // (120 x 244). _Ready has not yet run on the orphan preview so
-        // we seed Size manually here.
-        var previewSize = IsoCharacterPlaceholder.CompactMinSize;
-        preview.Position = new Vector2(-previewSize.X * 0.5f, -previewSize.Y * 0.5f);
-        preview.Size = previewSize;
-
-        var wrapper = new Control
-        {
-            Name = "DragPreviewWrapper",
-            MouseFilter = MouseFilterEnum.Ignore,
-        };
-        wrapper.AddChild(preview);
-        SetDragPreview(wrapper);
+        // Shared drag-preview construction with the recruit panel's
+        // placeholder : a half-alpha compact silhouette wrapped in a
+        // Control that hosts a CanvasLayer at layer = 200 so the ghost
+        // renders above the recruit panel (layer 110) and the company
+        // panel (layer 111). See IsoCharacterPlaceholder.BuildDragPreview
+        // for the rationale.
+        SetDragPreview(IsoCharacterPlaceholder.BuildDragPreview(_occupiedNpcId));
 
         EmitSignal(SignalName.ReverseDragStarted, _occupiedNpcId);
         return payload;
@@ -398,16 +377,17 @@ public partial class IsoSocketPlaceholder : Control
         {
             // Place the silhouette so its parallelepiped BASE lands on
             // the rhombus' TOP apex (the perso visibly stands on the
-            // socle, not in front of it). The X/Y math is pinned by
-            // IsoSocketCharacterPlacementLogicTests so a future shift
-            // in the IsoCharacterPlaceholder padding / cmin sizing
-            // surfaces loud at xUnit. Padding constant mirrors the
-            // IsoCharacterPlaceholder.PaddingPx = 12 internal contract.
+            // socle, not in front of it). Reads the iso body height
+            // (D + H, = 220 in compact) from the silhouette directly so
+            // a future cmin / padding / label-band tweak fans out
+            // without touching this site. Pinned by
+            // IsoSocketCharacterPlacementLogicTests so any helper drift
+            // surfaces loud at xUnit.
             var sw = _occupantSilhouette.CustomMinimumSize.X;
             var sh = _occupantSilhouette.CustomMinimumSize.Y;
-            const float occupantInternalPaddingPx = 12f;
+            var isoBodyHeight = _occupantSilhouette.ActiveIsoBodyHeight;
             var (px, py) = IsoSocketCharacterPlacementLogic.ComputeOccupantPosition(
-                Size.X, rhombusOffsetY, sw, sh, occupantInternalPaddingPx);
+                Size.X, rhombusOffsetY, sw, isoBodyHeight, IsoCharacterPlaceholder.PaddingPx);
             _occupantSilhouette.Position = new Vector2(px, py);
             _occupantSilhouette.Size = new Vector2(sw, sh);
         }
