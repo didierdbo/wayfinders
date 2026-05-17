@@ -393,4 +393,20 @@
     <Compile Include="..\scripts\screens\IsoSocketGeometryLogic.cs" Link="src\IsoSocketGeometryLogic.cs" />
   </ItemGroup>
 
+  <!-- E2.2 step 6 (2026-05-17): drag&drop seam between recruit panel and
+       Compagnie socle. Three pure-C# helpers : the panel-scoped 2-state
+       machine (MissionRecruitPanelStateLogic, drives perso greying +
+       Accept highlight) ; the drag-payload shape validation
+       (IsoSocketDropLogic, both forward drop on socle and reverse drop
+       back on the recruit placeholder) ; the post-accept "occupied
+       confirmed" payload composer (CompanyPanelOccupiedLogic). The
+       Godot-bound _GetDragData / _CanDropData / _DropData overrides,
+       the rim glow pulse, and the panel slide-out animations live in
+       the client csproj only ; xUnit pins the contracts here. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\MissionRecruitPanelStateLogic.cs" Link="src\MissionRecruitPanelStateLogic.cs" />
+    <Compile Include="..\scripts\screens\IsoSocketDropLogic.cs" Link="src\IsoSocketDropLogic.cs" />
+    <Compile Include="..\scripts\screens\CompanyPanelOccupiedLogic.cs" Link="src\CompanyPanelOccupiedLogic.cs" />
+  </ItemGroup>
+
 </Project>

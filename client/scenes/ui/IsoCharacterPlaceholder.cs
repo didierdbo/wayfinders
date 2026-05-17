@@ -7,8 +7,8 @@ namespace Wayfinders.Client.Scenes.Ui;
 /// E2.2 step 3+4 placeholder Control rendering a procedural 2.5D iso
 /// parallelepiped silhouette for one M1 roster NPC (kira / dorn /
 /// vell). Lives inside the <see cref="MissionRecruitPanel"/>'s right
-/// half ; also reusable in the future Compagnie panel (étape 5) for
-/// the per-persona portrait row.
+/// half ; also reusable in the <see cref="CompanyPanel"/>'s socle as
+/// the mini "occupied" silhouette once a recruit lands (étape 6).
 ///
 /// <para>
 /// <b>Why procedural Draw, not a Sprite2D.</b> Mira has not shipped iso
@@ -23,61 +23,47 @@ namespace Wayfinders.Client.Scenes.Ui;
 /// <para>
 /// <b>Geometry.</b> Three visible faces of a 2:1 iso box, all
 /// computed by <see cref="IsoCharacterGeometryLogic"/> (pure-C#,
-/// engine-free, xUnit-pinned) :
+/// engine-free, xUnit-pinned). Two visible faces meet at a common
+/// front-top apex, pinned by the geometry test
+/// <c>Three_faces_meet_at_common_front_top_vertex</c>.
+/// </para>
+///
+/// <para>
+/// <b>API surface.</b>
 /// <list type="bullet">
-///   <item><b>Top face</b> -- iso losange, lightest variant of the
-///         unit tint. The four apexes touch the bounding-rect edges
-///         (top, right at mid-depth, bottom at front-top apex, left
-///         at mid-depth).</item>
-///   <item><b>Front face</b> -- parallelogram leaning down-right,
-///         base unit tint. Mid tone.</item>
-///   <item><b>Right side face</b> -- parallelogram leaning down-left,
-///         darker variant of the unit tint (multiplied by 0.7). The
-///         classic 3D-iso shading trick : a single lateral face one
-///         step darker is enough to read as 3D volume.</item>
-///   <item><b>Name label</b> -- engine <see cref="Label"/> child sitting
-///         above the top face, displaying the resolved
-///         <see cref="NpcCatalog.LookupDisplayName"/>. Centred,
-///         readable typography (22px, outlined).</item>
+///   <item><see cref="SetNpc"/> -- pick the unit tint + display name.</item>
+///   <item><see cref="SetSourceContext"/> (étape 6) -- declare the
+///         drag-drop role (host vs decorative) and the mission id
+///         that travels in the drag payload.</item>
+///   <item><see cref="SetGreyedOut"/> (étape 6) -- desaturate the
+///         silhouette + label when the perso is currently on the
+///         Compagnie socle (the perso visually "left" the panel) AND
+///         suppress the drag source for the duration.</item>
+///   <item><see cref="SetCompactMode"/> (étape 6) -- hide the name
+///         label and render at the size given by the parent (used by
+///         the socle's occupied-state mini silhouette).</item>
 /// </list>
-/// The three faces meet at a common front-top apex -- this is the
-/// invariant pinned by
-/// <c>IsoCharacterGeometryLogicTests.Three_faces_meet_at_common_front_top_vertex</c>,
-/// catching any drift that would re-introduce the d5c3705 symptom
-/// (cube-2D with a floating detached losange on top).
 /// </para>
 ///
 /// <para>
-/// <b>API surface.</b> One setter -- <see cref="SetNpc"/>. The Control
-/// resolves the unit tint via
-/// <see cref="IsoCharacterPaletteLogic.ResolveTintRgb"/> + the display
-/// name via <see cref="NpcCatalog.LookupDisplayName"/>, calls
-/// <see cref="CanvasItem.QueueRedraw"/>, and updates the label text.
-/// Calling <see cref="SetNpc"/> with the same id twice is idempotent.
-/// </para>
-///
-/// <para>
-/// <b>Sizing.</b> Default custom-minimum-size = 180 x 260 px. This
-/// matches a 2:1 iso box of width W=180, depth D=60, height H=200
-/// (bounding box W by (D + H)), plus the reserved label band on top.
-/// Caller may override via <see cref="Control.CustomMinimumSize"/> ;
-/// the draw scales against <see cref="Control.Size"/> at every paint
-/// so the silhouette fills whatever room it gets while keeping the
-/// 2:1 iso ratio (depth = width / 3).
-/// </para>
-///
-/// <para>
-/// <b>Trap discipline (memo feedback_godot_rendering_input_traps).</b>
-/// MouseFilter = Ignore -- this is a decorative element ; the parent
-/// panel owns the hit-testing surface. Leaving it as Stop would steal
-/// mouse events from the surrounding panel's close-on-click-outside
-/// logic.
+/// <b>Drag/drop discipline (memo feedback_godot_rendering_input_traps).</b>
+/// When configured as <see cref="SourceRole.RecruitPanelHost"/>, this
+/// Control acts as BOTH a drag source (when not greyed out) AND a
+/// reverse-drop target (always, so the player can drag the perso back
+/// even while it sits on the socle). MouseFilter flips from Ignore to
+/// Stop -- Godot will NOT initialize a drag from a Control that does
+/// not capture mouse events. Default (Decorative) keeps Ignore so the
+/// parent panel's hit-testing is undisturbed.
 /// </para>
 /// </summary>
 public partial class IsoCharacterPlaceholder : Control
 {
     /// <summary>Default cmin size -- can be overridden per instance.</summary>
     private static readonly Vector2 DefaultMinSize = new(180, 260);
+
+    /// <summary>Default cmin size in compact mode (no label band, used
+    /// by the company socle's occupied-state mini silhouette).</summary>
+    private static readonly Vector2 CompactMinSize = new(120, 160);
 
     /// <summary>Default name label height band reserved above the
     /// silhouette.</summary>
@@ -87,37 +73,57 @@ public partial class IsoCharacterPlaceholder : Control
     /// silhouette + label.</summary>
     private const float PaddingPx = 12f;
 
-    /// <summary>
-    /// 2:1 iso projection ratio. Depth = width * this. Locked to
-    /// 1/3 to match a standard dimetric iso (top losange is wider
-    /// than tall in a 3:1 visual ratio when D = W/3).
-    /// </summary>
     private const float DepthOverWidth = 1f / 3f;
-
-    /// <summary>
-    /// Multiplier applied to the unit tint to derive the darker right
-    /// side face. 0.7 reads as a single light step darker without going
-    /// muddy.
-    /// </summary>
     private const float SideFaceMultiplier = 0.7f;
-
-    /// <summary>
-    /// Multiplier applied to the unit tint to derive the lighter top
-    /// face. 1.15 reads as a single light step brighter while staying
-    /// inside [0,1] for the M1 roster tints.
-    /// </summary>
     private const float TopFaceMultiplier = 1.15f;
+
+    /// <summary>Modulate colour applied to the entire Control when
+    /// greyed-out (step 6). Half-alpha desaturated parchment so the
+    /// silhouette reads as "still here, but inactive".</summary>
+    private static readonly Color GreyedOutModulate = new(0.55f, 0.55f, 0.55f, 0.45f);
+
+    /// <summary>Drag preview alpha. Half-transparent so the ghost
+    /// reads as "what you are carrying" without occluding the drop
+    /// targets underneath.</summary>
+    private const float DragPreviewAlpha = 0.55f;
 
     private Label? _nameLabel;
     private string? _npcId;
     private Color _baseTint = new(0.5f, 0.5f, 0.5f, 1f);
 
+    // -------- Step 6 additions --------
+
+    /// <summary>The role this placeholder plays in the étape 6
+    /// drag&amp;drop seam.</summary>
+    private SourceRole _role = SourceRole.Decorative;
+
+    /// <summary>Mission id that owns this placeholder (recruit panel
+    /// only). Travels with the drag payload so the drop site can log
+    /// + correlate.</summary>
+    private string? _missionId;
+
+    /// <summary>Hide the name label + override cmin to the compact
+    /// size (used inside the company socle's occupied state).</summary>
+    private bool _compactMode;
+
+    /// <summary>True iff <see cref="SetGreyedOut"/> last set true.
+    /// Suppresses the drag source (the perso is "on the socle" -- you
+    /// pick it up from the socle, not from here, while in this state).</summary>
+    private bool _greyedOut;
+
+    /// <summary>
+    /// Fired when a reverse drag (from the Compagnie socle back to
+    /// this placeholder) lands. Payload carries the NPC id so the
+    /// owner (the MissionRecruitPanel) can fire the state-machine
+    /// CharacterReturnedFromSocle event.
+    /// </summary>
+    [Signal]
+    public delegate void CharacterReturnedFromSocleEventHandler(string npcId);
+
     public override void _Ready()
     {
-        CustomMinimumSize = DefaultMinSize;
-        // Decorative -- do not capture mouse events ; the parent panel
-        // owns close-on-click-outside semantics. Stop would steal them.
-        MouseFilter = MouseFilterEnum.Ignore;
+        CustomMinimumSize = _compactMode ? CompactMinSize : DefaultMinSize;
+        MouseFilter = ResolveMouseFilter();
 
         _nameLabel = new Label
         {
@@ -127,16 +133,13 @@ public partial class IsoCharacterPlaceholder : Control
             VerticalAlignment = VerticalAlignment.Center,
             MouseFilter = MouseFilterEnum.Ignore,
             ClipText = false,
+            Visible = !_compactMode,
         };
-        // Anchor the label to the top of the Control's rect, full
-        // width, reserved height = LabelBandPx.
         _nameLabel.SetAnchorsPreset(LayoutPreset.TopWide);
         _nameLabel.OffsetTop = 0;
         _nameLabel.OffsetBottom = LabelBandPx;
         _nameLabel.OffsetLeft = 0;
         _nameLabel.OffsetRight = 0;
-        // Slightly bigger font + dark text with bright outline so it
-        // reads against any background tint.
         _nameLabel.AddThemeFontSizeOverride("font_size", 22);
         _nameLabel.AddThemeColorOverride("font_color", new Color(0.10f, 0.08f, 0.06f, 1f));
         _nameLabel.AddThemeColorOverride("font_outline_color", new Color(1f, 1f, 1f, 1f));
@@ -166,67 +169,186 @@ public partial class IsoCharacterPlaceholder : Control
         QueueRedraw();
     }
 
+    /// <summary>
+    /// Configure the étape 6 drag-drop role + the mission id that
+    /// travels in the drag payload. Call before or after
+    /// <see cref="_Ready"/> -- the MouseFilter is reconciled either
+    /// way so the drag source initializes correctly.
+    /// </summary>
+    public void SetSourceContext(SourceRole role, string? missionId)
+    {
+        _role = role;
+        _missionId = missionId;
+        MouseFilter = ResolveMouseFilter();
+    }
+
+    /// <summary>
+    /// Toggle the greyed-out visual state (step 6). True = the perso
+    /// is currently on the Compagnie socle ; render desaturated to
+    /// signal "left the panel" AND suppress the drag source (the
+    /// perso is grabbed from the socle, not from here, while in this
+    /// state). False = restore full opacity + drag-source behaviour.
+    /// </summary>
+    public void SetGreyedOut(bool greyed)
+    {
+        if (_greyedOut == greyed) return;
+        _greyedOut = greyed;
+        Modulate = greyed ? GreyedOutModulate : Colors.White;
+    }
+
+    /// <summary>
+    /// Toggle compact mode (step 6). True = hide the name label,
+    /// switch to the smaller cmin (the company socle's occupied state
+    /// hosts a smaller silhouette than the recruit panel's hero one).
+    /// False = restore full size + label.
+    /// </summary>
+    public void SetCompactMode(bool compact)
+    {
+        if (_compactMode == compact) return;
+        _compactMode = compact;
+        CustomMinimumSize = compact ? CompactMinSize : DefaultMinSize;
+        if (_nameLabel is not null) _nameLabel.Visible = !compact;
+        QueueRedraw();
+    }
+
+    /// <summary>
+    /// Godot drag-source hook. Fires when the player starts a drag
+    /// over this Control. Returns the snake_case drag payload the
+    /// company socle's drop target consumes via
+    /// <see cref="IsoSocketDropLogic.CanAccept"/>. Returns
+    /// <c>default(Variant)</c> when the role is not a drag source or
+    /// when the placeholder is currently greyed out -- Godot
+    /// interprets that as "no drag from here".
+    /// </summary>
+    public override Variant _GetDragData(Vector2 atPosition)
+    {
+        _ = atPosition;
+        if (_role != SourceRole.RecruitPanelHost) return default;
+        // Greyed out = perso is on the socle ; reverse drag has to
+        // start from the socle, not from the panel placeholder.
+        if (_greyedOut) return default;
+        if (string.IsNullOrEmpty(_npcId)) return default;
+        if (string.IsNullOrEmpty(_missionId)) return default;
+
+        var payload = new Godot.Collections.Dictionary
+        {
+            [IsoSocketDropLogic.PayloadKeyNpcId] = _npcId,
+            [IsoSocketDropLogic.PayloadKeyMissionId] = _missionId,
+            [IsoSocketDropLogic.PayloadKeySource] = IsoSocketDropLogic.DragSourceRecruitPanel,
+        };
+
+        // Drag preview = a half-alpha copy of the same silhouette.
+        var preview = new IsoCharacterPlaceholder
+        {
+            Name = "DragPreview",
+            Modulate = new Color(1f, 1f, 1f, DragPreviewAlpha),
+        };
+        preview.SetCompactMode(true);
+        preview.SetNpc(_npcId);
+        SetDragPreview(preview);
+
+        return payload;
+    }
+
+    /// <summary>
+    /// Godot drop-target hook -- accept the reverse drag from the
+    /// company socle. Only fires when the role is the recruit-panel
+    /// host (the placeholder is always the reverse-drop target while
+    /// hosted in the panel, regardless of greyed state -- the player
+    /// returns the perso TO this slot).
+    /// </summary>
+    public override bool _CanDropData(Vector2 atPosition, Variant data)
+    {
+        _ = atPosition;
+        if (_role != SourceRole.RecruitPanelHost) return false;
+        var payload = TryReadDragPayload(data);
+        var decision = IsoSocketDropLogic.CanAcceptReverse(payload, RosterM1);
+        return decision == IsoSocketDropLogic.DropDecision.Accept;
+    }
+
+    /// <summary>
+    /// Godot drop-target hook -- consume the reverse drag and emit
+    /// <see cref="CharacterReturnedFromSocleEventHandler"/> so the
+    /// owning panel can fire the state-machine event.
+    /// </summary>
+    public override void _DropData(Vector2 atPosition, Variant data)
+    {
+        _ = atPosition;
+        var payload = TryReadDragPayload(data);
+        if (payload is null) return;
+        EmitSignal(SignalName.CharacterReturnedFromSocle, payload.NpcId);
+    }
+
     public override void _Draw()
     {
-        // Available rect for the silhouette = Control's rect minus the
-        // top label band and side padding.
         var availW = Mathf.Max(0f, Size.X - 2f * PaddingPx);
-        var availH = Mathf.Max(0f, Size.Y - LabelBandPx - 2f * PaddingPx);
+        var labelBand = _compactMode ? 0f : LabelBandPx;
+        var availH = Mathf.Max(0f, Size.Y - labelBand - 2f * PaddingPx);
         if (availW <= 4f || availH <= 4f) return;
 
-        // Derive (w, d, h) for a 2:1 iso box that fills the available
-        // rect. Depth is locked at w/3 ; height takes whatever is left
-        // after the depth band. If the available rect is wider than
-        // tall enough, we cap width so the box does not exceed
-        // available height.
         float w = availW;
         float d = w * DepthOverWidth;
         float h = availH - d;
         if (h < 8f)
         {
-            // Available rect is squat -- scale the box down so it fits.
-            // Bounding height = d + h = w * (DepthOverWidth) + h.
-            // Solve w * DepthOverWidth + h_min = availH, but here we
-            // just cap w so d + 8 <= availH.
             w = (availH - 8f) / DepthOverWidth;
             d = w * DepthOverWidth;
             h = 8f;
         }
 
-        // Centre the silhouette horizontally inside the padded rect.
         var offX = PaddingPx + (availW - w) * 0.5f;
-        var offY = LabelBandPx + PaddingPx;
+        var offY = labelBand + PaddingPx;
 
-        // Colours -- top face is lighter, side face is darker.
         var topTint = LightenClamp(_baseTint, TopFaceMultiplier);
         var frontTint = _baseTint;
         var sideTint = DarkenClamp(_baseTint, SideFaceMultiplier);
 
-        // Pull the three face polygons from the pure-C# geometry
-        // helper, translate into the padded draw area, and convert to
-        // Godot Vector2[].
         var topPolygon = Translate(IsoCharacterGeometryLogic.TopFace(w, d, h), offX, offY);
         var frontPolygon = Translate(IsoCharacterGeometryLogic.FrontFace(w, d, h), offX, offY);
         var rightPolygon = Translate(IsoCharacterGeometryLogic.RightFace(w, d, h), offX, offY);
 
-        // Draw order : front, right, top. The three faces do not
-        // overlap (they share edges only) so any order is correct ;
-        // we draw the top last so its outline sits cleanly above the
-        // two vertical faces' shared apex edge.
         DrawColoredPolygon(frontPolygon, frontTint);
         DrawColoredPolygon(rightPolygon, sideTint);
         DrawColoredPolygon(topPolygon, topTint);
 
-        // -------- Subtle outline -- one umber stroke around each face
-        // so the silhouette reads against any panel background. The
-        // shared interior edges get stroked twice (acceptable at
-        // 1.5 px) ; the back-facing edges of the box are never drawn
-        // because the helper never returns their vertices.
         var outlineColour = new Color(0.18f, 0.14f, 0.11f, 1f);
         const float outlineWidth = 1.5f;
         DrawPolyline(ClosePolyline(frontPolygon), outlineColour, outlineWidth);
         DrawPolyline(ClosePolyline(rightPolygon), outlineColour, outlineWidth);
         DrawPolyline(ClosePolyline(topPolygon), outlineColour, outlineWidth);
+    }
+
+    // -------------------------------------------------------------------
+    // Internals
+    // -------------------------------------------------------------------
+
+    private MouseFilterEnum ResolveMouseFilter()
+        => _role == SourceRole.Decorative
+            ? MouseFilterEnum.Ignore
+            : MouseFilterEnum.Stop;
+
+    /// <summary>The M1 roster fed into the reverse-drop validator. Same
+    /// set as <c>IsoSocketDropLogicTests.RosterM1</c> ; staying in lock-
+    /// step is a runtime invariant the recruit-cascade tests already pin
+    /// (NpcCatalog.Count = 3 + per-key resolves).</summary>
+    private static readonly System.Collections.Generic.HashSet<string> RosterM1 =
+        new() { "kira", "dorn", "vell" };
+
+    private static DragPayload? TryReadDragPayload(Variant data)
+    {
+        if (data.VariantType != Variant.Type.Dictionary) return null;
+        var dict = data.AsGodotDictionary();
+        string? npcId = null, missionId = null, source = null;
+        if (dict.TryGetValue(IsoSocketDropLogic.PayloadKeyNpcId, out var nv))
+            npcId = nv.AsString();
+        if (dict.TryGetValue(IsoSocketDropLogic.PayloadKeyMissionId, out var mv))
+            missionId = mv.AsString();
+        if (dict.TryGetValue(IsoSocketDropLogic.PayloadKeySource, out var sv))
+            source = sv.AsString();
+        return new DragPayload(
+            NpcId: npcId ?? string.Empty,
+            MissionId: missionId ?? string.Empty,
+            Source: source ?? string.Empty);
     }
 
     private static Vector2[] Translate((float X, float Y)[] points, float dx, float dy)
@@ -257,5 +379,26 @@ public partial class IsoCharacterPlaceholder : Control
         polygon.CopyTo(closed, 0);
         closed[polygon.Length] = polygon[0];
         return closed;
+    }
+
+    /// <summary>
+    /// The two roles this placeholder can play in the étape 6
+    /// drag&amp;drop seam. Default = Decorative (pre-step 6 callers
+    /// stay unchanged).
+    /// </summary>
+    public enum SourceRole
+    {
+        /// <summary>No drag-drop, MouseFilter stays Ignore (default).
+        /// Used by anyone embedding the placeholder for pure
+        /// visualization (e.g. the company socle's occupied mini
+        /// silhouette, where the parent socle owns the reverse drag).</summary>
+        Decorative = 0,
+
+        /// <summary>Acts as BOTH the drag source (when not greyed out)
+        /// AND the reverse-drop target (always) for the recruit panel.
+        /// MouseFilter = Stop. _GetDragData fires on drag start ;
+        /// _CanDropData / _DropData accept the company_socle source
+        /// and emit CharacterReturnedFromSocle.</summary>
+        RecruitPanelHost = 1,
     }
 }
