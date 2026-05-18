@@ -152,6 +152,15 @@ public partial class WorldSimTick : Node
     private MissionStore? _missionStore;
     private int _inFlight;
 
+    /// <summary>
+    /// Current tick count from the cadence. Read-only surface so callers
+    /// (e.g. the recruit panel writer at etape 7) can stamp
+    /// <c>NpcRuntimeState.RecruitedAtTick</c> with a real value instead
+    /// of <c>null</c>. Returns 0 before the first Advance, monotonic
+    /// non-decreasing thereafter.
+    /// </summary>
+    public int CurrentTick => _cadence?.Tick ?? 0;
+
     public override void _Ready()
     {
         _cadence = new WorldSimTickCadence(TickIntervalSeconds);

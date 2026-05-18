@@ -96,6 +96,8 @@ public partial class MissionRecruitPanel : Control
 
     private ApiClient? _apiClient;
     private MissionStore? _missionStore;
+    private NpcRegistry? _npcRegistry;
+    private WorldSimTick? _worldSimTick;
 
     /// <summary>
     /// Fired when the panel finishes its close animation.
@@ -145,10 +147,14 @@ public partial class MissionRecruitPanel : Control
 
         _apiClient = GetTree()?.Root?.GetNodeOrNull<ApiClient>("ApiClient");
         _missionStore = GetTree()?.Root?.GetNodeOrNull<MissionStore>("MissionStore");
+        _npcRegistry = GetTree()?.Root?.GetNodeOrNull<NpcRegistry>("NpcRegistry");
+        _worldSimTick = GetTree()?.Root?.GetNodeOrNull<WorldSimTick>("WorldSimTick");
         if (_apiClient is null)
             GD.PushWarning("[MissionRecruitPanel] ApiClient autoload not found -- Accept/Decline disabled");
         if (_missionStore is null)
             GD.PushWarning("[MissionRecruitPanel] MissionStore autoload not found -- local cache drop disabled");
+        if (_npcRegistry is null)
+            GD.PushWarning("[MissionRecruitPanel] NpcRegistry autoload not found -- IsRecruited write disabled");
     }
 
     public override void _ExitTree()
@@ -546,14 +552,37 @@ public partial class MissionRecruitPanel : Control
     }
 
     /// <summary>
-    /// Main-thread continuation : emits RecruitConfirmed so the owner
-    /// can call CompanyPanel.ApplyConfirmedOccupancy. The panel itself
-    /// has already closed by this point (Close ran synchronously
-    /// inside OnAcceptPressed) ; the signal fires on the freed-but-
-    /// still-instance panel, so the owner subscribes before Show.
+    /// Main-thread continuation : write IsRecruited=true onto the
+    /// NpcRegistry (etape 7, Varn-lock A.10.D4 -- first production
+    /// runtime writer of IsRecruited) and emit RecruitConfirmed for
+    /// the owner. The NpcStateChanged signal fires inside MutateState ;
+    /// the CompanyPanel (stateless renderer) re-renders the matching
+    /// socle as occupied. The panel itself has already closed by this
+    /// point (Close ran synchronously inside OnAcceptPressed).
+    ///
+    /// <para>
+    /// <b>Sequencing pin.</b> The IsRecruited=true write happens AFTER
+    /// the backend Accept succeeded (we are in the success branch of
+    /// FireAcceptAsync). On Accept failure (OnAcceptFailedDeferred),
+    /// no write happens -- the registry stays IsRecruited=false. This
+    /// is the etape 7 R3 contract : optimistic in the sense that the
+    /// UI commits as soon as the server acknowledges, but never before.
+    /// "Revert" is therefore implicit (we never wrote on failure, so
+    /// there is nothing to revert).
+    /// </para>
     /// </summary>
     private void OnAcceptSucceededDeferred(string missionId, string npcId)
     {
+        if (!string.IsNullOrEmpty(npcId) && _npcRegistry is not null && IsInstanceValid(_npcRegistry))
+        {
+            var tick = _worldSimTick?.CurrentTick ?? 0;
+            _npcRegistry.MutateState(npcId, s => s with
+            {
+                IsRecruited = true,
+                RecruitedAtTick = tick,
+            });
+            GD.Print($"[MissionRecruitPanel] IsRecruited write npc='{npcId}' tick={tick}");
+        }
         EmitSignal(SignalName.RecruitConfirmed, missionId, npcId);
     }
 
