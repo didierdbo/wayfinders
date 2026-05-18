@@ -1,10 +1,12 @@
 using Godot;
+using Wayfinders.Client.Services;
 
 namespace Wayfinders.Client.Utils;
 
 /// <summary>
 /// Asset loading utility implementing the Mira &lt;-&gt; Rune placeholder
-/// framework v1.0 contract (locked 2026-05-13).
+/// framework v1.0 contract (locked 2026-05-13) plus the universal user://
+/// override channel (locked 2026-05-18).
 ///
 /// <para>
 /// <b>Convention.</b> Code asks for an asset by its <i>final</i> name
@@ -54,8 +56,26 @@ namespace Wayfinders.Client.Utils;
 /// </para>
 ///
 /// <para>
+/// <b>Universal override (2026-05-18 — Didier).</b>
+/// <see cref="LoadTextureWithUserOverride"/> is the path-only entry point
+/// for call sites that already have a <c>res://</c> resource path in hand
+/// (POI sidecar loader, future direct ResourceLoader sites, etc.). It
+/// delegates the candidate-list construction to
+/// <see cref="AssetOverrideMapper.BuildUserCandidates"/>, tries each
+/// user:// candidate in order, then falls back to
+/// <see cref="ResourceLoader.Load{T}"/> on the original res:// path. This
+/// closes the "I dropped a PNG in user:// and nothing happened" trap
+/// for any call site that used to call <c>ResourceLoader.Load&lt;Texture2D&gt;</c>
+/// directly. See trap #13 in
+/// <c>feedback_godot_rendering_input_traps.md</c>.
+/// </para>
+///
+/// <para>
 /// <b>Future use.</b> Any new Wayfinders asset loaded by client C# code
-/// should go through <see cref="LoadAssetOrPlaceholder"/>. See spec
+/// should go through either <see cref="LoadAssetOrPlaceholder"/> (when
+/// the call site authors a placeholder fallback) or
+/// <see cref="LoadTextureWithUserOverride"/> (when the call site just has
+/// a res:// path and wants override transparency). See spec
 /// <c>Owner's Inbox/mira-placeholder-framework-spec-2026-05-13-FR.md §6</c>.
 /// </para>
 /// </summary>
@@ -125,6 +145,72 @@ public static class AssetLoader
         GD.PushError($"[ASSET MISSING] no final, no placeholder for {assetName} in {assetDir}");
         GD.Print($"[PLACEHOLDER LOAD] {assetName} -> MISSING (no final, no placeholder in {assetDir})");
         return null;
+    }
+
+    /// <summary>
+    /// Universal path-only override-aware load (locked 2026-05-18). Takes
+    /// a Godot resource path (<c>res://assets/...</c>) and returns a
+    /// <see cref="Texture2D"/> from the highest-priority user:// candidate
+    /// that exists on disk, falling back to <see cref="ResourceLoader.Load{T}"/>
+    /// on the original res:// path. The candidate list is built by
+    /// <see cref="AssetOverrideMapper.BuildUserCandidates"/> (symmetric
+    /// strip first, then <c>wayfinders_visual_assets/&lt;parentDir&gt;/&lt;file&gt;</c>
+    /// convention).
+    ///
+    /// <para>
+    /// <b>When to call this.</b> Any call site that today writes
+    /// <c>ResourceLoader.Load&lt;Texture2D&gt;(resPath)</c> on an asset that
+    /// should be hot-swappable from user://. The <see cref="LoadAssetOrPlaceholder"/>
+    /// entry point is for sites that also need a <c>_PLACEHOLDER</c>
+    /// fallback (Mira framework). This entry point is for sites that just
+    /// have a resolved res:// path and want override transparency.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Returns null</b> only if both all user:// candidates fail AND the
+    /// res:// load fails (missing file, no .import sidecar, or
+    /// ResourceLoader exception). Logs to GD on every fallback step.
+    /// </para>
+    /// </summary>
+    public static Texture2D? LoadTextureWithUserOverride(string resPath)
+    {
+        if (resPath is null)
+        {
+            GD.PushError("[AssetLoader] LoadTextureWithUserOverride called with null resPath");
+            return null;
+        }
+
+        var candidates = AssetOverrideMapper.BuildUserCandidates(resPath);
+        foreach (var userPath in candidates)
+        {
+            if (!FileAccess.FileExists(userPath))
+                continue;
+
+            var tex = TryLoadRawFromUser(userPath);
+            if (tex is not null)
+            {
+                GD.Print($"[AssetLoader] override applied for {resPath} -> {userPath}");
+                return tex;
+            }
+            // Decode failed (file exists but Image.Load raised). TryLoadRawFromUser
+            // already pushed a warning — try the next candidate, then res://.
+        }
+
+        // No user override took. Standard res:// load.
+        try
+        {
+            var tex = ResourceLoader.Load<Texture2D>(resPath);
+            if (tex is not null)
+                return tex;
+
+            GD.PushError($"[AssetLoader] ResourceLoader.Load<Texture2D>({resPath}) returned null");
+            return null;
+        }
+        catch (System.Exception ex)
+        {
+            GD.PushError($"[AssetLoader] ResourceLoader.Load<Texture2D>({resPath}) threw: {ex.Message}");
+            return null;
+        }
     }
 
     /// <summary>

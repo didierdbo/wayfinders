@@ -450,4 +450,18 @@
     <Compile Include="..\scripts\screens\SocleMouseFilterLogic.cs" Link="src\SocleMouseFilterLogic.cs" />
   </ItemGroup>
 
+  <!-- Universal user:// override mapper (Rune trap #13 fix, 2026-05-18).
+       Pure-C# helper that builds the ordered user:// candidate list for
+       any res://assets/ resource path. Godot-free by design so xUnit
+       pins the path-string policy (symmetric strip + visual_assets
+       bucket fallback). The Godot-bound consumer
+       AssetLoader.LoadTextureWithUserOverride lives in client/utils
+       and owns the FileAccess.FileExists + Image.Load + ResourceLoader
+       fallback ; integration validated via the POI Halfgate smoke
+       (drop wf_e1_halfgate_poi.png in user://wayfinders_visual_assets/e1,
+       observe override log, delete it, observe res:// fallback). -->
+  <ItemGroup>
+    <Compile Include="..\services\AssetOverrideMapper.cs" Link="src\AssetOverrideMapper.cs" />
+  </ItemGroup>
+
 </Project>
