@@ -1,3 +1,4 @@
+using System;
 using Godot;
 using Wayfinders.Client.Scripts.Screens;
 
@@ -37,13 +38,16 @@ namespace Wayfinders.Client.Scenes.Ui;
 /// </para>
 ///
 /// <para>
-/// <b>Why a sibling Control instead of resizing the socle.</b> Two
-/// reasons. (1) The socle's <c>_Draw</c> uses its full <c>Size</c> to
-/// fit the rhombus -- inflating it to 488 px tall would draw a 488 px
-/// tall rhombus too, ruining the visual ("perso sur losange géant").
-/// (2) The above-band is a HIT-TEST extension, not a visual one ; making
-/// it a separate transparent Control keeps the "what you see" and "what
-/// you click" decoupled, which is the Godot-shaped way.
+/// <b>Étape 7 slot gate (Varn §A.10.D5, 2026-05-18).</b> The multi-
+/// recruit company panel hosts N drop zones, one per roster slot.
+/// Each zone must additionally reject drops whose <c>npc_id</c> does
+/// not match the slot's roster NpcId (= wrong-slot drop) AND drops
+/// onto an already-recruited slot (= occupied-slot drop). The owner
+/// (CompanyPanel) injects a <see cref="SlotGateDelegate"/> via
+/// <see cref="Configure"/> that wraps the
+/// <c>CompanyPanelRosterLogic.CanDropOnSocle</c> decision. When the
+/// gate returns false, <see cref="_CanDropData"/> rejects before the
+/// ghost-base hit-test even runs.
 /// </para>
 ///
 /// <para>
@@ -72,6 +76,18 @@ namespace Wayfinders.Client.Scenes.Ui;
 /// </summary>
 public partial class SocleDropZone : Control
 {
+    /// <summary>
+    /// Slot-gate delegate injected by the owning CompanyPanel. Returns
+    /// true iff the drop is allowed on THIS specific slot (= matching
+    /// NpcId + empty). The drop zone calls it with the payload's
+    /// <c>npc_id</c> after the global
+    /// <see cref="IsoSocketDropLogic.CanAccept"/> roster gate passes.
+    /// Optional ; null gate = legacy étape 6 behaviour (any roster id
+    /// accepted on any drop zone, used by the M1 single-socle path
+    /// until step 7).
+    /// </summary>
+    public delegate bool SlotGateDelegate(string? payloadNpcId);
+
     /// <summary>Tag injected by the CompanyPanel at construction so the
     /// drop zone can reach its sibling socle to forward
     /// <see cref="IsoSocketPlaceholder.SetOccupiedNpc"/> on accept.</summary>
@@ -88,6 +104,10 @@ public partial class SocleDropZone : Control
     /// injects ; currently the M1 trio.</summary>
     private System.Collections.Generic.IReadOnlySet<string> _knownNpcIds =
         new System.Collections.Generic.HashSet<string>();
+
+    /// <summary>Per-slot drop gate (étape 7). Null = legacy behaviour
+    /// (any roster id passes ; matches single-socle étape 6 mode).</summary>
+    private SlotGateDelegate? _slotGate;
 
     /// <summary>Debug paint flag. False by default ; the constant is in
     /// place so a future debug-CLI flag flips it without recompile.</summary>
@@ -109,14 +129,24 @@ public partial class SocleDropZone : Control
     /// after both nodes are added to the tree but before the panel
     /// becomes visible.
     /// </summary>
+    /// <param name="socle">Sibling socle this zone routes drops into.</param>
+    /// <param name="socleOffsetYInZone">Y offset of the socle within
+    /// the drop zone's rect (= the above-socle band height).</param>
+    /// <param name="knownNpcIds">Roster set fed to
+    /// <see cref="IsoSocketDropLogic.CanAccept"/>.</param>
+    /// <param name="slotGate">Optional per-slot gate (étape 7). Null
+    /// keeps the legacy any-slot behaviour for backward compatibility
+    /// with the étape 6 single-socle wiring.</param>
     public void Configure(
         IsoSocketPlaceholder socle,
         float socleOffsetYInZone,
-        System.Collections.Generic.IReadOnlySet<string> knownNpcIds)
+        System.Collections.Generic.IReadOnlySet<string> knownNpcIds,
+        SlotGateDelegate? slotGate = null)
     {
         _socle = socle;
         _socleOffsetYInZone = socleOffsetYInZone;
         _knownNpcIds = knownNpcIds;
+        _slotGate = slotGate;
     }
 
     /// <summary>
@@ -136,6 +166,14 @@ public partial class SocleDropZone : Control
         var payload = TryReadDragPayload(data);
         var decision = IsoSocketDropLogic.CanAccept(payload, _knownNpcIds);
         if (decision != IsoSocketDropLogic.DropDecision.Accept) return false;
+
+        // Étape 7 D3+D5 -- per-slot gate (wrong-slot reject + occupied
+        // reject). The owner-injected gate wraps CompanyPanelRosterLogic.
+        // CanDropOnSocle so the test surface pins both reject paths.
+        if (_slotGate is not null && !_slotGate(payload!.NpcId))
+        {
+            return false;
+        }
 
         // Map drop-zone-local Y -> socket-local Y, then run the existing
         // ghost-base hit-test against the socle's vertical bounds. The

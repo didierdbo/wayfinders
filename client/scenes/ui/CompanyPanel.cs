@@ -1,70 +1,68 @@
+using System.Collections.Generic;
 using Godot;
 using Wayfinders.Client.Scripts.Screens;
+using Wayfinders.Client.Services;
+using Wayfinders.Client.Services.Dtos;
 
 namespace Wayfinders.Client.Scenes.Ui;
 
 /// <summary>
-/// E2.2 step 5 Compagnie panel (Didier-lock 2026-05-17) -- mirror
-/// gauche of the <see cref="MissionRecruitPanel"/>. Slide-in from the
-/// LEFT edge of the viewport when the player clicks a mission row in
-/// the E2 marker tooltip, displays the "Compagnie" header + a central
-/// flat iso socle (<see cref="IsoSocketPlaceholder"/>) waiting for the
-/// étape 6 drag&amp;drop landing. Sticky strict (no auto-dismiss on
+/// E2.2 étape 7 multi-recruit Compagnie panel (Varn-lock §A.10,
+/// 2026-05-18). Slide-in from the LEFT edge of the viewport when the
+/// player clicks a mission row in the E2 marker tooltip ; displays a
+/// vertical column of <see cref="CompanyPanelRosterLogic.CompanyCapM1"/>
+/// fixed iso socles (slot 0 = kira, slot 1 = dorn, slot 2 = vell). Each
+/// socle is bound 1:1 to its roster NpcId ; the socle's occupied/empty
+/// state is read from <see cref="NpcRegistry"/>, not from any
+/// panel-local mutable state. Sticky strict (no auto-dismiss on
 /// hover-out), closes via ESC or the header X.
 ///
 /// <para>
-/// <b>Why a separate scene + script instead of subclassing the recruit
-/// panel.</b> The two panels share a slide-in tempo and a sticky
-/// discipline, but their content shape is genuinely different (the
-/// recruit panel renders one mission ; the Compagnie panel renders the
-/// roster + drop targets, which will grow at étape 6 and beyond).
-/// "Premature interface" reflex caught -- build the concrete sibling
-/// first, extract the shared base only when a third panel actually
-/// appears with the same shape.
+/// <b>Étape 7 architecture shift (D4 lock).</b> The panel is now a
+/// <b>stateless renderer</b>. State of truth lives on the
+/// <see cref="NpcRegistry"/> autoload : the panel reads
+/// <see cref="NpcRegistry.AllStates"/> at <c>_Ready</c> + subscribes to
+/// <see cref="NpcRegistry.NpcStateChanged"/> to re-render whenever any
+/// NPC's <see cref="NpcRuntimeState.IsRecruited"/> flips. Close +
+/// reopen preserves occupancy automatically -- the panel scenetree is
+/// rebuilt from the same registry snapshot.
 /// </para>
 ///
 /// <para>
-/// <b>Slide direction.</b> Anchored to the LEFT edge with negative
-/// offsets when closed. Mirror of the recruit panel's right-edge offsets.
+/// <b>Étape 7 D5 highlight.</b> When a mission panel is open and its
+/// <c>RecruitTargetNpcId</c> matches an empty roster slot, that slot's
+/// socle is highlighted (terracotta rim glow, same colour as the
+/// existing drag-begin glow per visual DNA lock 2026-05-07). The owner
+/// (E2AreaMap) calls <see cref="SetActiveMissionTarget"/> when the
+/// recruit panel opens / closes ; the panel translates the npcId into
+/// a slot index via <see cref="CompanyPanelRosterLogic.SlotIndexOf"/>
+/// and toggles the glow on the matching socle.
 /// </para>
 ///
 /// <para>
-/// <b>Étape 6 additions.</b>
-/// <list type="bullet">
-///   <item>The central socle is configured as
-///         <see cref="IsoSocketPlaceholder.DropTargetRole.CompanyHost"/>
-///         so it accepts the reverse drag back to the recruit panel.
-///         The FORWARD drop is hosted by the sibling
-///         <see cref="SocleDropZone"/> Control whose rect extends
-///         ~232 px above the socle (= the ghost-base-hit-test routing
-///         fix, Didier UX bug 2 résiduel, 2026-05-17 soir).</item>
-///   <item>The panel forwards the socle's
-///         <see cref="IsoSocketPlaceholder.OccupancyChangedEventHandler"/>
-///         to its own <see cref="OccupancyChangedEventHandler"/>
-///         (re-emission lets the E2AreaMap subscribe once at the
-///         panel level rather than two layers deep).</item>
-///   <item>The panel listens to the viewport's drag-begin / drag-end
-///         notifications (via <see cref="Control._Notification"/>)
-///         and toggles the socle's rim glow accordingly -- the glow
-///         is a UI affordance, not a state-machine input.</item>
-///   <item><see cref="ApplyConfirmedOccupancy"/> -- called by the
-///         owner (E2AreaMap) after a successful
-///         <c>POST /api/missions/&lt;id&gt;/accept</c> round-trip.
-///         Updates the header text ("Compagnie -- 1 membre"), freezes
-///         the socle (no reverse drag), and keeps the occupant visible.</item>
-/// </list>
+/// <b>D5 drop gate.</b> Each <see cref="SocleDropZone"/> is configured
+/// with its slot index + a callback into
+/// <see cref="CompanyPanelRosterLogic.CanDropOnSocle"/> so the drop
+/// hook rejects a drop whose <c>npc_id</c> does not match the slot's
+/// roster NpcId (= wrong-slot drop, D5 row 2) OR whose slot is already
+/// occupied (D3 row 2). Combined with the existing
+/// <see cref="IsoSocketDropLogic.CanAccept"/> roster gate, a drop
+/// lands iff (slot.NpcId == payload.NpcId) AND (slot empty).
 /// </para>
 ///
 /// <para>
-/// <b>What this scene IS NOT.</b> NOT a modal -- the underlying
-/// area-map stays interactive (pan / zoom / hover) while the
-/// Compagnie sits open.
+/// <b>D3 reverse-drag.</b> Reverse drag (drag from socle back to
+/// recruit panel) is preserved -- the
+/// <see cref="IsoSocketPlaceholder.SetConfirmedOccupancy"/> on
+/// confirmed-occupied socles still disables <c>_GetDragData</c>.
+/// Reorder / dismiss / patrol all stay M2 scope.
 /// </para>
 ///
 /// <para>
 /// <b>No CTS at v1.</b> The Compagnie panel issues no async ApiClient
-/// calls of its own -- the Accept POST lives on the recruit panel,
-/// the company panel only renders the confirmed state.
+/// calls of its own -- recruitment writes happen at the
+/// <see cref="MissionRecruitPanel"/> after a successful Accept
+/// round-trip ; the company panel only renders the state.
 /// </para>
 /// </summary>
 public partial class CompanyPanel : Control
@@ -87,10 +85,11 @@ public partial class CompanyPanel : Control
     private const float SocleWidthPx = 280f;
     private const float SocleHeightPx = 240f;
 
-    /// <summary>The M1 roster fed to the drop zone for the npc-id gate.
-    /// Same set as IsoSocketPlaceholder.RosterM1 -- staying in lock-step
-    /// is a runtime invariant the recruit-cascade tests already pin.</summary>
-    private static readonly System.Collections.Generic.HashSet<string> RosterM1 =
+    /// <summary>The M1 roster fed to each drop zone for the npc-id
+    /// gate. Same set as IsoSocketPlaceholder.RosterM1 -- pinned by
+    /// xUnit so any drift between this constant and the roster helper
+    /// surfaces red.</summary>
+    private static readonly HashSet<string> RosterM1KnownIds =
         new() { "kira", "dorn", "vell" };
 
     private static readonly Color ParchmentBg = new(0.91f, 0.85f, 0.72f, 0.97f);
@@ -98,29 +97,27 @@ public partial class CompanyPanel : Control
 
     private PanelContainer? _panelContainer;
     private Label? _headerLabel;
-    private IsoSocketPlaceholder? _socle;
-    private SocleDropZone? _socleDropZone;
     private Button? _closeButton;
     private Tween? _slideTween;
 
+    /// <summary>One iso socle per roster entry. Index aligns with
+    /// <see cref="CompanyPanelRosterLogic.Slots"/>.</summary>
+    private readonly List<IsoSocketPlaceholder> _socles = new();
+    private readonly List<SocleDropZone> _dropZones = new();
+
+    private NpcRegistry? _npcRegistry;
     private bool _isOpen;
+
+    /// <summary>Currently-targeted NpcId from the open mission panel,
+    /// null when no mission panel is open. Drives the slot-highlight.
+    /// Set via <see cref="SetActiveMissionTarget"/>.</summary>
+    private string? _activeMissionTargetNpcId;
 
     /// <summary>
     /// Fired when the panel finishes its close animation.
     /// </summary>
     [Signal]
     public delegate void PanelClosedEventHandler();
-
-    /// <summary>
-    /// Étape 6 re-emission of the socle's
-    /// <see cref="IsoSocketPlaceholder.OccupancyChangedEventHandler"/>.
-    /// The E2AreaMap subscribes to this so it can forward the
-    /// occupancy change to the recruit panel's state machine.
-    /// Payload is the npcId (empty string when the socle reverts
-    /// to empty).
-    /// </summary>
-    [Signal]
-    public delegate void OccupancyChangedEventHandler(string npcId);
 
     public override void _Ready()
     {
@@ -133,11 +130,38 @@ public partial class CompanyPanel : Control
         MouseFilter = MouseFilterEnum.Stop;
         Visible = false;
 
+        // Resolve the NpcRegistry autoload BEFORE building children :
+        // each socle's initial occupancy is read from the registry, so
+        // the lookup has to be ready before BuildChildren materialises
+        // the sockets. Failure to find the autoload (= broken project
+        // setup) surfaces as an explicit warning + all socles render
+        // empty, rather than a silent NRE deep in the socle build.
+        _npcRegistry = GetTree()?.Root?.GetNodeOrNull<NpcRegistry>("NpcRegistry");
+        if (_npcRegistry is null)
+        {
+            GD.PushWarning("[CompanyPanel] NpcRegistry autoload not found -- panel will render empty socles");
+        }
+        else
+        {
+            // Subscribe to the registry's state-changed signal so the
+            // panel re-renders whenever any NPC's IsRecruited flips.
+            // Disconnection discipline : unsubscribed in _ExitTree
+            // (signal-leak trap Risk #1).
+            _npcRegistry.NpcStateChanged += OnNpcStateChanged;
+        }
+
         BuildChildren();
+        // Seed the initial rendering from the registry snapshot.
+        RefreshSocleRendering();
+        RefreshHeaderText();
     }
 
     public override void _ExitTree()
     {
+        if (_npcRegistry is not null && IsInstanceValid(_npcRegistry))
+        {
+            _npcRegistry.NpcStateChanged -= OnNpcStateChanged;
+        }
         _slideTween?.Kill();
         _slideTween = null;
     }
@@ -154,19 +178,17 @@ public partial class CompanyPanel : Control
 
     public override void _Notification(int what)
     {
-        // Étape 6 rim glow : Godot fires NotificationDragBegin /
-        // NotificationDragEnd on every Control that is in the tree
-        // when a drag starts / ends. We capture them at the panel
-        // level so the socle does not have to poll, and so closing
-        // the panel mid-drag (e.g. via X click during a drag, edge
-        // case) still clears the glow.
+        // Drag-begin / drag-end : route the rim glow to the targeted
+        // socle (the one matching the active mission's RecruitTargetNpcId)
+        // rather than every socle. Wrong-slot socles stay quiet during
+        // the drag.
         switch ((long)what)
         {
             case NotificationDragBegin:
-                _socle?.SetDropTargetGlow(true);
+                SetTargetedSocleGlow(true);
                 break;
             case NotificationDragEnd:
-                _socle?.SetDropTargetGlow(false);
+                SetTargetedSocleGlow(false);
                 break;
         }
     }
@@ -195,56 +217,142 @@ public partial class CompanyPanel : Control
     }
 
     /// <summary>
-    /// Reset the panel's occupancy to empty (no recruit on socle,
-    /// "Compagnie" header). Called by the owner when the recruit
-    /// panel closes without a successful accept (decline / X / ESC),
-    /// to wipe any in-progress drop state.
+    /// Étape 7 D5 -- track which NpcId the currently-open mission
+    /// panel is targeting, so the matching empty socle can be
+    /// highlighted while the panel is open. Called by the owner
+    /// (E2AreaMap) when the recruit panel opens / closes / swaps
+    /// content. <paramref name="npcId"/> = null clears the highlight
+    /// (no mission panel open).
     /// </summary>
-    public void ResetOccupancy()
+    public void SetActiveMissionTarget(string? npcId)
     {
-        if (_socle is not null)
+        var normalized = string.IsNullOrEmpty(npcId) ? null : npcId;
+        if (_activeMissionTargetNpcId == normalized) return;
+        _activeMissionTargetNpcId = normalized;
+        // The highlight visibility now follows
+        // _activeMissionTargetNpcId + the socle's empty state ; the
+        // glow itself fires on drag-begin (the existing rim-glow
+        // pulse). For now we DO NOT pulse the highlight without a
+        // drag in flight (avoids ambient noise) ; the static "this
+        // is the slot you want" cue is implicit via the empty socle
+        // already standing out from the occupied ones.
+        // If playtest later wants an ambient highlight, flip the
+        // SetDropTargetGlow call below on whenever the target is set.
+    }
+
+    /// <summary>Read-only roster snapshot of socle placeholders. Used
+    /// by integration smoke + xUnit tests to assert the panel scene
+    /// tree contains exactly <see cref="CompanyPanelRosterLogic.CompanyCapM1"/>
+    /// sockets at construction time.</summary>
+    public IReadOnlyList<IsoSocketPlaceholder> Socles => _socles;
+
+    /// <summary>Read-only drop zone snapshot (same indexing as
+    /// <see cref="Socles"/>).</summary>
+    public IReadOnlyList<SocleDropZone> DropZones => _dropZones;
+
+    /// <summary>Compatibility shim : returns the first socle so the
+    /// existing E2AreaMap wiring (subscribed at the panel level via
+    /// the old <c>Socle</c> getter) continues to compile during the
+    /// step-7 transition. Tests should use <see cref="Socles"/>.</summary>
+    public IsoSocketPlaceholder? Socle => _socles.Count > 0 ? _socles[0] : null;
+
+    // -------------------------------------------------------------------
+    // D4 stateless renderer -- registry-driven occupancy + header.
+    // -------------------------------------------------------------------
+
+    private void OnNpcStateChanged(string npcId)
+    {
+        // Re-render lazily : a single npc's state changed, but the
+        // header recount + every socle re-evaluation is cheap (3
+        // entries). Doing all of them keeps the code dead simple and
+        // avoids divergence on "did we miss a slot?".
+        RefreshSocleRendering();
+        RefreshHeaderText();
+    }
+
+    private void RefreshSocleRendering()
+    {
+        for (int i = 0; i < _socles.Count; i++)
         {
-            _socle.SetConfirmedOccupancy(false);
-            _socle.SetOccupiedNpc(null);
+            var npcId = CompanyPanelRosterLogic.NpcIdAtSlot(i);
+            if (string.IsNullOrEmpty(npcId)) continue;
+            var state = _npcRegistry?.GetState(npcId);
+            var isRecruited = state?.IsRecruited == true;
+            ApplySocleOccupancy(_socles[i], npcId, isRecruited);
         }
-        if (_headerLabel is not null)
-            _headerLabel.Text = CompanyPanelOccupiedLogic.EmptyHeaderText;
+    }
+
+    private static void ApplySocleOccupancy(
+        IsoSocketPlaceholder socle, string npcId, bool isRecruited)
+    {
+        if (isRecruited)
+        {
+            socle.SetOccupiedNpc(npcId);
+            socle.SetConfirmedOccupancy(true);
+        }
+        else
+        {
+            socle.SetOccupiedNpc(null);
+            socle.SetConfirmedOccupancy(false);
+        }
+    }
+
+    private void RefreshHeaderText()
+    {
+        if (_headerLabel is null) return;
+        var recruitedCount = CountRecruited();
+        _headerLabel.Text = CompanyPanelRosterLogic.ComposeHeaderText(recruitedCount);
+    }
+
+    private int CountRecruited()
+    {
+        if (_npcRegistry is null) return 0;
+        int count = 0;
+        foreach (var npcId in CompanyPanelRosterLogic.Slots)
+        {
+            if (_npcRegistry.GetState(npcId)?.IsRecruited == true) count++;
+        }
+        return count;
     }
 
     /// <summary>
-    /// Apply the confirmed-occupied state after a successful Accept
-    /// round-trip. Called by the owner (E2AreaMap) on the
-    /// <see cref="MissionRecruitPanel.RecruitConfirmedEventHandler"/>
-    /// signal. Updates the header + freezes the socle (no reverse
-    /// drag once confirmed).
+    /// Étape 7 D5 -- toggle the rim glow only on the socle whose
+    /// roster NpcId matches the active mission's RecruitTargetNpcId
+    /// (and that socle is currently empty). Wrong-slot socles stay
+    /// quiet during the drag.
     /// </summary>
-    public void ApplyConfirmedOccupancy(string npcId)
+    private void SetTargetedSocleGlow(bool active)
     {
-        if (string.IsNullOrEmpty(npcId))
+        for (int i = 0; i < _socles.Count; i++)
         {
-            GD.PushWarning("[CompanyPanel] ApplyConfirmedOccupancy called with empty npcId -- no-op");
-            return;
+            var npcId = CompanyPanelRosterLogic.NpcIdAtSlot(i);
+            if (string.IsNullOrEmpty(npcId)) continue;
+            var isRecruited = _npcRegistry?.GetState(npcId)?.IsRecruited == true;
+            var shouldGlow = active && CompanyPanelRosterLogic.ShouldHighlightSocle(
+                i, _activeMissionTargetNpcId, isRecruited);
+            _socles[i].SetDropTargetGlow(shouldGlow);
         }
-        var payload = CompanyPanelOccupiedLogic.Compose(npcId);
-        if (_headerLabel is not null) _headerLabel.Text = payload.HeaderText;
-        if (_socle is not null)
-        {
-            _socle.SetOccupiedNpc(npcId);
-            _socle.SetConfirmedOccupancy(true);
-        }
-        GD.Print($"[CompanyPanel] occupancy confirmed npc='{npcId}' header='{payload.HeaderText}'");
     }
 
-    /// <summary>Expose the socle so the owning E2AreaMap can wire the
-    /// recruit panel's reverse-drop target to it (the recruit panel
-    /// needs to forward CharacterReturnedFromSocle back to the
-    /// company-panel-owned socle on the reverse path).</summary>
-    public IsoSocketPlaceholder? Socle => _socle;
-
-    /// <summary>Expose the drop zone so a future debug CLI flag (or
-    /// smoke harness) can toggle its <see cref="SocleDropZone.DebugVisible"/>
-    /// without recompile.</summary>
-    public SocleDropZone? DropZone => _socleDropZone;
+    /// <summary>
+    /// Read whether a socle index can accept the active mission's
+    /// drop (= matching NpcId AND empty). Used by
+    /// <see cref="SocleDropZone._CanDropData"/> via the
+    /// <see cref="SocleDropZone.SlotGateDelegate"/> hook.
+    /// </summary>
+    internal bool CanDropOnSlot(int socleIndex, string? payloadNpcId)
+    {
+        var slotNpcId = CompanyPanelRosterLogic.NpcIdAtSlot(socleIndex);
+        if (string.IsNullOrEmpty(slotNpcId)) return false;
+        // Wrong-slot drop : payload NpcId does not match the slot's
+        // roster NpcId (D5 row 2 reject).
+        if (payloadNpcId != slotNpcId) return false;
+        // Occupied-slot drop : NpcRegistry says IsRecruited=true
+        // (D3 row 2 reject).
+        var isRecruited = _npcRegistry?.GetState(slotNpcId)?.IsRecruited == true;
+        if (isRecruited) return false;
+        return true;
+    }
 
     // -------------------------------------------------------------------
     // Internal -- scene tree build
@@ -318,15 +426,8 @@ public partial class CompanyPanel : Control
         _closeButton.Pressed += OnClosePressed;
         headerRow.AddChild(_closeButton);
 
-        // Compute the drop-zone geometry from the pure-C# helper so a
-        // future tweak (extra margin, iso body height drift) fans out
-        // from a single anchor. The above-band catches every cursor
-        // position the ghost-base arithmetic might want to test : a
-        // click at the very TOP of a silhouette puts the ghost base
-        // ~232 px below the cursor ; the drop zone must extend at least
-        // that far above the socle rhombus for the forward drop to
-        // route through _CanDropData. See SocleDropZoneGeometryLogic
-        // for the why + xUnit pins.
+        // Compute the drop-zone geometry once -- every socle shares
+        // the same above-band height + extra margin.
         var aboveBandPx = SocleDropZoneGeometryLogic.ComputeAboveSocleBandPx(
             IsoSocketCharacterPlacementLogic.OccupantPaddingPx,
             IsoSocketCharacterPlacementLogic.CompactIsoBodyHeight,
@@ -336,51 +437,55 @@ public partial class CompanyPanel : Control
             aboveBandPx,
             SocleDropZoneGeometryLogic.DefaultExtraMarginXpx);
 
-        // CenterContainer centres the drop zone horizontally in the
-        // panel content rect. The drop zone itself is the non-container
-        // Control that hosts the socle as a child + owns the forward
-        // _CanDropData / _DropData hooks.
-        var socleWrapper = new CenterContainer
+        // Build N socles (one per roster entry, in the locked order).
+        // Each goes into its own CenterContainer child of the rootVbox
+        // so the vertical stack reads as a clean "header / socle 0 /
+        // socle 1 / socle 2" layout (Varn §A.10.D1).
+        for (int i = 0; i < CompanyPanelRosterLogic.CompanyCapM1; i++)
         {
-            Name = "SocleWrapper",
-            MouseFilter = MouseFilterEnum.Pass,
-            SizeFlagsVertical = SizeFlags.ExpandFill,
-        };
-        rootVbox.AddChild(socleWrapper);
+            var slotNpcId = CompanyPanelRosterLogic.Slots[i];
 
-        _socleDropZone = new SocleDropZone
-        {
-            Name = "SocleDropZone",
-        };
-        _socleDropZone.CustomMinimumSize = new Vector2(zoneW, zoneH);
-        socleWrapper.AddChild(_socleDropZone);
+            var socleWrapper = new CenterContainer
+            {
+                Name = $"SocleWrapper{i}",
+                MouseFilter = MouseFilterEnum.Pass,
+                SizeFlagsVertical = SizeFlags.ShrinkBegin,
+            };
+            rootVbox.AddChild(socleWrapper);
 
-        _socle = new IsoSocketPlaceholder
-        {
-            Name = "IsoSocket",
-        };
-        _socle.CustomMinimumSize = new Vector2(SocleWidthPx, SocleHeightPx);
-        _socle.Size = new Vector2(SocleWidthPx, SocleHeightPx);
-        // Socle sits at the BOTTOM of the drop zone : (extraMarginX,
-        // aboveBandPx). The above-band sits on top, catching the
-        // top-click drag case.
-        _socle.Position = new Vector2(SocleDropZoneGeometryLogic.DefaultExtraMarginXpx, aboveBandPx);
-        // Étape 6 : flip the socle from decorative to drop target +
-        // reverse drag source. MouseFilter is reconciled inside (follows
-        // occupancy : Ignore when empty so the drop zone wins the forward
-        // route, Stop when occupied so the socle wins the reverse-drag
-        // route). See SocleMouseFilterLogic for the truth table.
-        _socle.SetDropTargetRole(IsoSocketPlaceholder.DropTargetRole.CompanyHost);
-        // Re-emit the socle's occupancy changes at the panel level so
-        // the owner (E2AreaMap) subscribes once at one layer up.
-        _socle.OccupancyChanged += OnSocleOccupancyChanged;
-        _socleDropZone.AddChild(_socle);
+            var dropZone = new SocleDropZone
+            {
+                Name = $"SocleDropZone{i}",
+            };
+            dropZone.CustomMinimumSize = new Vector2(zoneW, zoneH);
+            socleWrapper.AddChild(dropZone);
 
-        // Wire the drop zone to the socle now that both are in the tree.
-        _socleDropZone.Configure(
-            _socle,
-            socleOffsetYInZone: aboveBandPx,
-            knownNpcIds: RosterM1);
+            var socle = new IsoSocketPlaceholder
+            {
+                Name = $"IsoSocket{i}",
+            };
+            socle.CustomMinimumSize = new Vector2(SocleWidthPx, SocleHeightPx);
+            socle.Size = new Vector2(SocleWidthPx, SocleHeightPx);
+            socle.Position = new Vector2(SocleDropZoneGeometryLogic.DefaultExtraMarginXpx, aboveBandPx);
+            socle.SetDropTargetRole(IsoSocketPlaceholder.DropTargetRole.CompanyHost);
+            dropZone.AddChild(socle);
+
+            // Configure the drop zone with the slot index + the slot
+            // gate callback so _CanDropData rejects wrong-slot drops
+            // and occupied-slot drops (D3 row 2 + D5 row 2).
+            // Captured-i pattern : C# foreach loop variable was
+            // historically captured-by-reference, but C# 5+ captures
+            // per-iteration so the closure binds the right index.
+            int capturedIndex = i;
+            dropZone.Configure(
+                socle,
+                socleOffsetYInZone: aboveBandPx,
+                knownNpcIds: RosterM1KnownIds,
+                slotGate: payloadNpcId => CanDropOnSlot(capturedIndex, payloadNpcId));
+
+            _socles.Add(socle);
+            _dropZones.Add(dropZone);
+        }
     }
 
     // -------------------------------------------------------------------
@@ -415,14 +520,5 @@ public partial class CompanyPanel : Control
     private void OnClosePressed()
     {
         Close();
-    }
-
-    private void OnSocleOccupancyChanged(string npcId)
-    {
-        // Re-emit at the panel level. Empty string carries the
-        // "socle reverted to vide" signal -- the owner translates
-        // that into the recruit panel's CharacterReturnedFromSocle
-        // state-machine event.
-        EmitSignal(SignalName.OccupancyChanged, npcId);
     }
 }

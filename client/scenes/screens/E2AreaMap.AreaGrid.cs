@@ -968,11 +968,17 @@ public partial class E2AreaMap
         // E2.2 step 5 (2026-05-17) co-trigger : slide the Compagnie
         // panel in from the LEFT in parallel. Both panels become
         // visible simultaneously so the player sees the drag&drop seam
-        // (recruit -> compagnie) that étape 6 will activate. Closures
+        // (recruit -> compagnie) that etape 6 will activate. Closures
         // are INDEPENDENT (X / ESC each close only one panel) ; ESC is
         // routed to the focused panel via SetInputAsHandled in
         // CompanyPanel._UnhandledInput.
-        EnsureCompanyPanel().SlideIn();
+        var companyPanel = EnsureCompanyPanel();
+        companyPanel.SlideIn();
+        // Etape 7 D5 (Varn-lock A.10) : tell the CompanyPanel which
+        // slot to highlight on the next drag-begin. The active mission
+        // target tracks across mission-panel swaps (re-clic on another
+        // tooltip row reuses the same panel and re-sets the target).
+        companyPanel.SetActiveMissionTarget(mission.RecruitTargetNpcId);
     }
 
     /// <summary>
@@ -1035,11 +1041,16 @@ public partial class E2AreaMap
         var panelScene = GD.Load<PackedScene>("res://scenes/ui/CompanyPanel.tscn");
         _companyPanel = panelScene.Instantiate<CompanyPanel>();
         _companyPanelCanvasLayer.AddChild(_companyPanel);
-        // E2.2 step 6 cross-panel wiring : forward the socle's
-        // occupancy changes back to the recruit panel's state machine
-        // (drop landed -> grey out + highlight Accept ; reverse drag ->
-        // restore).
-        _companyPanel.OccupancyChanged += OnCompanySocleOccupancyChanged;
+        // E2.2 etape 7 (Varn-lock A.10.D4, 2026-05-18) : CompanyPanel
+        // is now a stateless renderer reading from NpcRegistry. The
+        // old OccupancyChanged drag-into-socle signal is no longer used
+        // (the etape 6 single-socle drop-then-grey-out flow is replaced
+        // by the multi-recruit flow where the perso is recruited
+        // directly on Accept, no intermediate "parked on socle" state).
+        // The etape 6 state machine survives in MissionRecruitPanelStateLogic
+        // for the per-mission greyed-out / accept-highlight transitions ;
+        // future revival of the parking pattern can re-wire here without
+        // changing the panel renderer surface.
         return _companyPanel;
     }
 
@@ -1056,50 +1067,41 @@ public partial class E2AreaMap
     // pinned by xUnit.
     // ====================================================================
 
-    private void OnCompanySocleOccupancyChanged(string npcId)
-    {
-        // Empty string = socle reverted to empty (reverse drag picked
-        // the perso back). Non-empty = drop just landed. Feed the
-        // boolean into the recruit panel's state machine.
-        var dropped = !string.IsNullOrEmpty(npcId);
-        if (_recruitPanel is not null && IsInstanceValid(_recruitPanel))
-        {
-            _recruitPanel.SetCharacterDropped(dropped);
-        }
-    }
-
     private void OnRecruitConfirmed(string missionId, string npcId)
     {
-        // Accept round-trip succeeded -- promote the socle to
-        // "confirmed occupied" + update the company header. The
-        // recruit panel has already slid out by this point.
-        if (_companyPanel is not null && IsInstanceValid(_companyPanel))
-        {
-            _companyPanel.ApplyConfirmedOccupancy(npcId);
-        }
+        // Etape 7 (Varn-lock A.10.D4) -- the CompanyPanel is now a
+        // stateless renderer of NpcRegistry. The recruit panel writes
+        // IsRecruited=true onto NpcRegistry inside its own success
+        // continuation (MissionRecruitPanel.OnAcceptSucceededDeferred) ;
+        // NpcStateChanged fires, the CompanyPanel re-renders the matching
+        // socle as occupied + recomputes the header count. The
+        // E2AreaMap signal forward is now diagnostic only (logging) ;
+        // no panel mutator call needed.
         GD.Print($"[E2AreaMap] RecruitConfirmed mission='{missionId}' npc='{npcId}'");
     }
 
     private void OnRecruitDeclined(string missionId)
     {
-        // Decline (or accept failure) -- wipe the socle in case the
-        // perso had been parked there mid-flow (spec 6.D).
+        // Etape 7 (Varn-lock A.10.D4) -- nothing to reset on the
+        // CompanyPanel since it never mutated panel-local state in the
+        // first place (registry is the source of truth and IsRecruited
+        // was never flipped on Decline). Clear the active-mission
+        // highlight so the previously-targeted slot stops glowing on
+        // the next drag-begin.
         if (_companyPanel is not null && IsInstanceValid(_companyPanel))
         {
-            _companyPanel.ResetOccupancy();
+            _companyPanel.SetActiveMissionTarget(null);
         }
         GD.Print($"[E2AreaMap] RecruitDeclined mission='{missionId}'");
     }
 
     private void OnCharacterReturnedToRecruitPanel(string missionId, string npcId)
     {
-        // Reverse drag landed back in the recruit panel -- clear the
-        // company socle. The recruit panel already drove its own
-        // state machine via the placeholder's reverse-drop signal.
-        if (_companyPanel is not null && IsInstanceValid(_companyPanel))
-        {
-            _companyPanel.ResetOccupancy();
-        }
+        // Etape 7 -- reverse drag never mutates IsRecruited (it only
+        // moves an UNCONFIRMED perso back to the recruit panel mid-flow).
+        // Since the etape 7 flow no longer parks an unconfirmed perso
+        // on the socle (the perso is committed directly on Accept), this
+        // path is largely dormant in M1. Logged for visibility.
         GD.Print($"[E2AreaMap] CharacterReturnedToRecruitPanel mission='{missionId}' npc='{npcId}'");
     }
 

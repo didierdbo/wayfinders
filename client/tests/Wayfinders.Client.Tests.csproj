@@ -464,4 +464,16 @@
     <Compile Include="..\services\AssetOverrideMapper.cs" Link="src\AssetOverrideMapper.cs" />
   </ItemGroup>
 
+  <!-- E2.2 etape 7 multi-recruit company (Varn-lock §A.10, 2026-05-18):
+       pure-C# roster helper that owns the locked M1 slot order
+       (kira -> dorn -> vell), the company cap (3), the drop-validation
+       gate (matching NpcId + empty), and the header text composition
+       (singular/plural). The Godot-bound CompanyPanel consumes the slot
+       list at _Ready and renders one socket per entry. xUnit pins the
+       roster order + the drop gate + the header inflection here, so a
+       regression to wrong-slot drop or pluralization drift surfaces red. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\CompanyPanelRosterLogic.cs" Link="src\CompanyPanelRosterLogic.cs" />
+  </ItemGroup>
+
 </Project>
