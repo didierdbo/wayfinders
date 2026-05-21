@@ -86,7 +86,11 @@ namespace Wayfinders.Client.Scenes.Iso;
 /// desk so the pan, the clipping, and the desk grid are observable. It is
 /// <i>not</i> a renderer and <i>not</i> the per-cell draw loop the hybrid
 /// forbids: it is one debug <see cref="_Draw"/> pass over the logical
-/// grid, dropped the moment a real floor bitmap exists.
+/// grid, dropped the moment a real floor bitmap exists. With
+/// <see cref="DrawPlaceholderFloor"/> the same pass first fills the
+/// grid-bounding diamond with a flat table-surface colour — the desk's
+/// placeholder floor (see that property's doc for why it is here and not
+/// a UI Panel).
 /// </para>
 ///
 /// <para>
@@ -147,6 +151,28 @@ public partial class IsoBoard : Node2D
     public bool DrawPlaceholderGrid { get; set; }
 
     /// <summary>
+    /// When true, <see cref="_Draw"/> fills the iso diamond that bounds the
+    /// whole placeholder grid with a flat warm-earth "table surface" colour
+    /// <i>before</i> the per-cell grid strokes. A developer-only placeholder
+    /// for the desk's floor while Mira's desk-floor bitmap is not wired.
+    ///
+    /// <para>
+    /// <b>Why this is a board <see cref="_Draw"/> and not a UI Panel.</b>
+    /// The J3c-1 desk originally carried its brown surface as a
+    /// <c>Panel</c> child of the desk's <c>SubViewportContainer</c> — an
+    /// <i>opaque UI overlay</i> that sat ON TOP of the SubViewport texture
+    /// and hid the iso grid and the pawns rendered inside it: the F6 "flat
+    /// brown rectangle" bug. The desk surface belongs <i>in the iso world</i>,
+    /// drawn below the grid in the same render pass, not as a screen-space
+    /// Panel. Off by default; the desk board turns it on. Dropped once a
+    /// real desk-floor bitmap exists, exactly like
+    /// <see cref="DrawPlaceholderGrid"/>.
+    /// </para>
+    /// </summary>
+    [Export]
+    public bool DrawPlaceholderFloor { get; set; }
+
+    /// <summary>
     /// The layer-2 logical grid for this board. Authoritative game data;
     /// the authoritative <i>owner</i> is <c>GameState</c>, which adopts
     /// this reference when a district loads. Null until <see cref="_Ready"/>
@@ -177,6 +203,11 @@ public partial class IsoBoard : Node2D
     private static readonly Color GridLineColor = new(0.62f, 0.40f, 0.27f, 0.85f);
     private static readonly Color GridFillColor = new(0.91f, 0.85f, 0.72f, 0.10f);
 
+    // Placeholder desk-floor fill — a flat warm umber-brown table surface,
+    // the same family as the old StyleBoxFlat_desk bg_color but drawn IN
+    // the iso world (below the grid) instead of as an opaque UI Panel.
+    private static readonly Color FloorFillColor = new(0.27f, 0.19f, 0.12f, 1f);
+
     public override void _Ready()
     {
         _background = GetNode<Sprite2D>("Background");
@@ -193,7 +224,7 @@ public partial class IsoBoard : Node2D
         Grid = IsoGrid.BuildRectangle(PlaceholderGridWidth, PlaceholderGridHeight);
         Projection = IsoProjection.Iso2To1(TileWidthPx, ComputeAnchorPixel());
 
-        if (DrawPlaceholderGrid)
+        if (DrawPlaceholderGrid || DrawPlaceholderFloor)
         {
             QueueRedraw();
         }
@@ -271,15 +302,70 @@ public partial class IsoBoard : Node2D
         => _background.Texture?.GetSize() ?? Vector2.Zero;
 
     /// <summary>
-    /// Developer placeholder draw (see <see cref="DrawPlaceholderGrid"/>).
-    /// Strokes the iso diamond outline of every cell using the board's
-    /// own <see cref="IsoProjection"/> — the projection is the single
-    /// source of truth, this draw does not re-derive any iso maths. One
-    /// pass at <see cref="_Ready"/>, not per-frame; the grid is static.
+    /// The four apexes (top, right, bottom, left) of the iso diamond that
+    /// bounds the whole placeholder grid, in this board's local pixel
+    /// space. Composed purely from <see cref="IsoProjection.CellToWorld"/>
+    /// of the four corner cells offset by a half-diamond — no new iso
+    /// maths, just composition of the already-pinned projection.
+    ///
+    /// <para>
+    /// Used by <see cref="_Draw"/> for the placeholder floor fill, and by
+    /// <c>GameScreen</c> to derive the maquette/desk clip frontier. Safe to
+    /// call only after <see cref="_Ready"/>.
+    /// </para>
+    /// </summary>
+    public Vector2[] GridBoundingDiamond()
+    {
+        var proj = Projection!;
+        float halfH = proj.TileHeight * 0.5f;
+        float halfW = proj.TileWidth * 0.5f;
+        int w = PlaceholderGridWidth;
+        int h = PlaceholderGridHeight;
+
+        // Corner cell CENTRES. The grid is the rectangle (0,0)..(w-1,h-1);
+        // its iso projection is a diamond whose four apexes sit a half-
+        // diamond beyond the four corner-cell centres.
+        var topCellCentre = CellToPixel(new Vector2I(0, 0));
+        var rightCellCentre = CellToPixel(new Vector2I(w - 1, 0));
+        var bottomCellCentre = CellToPixel(new Vector2I(w - 1, h - 1));
+        var leftCellCentre = CellToPixel(new Vector2I(0, h - 1));
+
+        return new[]
+        {
+            topCellCentre + new Vector2(0f, -halfH),    // top apex
+            rightCellCentre + new Vector2(halfW, 0f),   // right apex
+            bottomCellCentre + new Vector2(0f, halfH),  // bottom apex
+            leftCellCentre + new Vector2(-halfW, 0f),   // left apex
+        };
+    }
+
+    /// <summary>
+    /// Developer placeholder draw (see <see cref="DrawPlaceholderGrid"/>,
+    /// <see cref="DrawPlaceholderFloor"/>). With the floor flag, first
+    /// fills the grid-bounding diamond with the flat table-surface colour;
+    /// with the grid flag, then strokes the iso diamond outline of every
+    /// cell using the board's own <see cref="IsoProjection"/> — the
+    /// projection is the single source of truth, this draw does not
+    /// re-derive any iso maths. One pass at <see cref="_Ready"/>, not
+    /// per-frame; the grid is static.
     /// </summary>
     public override void _Draw()
     {
-        if (!DrawPlaceholderGrid || Grid is null || Projection is null)
+        if (Grid is null || Projection is null)
+        {
+            return;
+        }
+
+        // Placeholder desk floor — the warm table surface, drawn FIRST so
+        // the grid strokes and any layer-3 occupant sit on top of it. This
+        // is the in-world replacement for the old opaque UI Panel that hid
+        // the desk SubViewport content (the F6 "flat brown rectangle" bug).
+        if (DrawPlaceholderFloor)
+        {
+            DrawColoredPolygon(GridBoundingDiamond(), FloorFillColor);
+        }
+
+        if (!DrawPlaceholderGrid)
         {
             return;
         }
@@ -362,7 +448,7 @@ public partial class IsoBoard : Node2D
                  $"centered={_background.Centered}");
         GD.Print($"[IsoBoard] preflight: grid cells={grid.Count} " +
                  $"placeholder={PlaceholderGridWidth}x{PlaceholderGridHeight} " +
-                 $"drawPlaceholder={DrawPlaceholderGrid}");
+                 $"drawGrid={DrawPlaceholderGrid} drawFloor={DrawPlaceholderFloor}");
         GD.Print($"[IsoBoard] preflight: projection tile=" +
                  $"{proj.TileWidth}x{proj.TileHeight} anchor={proj.AnchorPixel}");
 

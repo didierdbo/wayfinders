@@ -1,7 +1,8 @@
-[gd_scene load_steps=8 format=3 uid="uid://dgamescreenj3a0"]
+[gd_scene load_steps=9 format=3 uid="uid://dgamescreenj3a0"]
 
 [ext_resource type="Script" path="res://scenes/screens/GameScreen.cs" id="1_gamescreen"]
 [ext_resource type="PackedScene" uid="uid://b3iso0boardj3i" path="res://scenes/iso/IsoBoard.tscn" id="2_isoboard"]
+[ext_resource type="Shader" path="res://shaders/desk_triangle_clip.gdshader" id="3_deskclip"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_deskbg"]
 bg_color = Color(0.16, 0.12, 0.09, 1)
@@ -14,13 +15,10 @@ border_width_right = 0
 border_width_bottom = 3
 border_color = Color(0.36, 0.22, 0.13, 1)
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_desk"]
-bg_color = Color(0.27, 0.19, 0.12, 1)
-border_width_left = 3
-border_width_top = 3
-border_width_right = 3
-border_width_bottom = 3
-border_color = Color(0.45, 0.30, 0.18, 1)
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_deskclip"]
+shader = ExtResource("3_deskclip")
+shader_parameter/clip_line_point = Vector2(1, 0)
+shader_parameter/clip_line_normal = Vector2(0, 0)
 
 [node name="GameScreen" type="Control"]
 layout_mode = 3
@@ -61,38 +59,29 @@ PlaceholderGridWidth = 16
 PlaceholderGridHeight = 16
 DrawPlaceholderGrid = true
 
-[node name="DeskViewportContainer" type="SubViewportContainer" parent="."]
+[node name="DeskViewport" type="SubViewport" parent="."]
+handle_input_locally = false
+transparent_bg = true
+size = Vector2i(620, 420)
+render_target_update_mode = 4
+
+[node name="DeskCamera2D" type="Camera2D" parent="DeskViewport"]
+
+[node name="DeskBoard" parent="DeskViewport" instance=ExtResource("2_isoboard")]
+TileWidthPx = 256
+PlaceholderGridWidth = 8
+PlaceholderGridHeight = 8
+DrawPlaceholderGrid = true
+DrawPlaceholderFloor = true
+
+[node name="DeskTextureRect" type="TextureRect" parent="."]
+material = SubResource("ShaderMaterial_deskclip")
 layout_mode = 1
 offset_left = 0.0
 offset_top = 628.0
 offset_right = 620.0
 offset_bottom = 1048.0
 mouse_filter = 2
-stretch = true
-
-[node name="DeskPanelBackground" type="Panel" parent="DeskViewportContainer"]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-mouse_filter = 2
-theme_override_styles/panel = SubResource("StyleBoxFlat_desk")
-
-[node name="DeskViewport" type="SubViewport" parent="DeskViewportContainer"]
-handle_input_locally = false
-transparent_bg = true
-size = Vector2i(620, 420)
-render_target_update_mode = 4
-
-[node name="DeskCamera2D" type="Camera2D" parent="DeskViewportContainer/DeskViewport"]
-
-[node name="DeskBoard" parent="DeskViewportContainer/DeskViewport" instance=ExtResource("2_isoboard")]
-TileWidthPx = 256
-PlaceholderGridWidth = 8
-PlaceholderGridHeight = 8
-DrawPlaceholderGrid = true
 
 [node name="HudLayer" type="CanvasLayer" parent="."]
 layer = 10

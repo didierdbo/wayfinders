@@ -2,6 +2,7 @@ using Godot;
 using Wayfinders.Client.Scenes.Iso;
 using Wayfinders.Client.Scenes.Ui;
 using Wayfinders.Client.Scripts.Screens;
+using SysVec2 = System.Numerics.Vector2;
 
 namespace Wayfinders.Client.Scenes.Screens;
 
@@ -72,9 +73,8 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///
 /// <para>
 /// <b>What J3c-1 adds — the static iso desk.</b> A <i>second</i>
-/// <see cref="SubViewportContainer"/> (<c>DeskViewportContainer</c>),
-/// parked bottom-left, hosting its own <see cref="SubViewport"/>, its own
-/// <see cref="Camera2D"/> (<c>DeskCamera2D</c>) and its own
+/// <see cref="SubViewport"/> (<c>DeskViewport</c>), its own
+/// <see cref="Camera2D"/> (<c>DeskCamera2D</c>), and its own
 /// <c>IsoBoard.tscn</c> instance (<c>DeskBoard</c>). It is a genuine
 /// <b>second iso space</b> at a larger iso scale than the maquette — the
 /// Company pawns read big, foreground.
@@ -84,7 +84,9 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///     pans, the desk is fixed) + two clippings = two render worlds. A
 ///     single SubViewport would force hand-scaling nodes and juggling two
 ///     iso origins. Two concrete nodes, no <c>IsoSpace</c> abstraction —
-///     the anti-over-architecture line of the roadmap.</item>
+///     the anti-over-architecture line of the roadmap. <b>This decision is
+///     unchanged by the J3c-1bis triangular-clip fix below</b> — see that
+///     paragraph.</item>
 ///   <item><b>The desk camera is immobile.</b> <c>DeskCamera2D</c> is
 ///     parked once in <see cref="ConfigureDesk"/> on the centroid of the
 ///     Company slot block and never moved — only the maquette pans
@@ -102,33 +104,79 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// </para>
 ///
 /// <para>
-/// <b>State ownership.</b> Three pure-C# helpers, each Godot-free and
+/// <b>J3c-1bis — the desk is a triangle, not a rectangle.</b> An F6 smoke
+/// test caught two desk bugs. (1) The desk read as a <i>flat brown
+/// rectangle</i>: it was hosted in a <see cref="SubViewportContainer"/>
+/// carrying an opaque <see cref="Panel"/> child whose <c>StyleBoxFlat</c>
+/// painted ON TOP of the SubViewport texture, hiding the iso grid and the
+/// pawns rendered inside it. (2) The mockup wants the desk as a
+/// <b>triangle</b> in the bottom-left corner — it fills the wedge the
+/// central maquette diamond does not cover, with the maquette/desk
+/// frontier being the lower-left edge of the maquette's iso diamond — but
+/// a <see cref="SubViewportContainer"/> is intrinsically rectangular.
+/// <list type="bullet">
+///   <item><b>SubViewportContainer dropped, plain TextureRect kept.</b>
+///     The desk <see cref="SubViewport"/> now hangs directly under this
+///     <see cref="Control"/> root and is shown via a plain
+///     <see cref="TextureRect"/> (<c>DeskTextureRect</c>) whose
+///     <c>Texture</c> is the SubViewport's render target, assigned in
+///     <see cref="ConfigureDesk"/>. The opaque <c>Panel</c> is gone — the
+///     desk's brown surface is now drawn <i>in the iso world</i> by the
+///     board (<c>IsoBoard.DrawPlaceholderFloor</c>), below the grid, so
+///     the grid and pawns sit on top of it.</item>
+///   <item><b>Triangular clip by shader.</b> <c>DeskTextureRect</c> runs
+///     <c>desk_triangle_clip.gdshader</c>, which <c>discard;</c>s every
+///     fragment on the maquette side of the frontier line. The frontier
+///     is computed in <see cref="DeskClipFrontierLogic"/> (Godot-free,
+///     xUnit-pinned) from the maquette diamond's lower-left edge and the
+///     desk rect, and pushed into the shader's uniforms. A shader clip is
+///     the cleanest of the options: one fragment pass, an analytic
+///     diagonal, no fragile mask-node hierarchy — and crucially it leaves
+///     the locked "two SubViewports" decision <b>untouched</b>: the desk
+///     keeps its private render world, camera, and iso scale; only how
+///     its texture is <i>shown</i> changed (a TextureRect with a clip
+///     shader instead of a SubViewportContainer).</item>
+///   <item><b>Static-frontier scope (J3c-1).</b> The clip frontier is
+///     computed once in <see cref="ConfigureDesk"/> from the maquette's
+///     <i>parked</i> camera position. If the player pans the maquette the
+///     diamond edge moves but the frontier does not follow — a known,
+///     accepted limit of the <i>static</i> J3c-1 desk (the desk takes no
+///     input and the shell ships parked-centred). When the pan becomes a
+///     first-class interaction the frontier recompute moves into
+///     <see cref="_Input"/> alongside the pan apply — a one-call addition,
+///     the helper is already pure and ready.</item>
+/// </list>
+/// </para>
+///
+/// <para>
+/// <b>State ownership.</b> Four pure-C# helpers, each Godot-free and
 /// xUnit-pinned, carry the only arithmetic in this shell. (1) The pan
 /// decision — when a drag is live, where the clamped camera centre lands
 /// — is <see cref="MapViewportPanLogic"/> (J3a). (2) The residual
 /// central rectangle the maquette viewport must occupy — screen minus the
 /// two HUD bands — is <see cref="HudLayoutLogic"/> (J3b). (3) The Company
 /// slot layout — which iso cell each of the ~7 pawns sits on — is
-/// <see cref="DeskSlotLayoutLogic"/> (J3c-1). This node is the engine
-/// seam only: it converts <see cref="InputEvent"/>s into helper calls and
-/// applies the helper results onto Godot nodes. Same logic-vs-node split
-/// as J3-iso (<c>IsoBoard</c> ↔ <c>IsoProjection</c>) and P8.2
-/// (<c>E1WorldMap</c> ↔ <c>CameraPanLogic</c>).
+/// <see cref="DeskSlotLayoutLogic"/> (J3c-1). (4) The maquette/desk clip
+/// frontier line is <see cref="DeskClipFrontierLogic"/> (J3c-1bis). This
+/// node is the engine seam only: it converts <see cref="InputEvent"/>s and
+/// scene geometry into helper calls and applies the helper results onto
+/// Godot nodes. Same logic-vs-node split as J3-iso (<c>IsoBoard</c> ↔
+/// <c>IsoProjection</c>) and P8.2 (<c>E1WorldMap</c> ↔ <c>CameraPanLogic</c>).
 /// </para>
 ///
 /// <para>
-/// <b>CanvasLayer discipline (trap #1).</b> Both
-/// <see cref="SubViewportContainer"/>s (maquette and desk) are direct
-/// children of this <see cref="Control"/> root — <b>never</b> under the
-/// <c>HudLayer</c> <see cref="CanvasLayer"/>. A <see cref="CanvasLayer"/>
-/// has its own canvas transform that ignores a SubViewport's
-/// <see cref="Camera2D"/>; putting pannable world content under it would
-/// silently break the pan (trap #1 in the wrong direction). The
-/// <c>HudLayer</c> is the <i>only</i> <see cref="CanvasLayer"/> in this
-/// scene and it carries <i>only</i> the HUD — fixed content is exactly
-/// what a <see cref="CanvasLayer"/> is for (trap #1 in the right
-/// direction). The desk sits <i>behind</i> the HUD by tree order plus the
-/// HUD's higher layer index — no maths needed.
+/// <b>CanvasLayer discipline (trap #1).</b> The maquette
+/// <see cref="SubViewportContainer"/>, the desk <see cref="SubViewport"/>,
+/// and the desk <see cref="TextureRect"/> are all direct children of this
+/// <see cref="Control"/> root — <b>never</b> under the <c>HudLayer</c>
+/// <see cref="CanvasLayer"/>. A <see cref="CanvasLayer"/> has its own
+/// canvas transform that ignores a SubViewport's <see cref="Camera2D"/>;
+/// putting pannable world content under it would silently break the pan.
+/// The <c>HudLayer</c> is the <i>only</i> <see cref="CanvasLayer"/> in
+/// this scene and it carries <i>only</i> the HUD — fixed content is
+/// exactly what a <see cref="CanvasLayer"/> is for. The desk sits
+/// <i>behind</i> the HUD by tree order plus the HUD's higher layer index
+/// — no maths needed.
 /// </para>
 ///
 /// <para>
@@ -140,35 +188,30 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// GUI routing and is immune to <c>mouse_filter</c>. Motion events are
 /// <b>not</b> marked handled: J3a owns the pan <i>response</i>, not the
 /// event — future hover / selection systems on this surface must still
-/// see the same motion. The J3b HUD <see cref="Panel"/>s default to
-/// <c>MouseFilter = Stop</c> too; that is harmless here (they sit on a
-/// separate <see cref="CanvasLayer"/> and the pan is read in
-/// <see cref="_Input"/>) and is the correct default for when the HUD
-/// gains real buttons in a later milestone. The desk
-/// <see cref="SubViewportContainer"/> has its <c>MouseFilter</c> set to
-/// <c>Ignore</c> in <see cref="_Ready"/> for J3c-1: the static desk takes
-/// no input, and an <c>Ignore</c> filter means an MMB press over the desk
-/// corner still reaches the maquette pan. J3c-2 will flip this to
-/// <c>Stop</c> when the desk gains pawn selection.
+/// see the same motion. The desk <see cref="TextureRect"/> has
+/// <c>MouseFilter = Ignore</c>: the static J3c-1 desk takes no input, and
+/// an <c>Ignore</c> filter means an MMB press over the desk corner still
+/// reaches the maquette pan. J3c-2 will flip this to <c>Stop</c> when the
+/// desk gains pawn selection.
 /// </para>
 ///
 /// <para>
 /// <b>Gesture mutual-exclusion (trap #5) — deliberately deferred.</b> J3a
 /// has exactly one gesture (MMB-drag pan). There is no second gesture to
-/// collide with yet, so no <c>SetInputAsHandled</c> suppression is wired.
-/// When J3c-2 adds left-click pawn selection and J6 adds POI clicks, the
-/// trap #5 defense (the screen holding a live drag consumes the
-/// mutually-exclusive gesture's events) gets added <i>then</i>, against a
-/// real second gesture — not speculatively now.
+/// collide with yet, so no extra suppression is wired beyond marking the
+/// MMB press/release handled. When J3c-2 adds left-click pawn selection
+/// the trap #5 defense gets added <i>then</i>, against a real second
+/// gesture — not speculatively now.
 /// </para>
 ///
 /// <para>
 /// <b>Preflight (trap #2).</b> <see cref="_Ready"/> prints a fixed
 /// diagnostics block — viewport size, content extent, clamp bounds,
 /// camera start, the resolved pan button, the HUD band heights plus the
-/// residual map rect, and (J3c-1) the desk viewport rect plus the
-/// resolved Company slot cells. A pan, clipping, HUD-layout, or desk-slot
-/// bug is then visible in the Godot Output on the first run.
+/// residual map rect, and (J3c-1) the desk viewport rect, the resolved
+/// Company slot cells, and the resolved clip frontier. A pan, clipping,
+/// HUD-layout, desk-slot, or clip-frontier bug is then visible in the
+/// Godot Output on the first run.
 /// </para>
 /// </summary>
 public partial class GameScreen : Control
@@ -201,16 +244,24 @@ public partial class GameScreen : Control
     /// </summary>
     private const float HudBandHeight = 32f;
 
+    /// <summary>
+    /// Shader uniform names on <c>desk_triangle_clip.gdshader</c>. Held as
+    /// constants so a rename surfaces at compile time on this one line
+    /// rather than as a silent no-op clip at runtime.
+    /// </summary>
+    private const string ClipPointUniform = "clip_line_point";
+    private const string ClipNormalUniform = "clip_line_normal";
+
     private SubViewportContainer _mapContainer = null!;
     private SubViewport _mapViewport = null!;
     private Camera2D _mapCamera = null!;
     private IsoBoard _maquette = null!;
     private CanvasLayer _hudLayer = null!;
 
-    private SubViewportContainer _deskContainer = null!;
     private SubViewport _deskViewport = null!;
     private Camera2D _deskCamera = null!;
     private IsoBoard _deskBoard = null!;
+    private TextureRect _deskTextureRect = null!;
 
     private readonly MapViewportPanLogic _pan = new();
 
@@ -222,10 +273,10 @@ public partial class GameScreen : Control
         _maquette = GetNode<IsoBoard>("MapViewportContainer/MapViewport/Maquette");
         _hudLayer = GetNode<CanvasLayer>("HudLayer");
 
-        _deskContainer = GetNode<SubViewportContainer>("DeskViewportContainer");
-        _deskViewport = GetNode<SubViewport>("DeskViewportContainer/DeskViewport");
-        _deskCamera = GetNode<Camera2D>("DeskViewportContainer/DeskViewport/DeskCamera2D");
-        _deskBoard = GetNode<IsoBoard>("DeskViewportContainer/DeskViewport/DeskBoard");
+        _deskViewport = GetNode<SubViewport>("DeskViewport");
+        _deskCamera = GetNode<Camera2D>("DeskViewport/DeskCamera2D");
+        _deskBoard = GetNode<IsoBoard>("DeskViewport/DeskBoard");
+        _deskTextureRect = GetNode<TextureRect>("DeskTextureRect");
 
         // J3b: size the map viewport to the residual central rectangle —
         // the screen minus the two fixed HUD bands. This is the second of
@@ -334,33 +385,41 @@ public partial class GameScreen : Control
     }
 
     /// <summary>
-    /// J3c-1: stand up the static iso desk. Sizes the
-    /// <c>DeskViewport</c>'s render target to its container rect (so the
-    /// desk is clipped to the bottom-left panel), parks the desk camera
-    /// centred on the slot block (the desk does NOT pan — the camera is
-    /// set once here and never moved), and places one placeholder pawn on
-    /// each Company slot via <see cref="DeskSlotLayoutLogic"/>.
+    /// J3c-1 / J3c-1bis: stand up the static iso desk. Sizes the
+    /// <c>DeskViewport</c>'s render target, wires its texture onto the
+    /// <c>DeskTextureRect</c>, parks the immobile desk camera on the slot
+    /// block, places one placeholder pawn per Company slot, and computes
+    /// the triangular clip frontier the desk shader consumes.
     ///
     /// <para>
     /// The slot cells are pure-C# maths (Godot-free, xUnit-pinned); this
     /// method only converts each <c>TileCoordinate</c> to a Godot pixel
     /// through the desk board's own <see cref="IsoProjection"/> and
-    /// instances a <see cref="DeskCompanyPawn"/> there. No pawn carries
-    /// game state — J3c-1 is static; selection / placement / the
-    /// authoritative <c>GameState</c> occupancy are J3c-2.
+    /// instances a <see cref="DeskCompanyPawn"/> there. The clip frontier
+    /// is likewise <see cref="DeskClipFrontierLogic"/> maths; this method
+    /// only feeds it the scene geometry and writes the result into the
+    /// shader uniforms. No pawn carries game state — J3c-1 is static.
     /// </para>
     /// </summary>
     private void ConfigureDesk()
     {
-        // The desk viewport render size follows its container rect, the
-        // same stretch lockstep as the maquette — the desk content is
-        // clipped exactly to the bottom-left panel.
-        _deskViewport.Size = (Vector2I)_deskContainer.Size;
+        // The desk viewport render size follows the DeskTextureRect rect,
+        // so the rendered desk world maps 1:1 onto the on-screen rect
+        // before the triangular shader clip drops the maquette-side
+        // fragments.
+        _deskViewport.Size = (Vector2I)_deskTextureRect.Size;
+
+        // Show the desk SubViewport's render target through the plain
+        // TextureRect. No SubViewportContainer (intrinsically rectangular)
+        // — the TextureRect carries the clip shader that makes the desk a
+        // triangle. The locked "two SubViewports" decision is intact: the
+        // desk still has its own render world below.
+        _deskTextureRect.Texture = _deskViewport.GetTexture();
 
         // The static desk takes no input in J3c-1. An Ignore filter means
         // an MMB press landing over the desk corner still reaches the
         // maquette pan underneath. J3c-2 flips this to Stop for selection.
-        _deskContainer.MouseFilter = MouseFilterEnum.Ignore;
+        _deskTextureRect.MouseFilter = MouseFilterEnum.Ignore;
 
         var slots = DeskSlotLayoutLogic.CompanySlotCells();
 
@@ -389,14 +448,85 @@ public partial class GameScreen : Control
                 isLeader: DeskSlotLayoutLogic.IsLeaderSlot(i));
             _deskBoard.AddOccupant(pawn);
         }
+
+        ApplyDeskClipFrontier();
+    }
+
+    /// <summary>
+    /// J3c-1bis: compute the maquette/desk triangular-clip frontier and
+    /// push it into the <c>DeskTextureRect</c>'s clip shader.
+    ///
+    /// <para>
+    /// The frontier is the maquette diamond's lower-left edge — from its
+    /// left apex to its bottom apex — expressed in <i>screen</i> pixels.
+    /// The maquette diamond is in the maquette board's local space; the
+    /// maquette <see cref="Camera2D"/> maps it to the
+    /// <see cref="SubViewport"/> render, and the
+    /// <see cref="SubViewportContainer"/> offsets place that render on
+    /// screen. The composition of those two transforms is done here, then
+    /// handed — as two screen points plus the desk rect — to
+    /// <see cref="DeskClipFrontierLogic"/>, which returns the UV-space
+    /// point + normal the shader needs.
+    /// </para>
+    ///
+    /// <para>
+    /// Computed once: J3c-1 ships the maquette parked-centred and the desk
+    /// is static (see the class doc, "static-frontier scope"). When the
+    /// pan becomes interactive this same call moves into <see cref="_Input"/>.
+    /// </para>
+    /// </summary>
+    private void ApplyDeskClipFrontier()
+    {
+        // The maquette grid-bounding diamond, in the maquette board's
+        // local space: [top, right, bottom, left] apexes.
+        var diamond = _maquette.GridBoundingDiamond();
+        Vector2 leftApexLocal = diamond[3];
+        Vector2 bottomApexLocal = diamond[2];
+
+        // Maquette-local -> screen. The maquette camera is centred on
+        // _mapCamera.Position; a world point P lands on the SubViewport at
+        // (P - cameraCentre) + halfViewport, and the SubViewport render is
+        // placed on screen at the container's offset (OffsetLeft/Top).
+        Vector2 leftApexScreen = MaquetteLocalToScreen(leftApexLocal);
+        Vector2 bottomApexScreen = MaquetteLocalToScreen(bottomApexLocal);
+
+        var deskOrigin = new SysVec2(
+            _deskTextureRect.OffsetLeft, _deskTextureRect.OffsetTop);
+        var deskSize = new SysVec2(
+            _deskTextureRect.Size.X, _deskTextureRect.Size.Y);
+
+        var frontier = DeskClipFrontierLogic.Compute(
+            ToSys(leftApexScreen), ToSys(bottomApexScreen), deskOrigin, deskSize);
+
+        var material = (ShaderMaterial)_deskTextureRect.Material;
+        material.SetShaderParameter(
+            ClipPointUniform, new Vector2(frontier.PointUv.X, frontier.PointUv.Y));
+        material.SetShaderParameter(
+            ClipNormalUniform, new Vector2(frontier.NormalUv.X, frontier.NormalUv.Y));
+    }
+
+    /// <summary>
+    /// Map a point in the maquette board's local pixel space to a screen
+    /// pixel: through the maquette <see cref="Camera2D"/> into the
+    /// <see cref="SubViewport"/> render, then offset by the
+    /// <see cref="SubViewportContainer"/>'s screen position. The single
+    /// place this transform composition lives, for the J3c-1bis clip.
+    /// </summary>
+    private Vector2 MaquetteLocalToScreen(Vector2 maquetteLocal)
+    {
+        Vector2 halfViewport = _mapContainer.Size * 0.5f;
+        Vector2 inViewport = maquetteLocal - _mapCamera.Position + halfViewport;
+        var containerOrigin = new Vector2(
+            _mapContainer.OffsetLeft, _mapContainer.OffsetTop);
+        return inViewport + containerOrigin;
     }
 
     /// <summary>
     /// The pannable maquette content extent in world pixels. Prefers the
-    /// real <c>IsoBoard</c> floor bitmap size; falls back to the
-    /// placeholder iso-diamond bounding box while Mira's district asset
-    /// is not yet wired (J2). The clamp is computed against this extent
-    /// so the camera never pans past the maquette into the void.
+    /// real <see cref="IsoBoard"/> floor bitmap size; falls back to the
+    /// placeholder iso-diamond bounding box while Mira's district asset is
+    /// not yet wired (J2). The clamp is computed against this extent so
+    /// the camera never pans past the maquette into the void.
     /// </summary>
     private Vector2 ContentSize()
     {
@@ -454,13 +584,14 @@ public partial class GameScreen : Control
         }
 
         // J3c-1 desk diagnostics: the second SubViewport rect, the desk
-        // iso scale vs the maquette scale, and the resolved Company slot
-        // cells. A wrong desk viewport size or a slot count drift
+        // iso scale vs the maquette scale, the resolved Company slot
+        // cells, and the J3c-1bis triangular-clip frontier. A wrong desk
+        // viewport size, a slot count drift, or a degenerate clip frontier
         // surfaces here on first run.
         var slots = DeskSlotLayoutLogic.CompanySlotCells();
         GD.Print($"[GameScreen] preflight: DeskViewport size={_deskViewport.Size} " +
-                 $"container rect={_deskContainer.Size} " +
-                 $"mouseFilter={_deskContainer.MouseFilter} (J3c-1 static)");
+                 $"DeskTextureRect rect={_deskTextureRect.Size} " +
+                 $"mouseFilter={_deskTextureRect.MouseFilter} (J3c-1 static)");
         GD.Print($"[GameScreen] preflight: desk iso tile={_deskBoard.TileWidthPx}px " +
                  $"(maquette tile={_maquette.TileWidthPx}px) " +
                  $"-- two iso scales, distinct SubViewports");
@@ -472,11 +603,18 @@ public partial class GameScreen : Control
             GD.PushWarning("[GameScreen] Company slot count drifted from " +
                            $"{DeskSlotLayoutLogic.CompanySlotCount}.");
         }
+        var clipMaterial = (ShaderMaterial)_deskTextureRect.Material;
+        GD.Print($"[GameScreen] preflight: desk clip frontier " +
+                 $"point={clipMaterial.GetShaderParameter(ClipPointUniform)} " +
+                 $"normal={clipMaterial.GetShaderParameter(ClipNormalUniform)} " +
+                 $"-- triangular clip (J3c-1bis)");
     }
 
-    // --- engine seam: Godot.Vector2 <-> PanVec2 ----------------------------
+    // --- engine seam: Godot.Vector2 <-> PanVec2 / System.Numerics --------
 
     private static PanVec2 ToPan(Vector2 v) => new(v.X, v.Y);
 
     private static Vector2 ToGodot(PanVec2 v) => new(v.X, v.Y);
+
+    private static SysVec2 ToSys(Vector2 v) => new(v.X, v.Y);
 }

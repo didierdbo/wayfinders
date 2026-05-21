@@ -541,4 +541,18 @@
     <Compile Include="..\scripts\screens\DeskSlotLayoutLogic.cs" Link="src\DeskSlotLayoutLogic.cs" />
   </ItemGroup>
 
+  <!-- J3c-1bis desk triangular clip (Rune, 2026-05-21). DeskClipFrontierLogic
+       is the pure-C# geometry that turns the maquette/desk frontier — a
+       diagonal in screen pixels — into the clip_line_point / clip_line_normal
+       UV-space uniforms desk_triangle_clip.gdshader consumes on the desk
+       TextureRect. Godot-free by design (System.Numerics.Vector2, not
+       Godot.Vector2) so it pins here without an engine — a flipped normal,
+       a bad UV scale, or a degenerate zero-length frontier all surface red.
+       The Godot-bound wiring (GameScreen.ApplyDeskClipFrontier feeding scene
+       geometry in and writing the shader uniforms out) lives in the client
+       csproj only and is validated via the GameScreen.tscn F6 smoke. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\DeskClipFrontierLogic.cs" Link="src\DeskClipFrontierLogic.cs" />
+  </ItemGroup>
+
 </Project>
