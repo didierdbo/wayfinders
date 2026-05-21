@@ -17,12 +17,14 @@ namespace Wayfinders.Client.Tests.Opening;
 /// being placed flush on the bottom HUD band's top edge (J3c-1octies — no
 /// desk strip below the diamond), the screen-to-UV mapping, the orientation
 /// of each hypotenuse normal toward its own desk corner, the split being the
-/// diamond lower point's UV x, and the loud failure on a degenerate input.
-/// The decisive behaviour test: the two bottom-screen corners are kept (the
-/// desk), the centre and the top-screen corners are dropped (the maquette
-/// diamond). The Godot-bound wiring — feeding scene geometry in and writing
-/// the shader uniforms out — lives in <c>GameScreen.ApplyDeskClipFrontier</c>
-/// and is validated via the <c>GameScreen.tscn</c> F6 smoke.
+/// diamond lower point's UV x, the EXACT left/right mirror symmetry of the
+/// whole frontier (J3c-1nonies — see below), and the loud failure on a
+/// degenerate input. The decisive behaviour test: the two bottom-screen
+/// corners are kept (the desk), the centre and the top-screen corners are
+/// dropped (the maquette diamond). The Godot-bound wiring — feeding scene
+/// geometry in and writing the shader uniforms out — lives in
+/// <c>GameScreen.ApplyDeskClipFrontier</c> and is validated via the
+/// <c>GameScreen.tscn</c> F6 smoke.
 /// </para>
 ///
 /// <para>
@@ -46,6 +48,20 @@ namespace Wayfinders.Client.Tests.Opening;
 /// <c>screenHeight - bottomHudBandHeight</c> — flush on the band's top edge.
 /// <see cref="MaquetteDiamond_lower_point_is_flush_on_the_bottom_hud_band"/>
 /// is the dedicated guard.
+/// </para>
+///
+/// <para>
+/// <b>J3c-1nonies (Didier, 2026-05-21 — "il faut que ce soit exact") — the
+/// twin clip is EXACTLY mirror-symmetric about screen centre.</b> Didier saw
+/// the bottom of the screen read as not a perfect left/right mirror: "on
+/// perd à gauche, on gagne plus à droite". The diamond apexes were already
+/// exact mirrors; the twin-clip frontier used to be computed side-by-side
+/// and was symmetric only by arithmetic coincidence. The fix derives the
+/// right half-plane as the EXACT reflection of the left about the split
+/// column. <see cref="Twin_clip_is_exactly_mirror_symmetric_about_screen_centre"/>
+/// and <see cref="Diamond_apexes_are_exact_mirrors_about_screen_centre"/>
+/// are the dedicated invariant guards — the "exact" Didier asked for, pinned
+/// against any future regression.
 /// </para>
 /// </summary>
 public sealed class DeskClipFrontierLogicTests
@@ -166,6 +182,163 @@ public sealed class DeskClipFrontierLogicTests
                 DeskClipFrontierLogic.IsoEdgeSlope,
                 DeskClipFrontierLogic.EdgeSlope(d.LowerPoint, d.RightApex),
                 precision: 5);
+        }
+    }
+
+    // --- THE MIRROR-SYMMETRY INVARIANT (J3c-1nonies) ----------------------
+    //  Didier, 2026-05-21, F6: "on perd à gauche, on gagne plus à droite,
+    //  il faut que ce soit exact." The bottom zone must be a PERFECT
+    //  left/right mirror about the screen's vertical centre. These two
+    //  tests pin every facet of "exact": the diamond apexes, the lower
+    //  point on the centre axis, the twin-clip normals and points.
+
+    [Fact]
+    public void Diamond_apexes_are_exact_mirrors_about_screen_centre()
+    {
+        // The four diamond apexes must be a perfect left/right mirror about
+        // x = screenWidth/2. The lower point and the top apex sit ON the
+        // centre axis; the two side apexes are equidistant from it at a
+        // shared Y. This is structural in MaquetteDiamond (apexes written as
+        // centreX ∓ halfW) — the test locks it so a future edit cannot
+        // quietly skew it.
+        var d = DeskClipFrontierLogic.MaquetteDiamond(
+            DeskSize, TopHudBand, BottomHudBand);
+
+        float centreX = DeskSize.X * 0.5f; // 960 — the mirror axis
+
+        // The lower point is EXACTLY on the centre axis (the pointe basse
+        // Didier asked be "pile au centre").
+        Assert.Equal(centreX, d.LowerPoint.X, precision: 4);
+        // The top apex is on the same axis.
+        Assert.Equal(centreX, d.TopApex.X, precision: 4);
+
+        // The two side apexes are equidistant from the centre — same |Δx|.
+        float leftGap = centreX - d.LeftApex.X;
+        float rightGap = d.RightApex.X - centreX;
+        Assert.Equal(leftGap, rightGap, precision: 3);
+        Assert.True(leftGap > 0f,
+            "the left apex must sit left of the centre axis");
+
+        // And they share a Y — a mirror reflection never changes Y.
+        Assert.Equal(d.LeftApex.Y, d.RightApex.Y, precision: 4);
+    }
+
+    [Fact]
+    public void Twin_clip_is_exactly_mirror_symmetric_about_screen_centre()
+    {
+        // THE J3c-1nonies invariant — the "exact" symmetry Didier demanded.
+        // The twin-clip frontier the shader consumes must be a perfect
+        // left/right mirror about the split column:
+        //   - the split is EXACTLY 0.5 (the lower point is on screen centre);
+        //   - the right normal is the left normal with nx negated, ny equal;
+        //   - the right point is the left point reflected about the split:
+        //     rightPoint == (2·split − leftPoint.X, leftPoint.Y).
+        // If any future change recomputes the right side independently and
+        // it drifts, this test goes red — not an F6 capture.
+        var d = DeskClipFrontierLogic.MaquetteDiamond(
+            DeskSize, TopHudBand, BottomHudBand);
+        var f = DeskClipFrontierLogic.Compute(d, DeskOrigin, DeskSize);
+
+        // (1) The split — the mirror axis — is exactly the UV centre.
+        Assert.Equal(0.5f, f.SplitU, precision: 5);
+
+        // (2) The normals are exact mirrors: nx strictly opposite, ny equal.
+        Assert.Equal(-f.LeftNormalUv.X, f.RightNormalUv.X, precision: 5);
+        Assert.Equal(f.LeftNormalUv.Y, f.RightNormalUv.Y, precision: 5);
+        // And the normals are non-degenerate (a zero normal keeps nothing).
+        Assert.True(f.LeftNormalUv.LengthSquared() > 1e-6f,
+            "the left clip normal must be non-degenerate");
+
+        // (3) The points are exact mirrors about the split column.
+        var mirroredLeftPoint =
+            DeskClipFrontierLogic.ReflectPointAboutSplit(f.LeftPointUv, f.SplitU);
+        Assert.Equal(mirroredLeftPoint.X, f.RightPointUv.X, precision: 5);
+        Assert.Equal(mirroredLeftPoint.Y, f.RightPointUv.Y, precision: 5);
+
+        // (4) The decisive end-to-end check: any UV point and its mirror
+        // image about the split must get the SAME keep/drop verdict from the
+        // shader. If the clip leaned, a point kept on one side would be
+        // dropped on the other — exactly the "perd à gauche, gagne à droite"
+        // Didier reported. Sweep a grid of points and assert mirror parity.
+        for (float y = 0.05f; y <= 0.99f; y += 0.07f)
+        {
+            for (float dx = 0.02f; dx <= 0.49f; dx += 0.07f)
+            {
+                var leftPt = new SysVec2(f.SplitU - dx, y);
+                var rightPt = new SysVec2(f.SplitU + dx, y);
+                Assert.Equal(
+                    KeptByShader(f, leftPt),
+                    KeptByShader(f, rightPt));
+            }
+        }
+    }
+
+    [Fact]
+    public void Reflect_helpers_are_true_mirror_operations()
+    {
+        // The two reflection primitives the right half-plane is built with.
+        // A point reflected twice returns to itself; a point on the split is
+        // its own mirror; a normal's Y is untouched (vertical mirror axis).
+        const float split = 0.5f;
+        var p = new SysVec2(0.2f, 0.7f);
+
+        var once = DeskClipFrontierLogic.ReflectPointAboutSplit(p, split);
+        Assert.Equal(2f * split - p.X, once.X, precision: 5);
+        Assert.Equal(p.Y, once.Y, precision: 5);
+
+        var twice = DeskClipFrontierLogic.ReflectPointAboutSplit(once, split);
+        Assert.Equal(p.X, twice.X, precision: 5);
+        Assert.Equal(p.Y, twice.Y, precision: 5);
+
+        var onSplit = new SysVec2(split, 0.3f);
+        var onSplitMirror =
+            DeskClipFrontierLogic.ReflectPointAboutSplit(onSplit, split);
+        Assert.Equal(onSplit.X, onSplitMirror.X, precision: 5);
+
+        var n = new SysVec2(-0.84f, 0.95f);
+        var nMirror = DeskClipFrontierLogic.ReflectNormalAboutSplit(n);
+        Assert.Equal(-n.X, nMirror.X, precision: 5);
+        Assert.Equal(n.Y, nMirror.Y, precision: 5);
+    }
+
+    [Fact]
+    public void Compute_rejects_a_diamond_that_is_not_mirror_symmetric()
+    {
+        // The mirror invariant rests on the diamond inputs already being a
+        // left/right mirror. A skewed diamond — side apexes not equidistant
+        // from the lower point — must fail LOUD, not be silently mirrored
+        // into a wrong-but-symmetric clip.
+        var skewed = new DeskClipFrontierLogic.DiamondApexes(
+            TopApex: new SysVec2(960f, -200f),
+            LeftApex: new SysVec2(200f, 200f),    // 760 px left of centre
+            RightApex: new SysVec2(1500f, 200f),  // 540 px right — not a mirror
+            LowerPoint: new SysVec2(960f, 1048f));
+
+        Assert.Throws<System.ArgumentException>(
+            () => DeskClipFrontierLogic.Compute(skewed, DeskOrigin, DeskSize));
+    }
+
+    [Fact]
+    public void Mirror_symmetry_holds_across_screen_sizes()
+    {
+        // The symmetry is derived, not screen-specific — it must hold on any
+        // aspect ratio. The split is always the UV centre, the normals are
+        // always exact mirrors.
+        foreach (var screen in new[]
+                 {
+                     new SysVec2(1280f, 720f),
+                     new SysVec2(2560f, 1080f),
+                     new SysVec2(1080f, 1920f), // portrait
+                 })
+        {
+            var d = DeskClipFrontierLogic.MaquetteDiamond(
+                screen, TopHudBand, BottomHudBand);
+            var f = DeskClipFrontierLogic.Compute(
+                d, SysVec2.Zero, screen);
+
+            Assert.Equal(0.5f, f.SplitU, precision: 5);
+            Assert.Equal(-f.LeftNormalUv.X, f.RightNormalUv.X, precision: 5);
+            Assert.Equal(f.LeftNormalUv.Y, f.RightNormalUv.Y, precision: 5);
         }
     }
 
@@ -505,13 +678,16 @@ public sealed class DeskClipFrontierLogicTests
     public void Compute_throws_on_a_degenerate_zero_length_hypotenuse()
     {
         // A diamond whose lower point coincides with the left apex gives a
-        // zero-length left hypotenuse — the frontier is undefined.
-        var apex = new SysVec2(100f, 100f);
+        // zero-length left hypotenuse — the frontier is undefined. The
+        // diamond is kept mirror-symmetric (right apex == lower point too)
+        // so it passes the mirror guard and reaches the zero-length check
+        // this test is about.
+        var lower = new SysVec2(960f, 1048f);
         var degenerate = new DeskClipFrontierLogic.DiamondApexes(
             TopApex: new SysVec2(960f, -200f),
-            LeftApex: apex,
-            RightApex: new SysVec2(1920f, 60f),
-            LowerPoint: apex);
+            LeftApex: lower,
+            RightApex: lower,
+            LowerPoint: lower);
 
         Assert.Throws<System.ArgumentException>(
             () => DeskClipFrontierLogic.Compute(degenerate, DeskOrigin, DeskSize));

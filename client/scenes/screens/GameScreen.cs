@@ -723,6 +723,35 @@ public partial class GameScreen : Control
                  $"rightPoint=({frontier.RightPointUv.X},{frontier.RightPointUv.Y}) " +
                  $"rightNormal=({frontier.RightNormalUv.X},{frontier.RightNormalUv.Y}) " +
                  $"splitU={frontier.SplitU}");
+        // [DESK-DIAG] J3c-1nonies — the EXACT mirror symmetry Didier asked
+        // for ("il faut que ce soit exact"). Paste these lines after the F6
+        // to confirm the bottom zone is a perfect left/right mirror.
+        {
+            float centreX = screen.X * 0.5f;
+            float leftGap = centreX - diamond.LeftApex.X;
+            float rightGap = diamond.RightApex.X - centreX;
+            GD.Print($"[DESK-DIAG] SYMMETRY pointe basse: lowerPoint.X=" +
+                     $"{diamond.LowerPoint.X} vs screenW/2={centreX} " +
+                     $"=> delta={diamond.LowerPoint.X - centreX} " +
+                     $"(must be 0 — pointe basse pile au centre)");
+            GD.Print($"[DESK-DIAG] SYMMETRY apex: leftGap={leftGap} " +
+                     $"rightGap={rightGap} delta={leftGap - rightGap} " +
+                     $"| apexY left={diamond.LeftApex.Y} right=" +
+                     $"{diamond.RightApex.Y} (gaps + Ys must be equal)");
+            GD.Print($"[DESK-DIAG] SYMMETRY normals: leftNormal=(" +
+                     $"{frontier.LeftNormalUv.X},{frontier.LeftNormalUv.Y}) " +
+                     $"rightNormal=({frontier.RightNormalUv.X}," +
+                     $"{frontier.RightNormalUv.Y}) => nx must be opposite " +
+                     $"(sum={frontier.LeftNormalUv.X + frontier.RightNormalUv.X}), " +
+                     $"ny equal (delta=" +
+                     $"{frontier.LeftNormalUv.Y - frontier.RightNormalUv.Y})");
+            GD.Print($"[DESK-DIAG] SYMMETRY points: rightPoint=(" +
+                     $"{frontier.RightPointUv.X},{frontier.RightPointUv.Y}) " +
+                     $"vs mirror-of-left=(" +
+                     $"{2f * frontier.SplitU - frontier.LeftPointUv.X}," +
+                     $"{frontier.LeftPointUv.Y}) — must coincide; splitU=" +
+                     $"{frontier.SplitU} must be 0.5");
+        }
         GD.Print($"[DESK-DIAG] clip applies to the FLOOR viewport ONLY -- " +
                  $"the DeskEntitiesViewport (pawns) carries NO shader, so a " +
                  $"pawn overflowing above the floor triangle is NOT clipped");
@@ -922,6 +951,14 @@ public partial class GameScreen : Control
                  $"leftPoint=({frontier.LeftPointUv.X},{frontier.LeftPointUv.Y}) " +
                  $"rightPoint=({frontier.RightPointUv.X},{frontier.RightPointUv.Y}) " +
                  $"splitU={frontier.SplitU}");
+        GD.Print($"[DESK-DIAG] SYMMETRY (J3c-1nonies, F6 confirm): " +
+                 $"pointe-basse.X={diamond.LowerPoint.X} (screenW/2=" +
+                 $"{screen.X * 0.5f}) | apex gaps L=" +
+                 $"{screen.X * 0.5f - diamond.LeftApex.X} R=" +
+                 $"{diamond.RightApex.X - screen.X * 0.5f} | normals nx-sum=" +
+                 $"{frontier.LeftNormalUv.X + frontier.RightNormalUv.X} " +
+                 $"ny-delta={frontier.LeftNormalUv.Y - frontier.RightNormalUv.Y} " +
+                 $"splitU={frontier.SplitU} -- all deltas must be 0, splitU 0.5");
 
         GD.Print($"[DESK-DIAG] >> see also IsoBoard '{_deskFloorBoard.Name}' " +
                  $"[DESK-DIAG] _Draw lines for grid coverage vs floor rect.");

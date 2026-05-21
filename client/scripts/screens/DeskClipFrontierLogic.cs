@@ -53,6 +53,23 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// </para>
 ///
 /// <para>
+/// <b>The twin clip is mirror-symmetric BY CONSTRUCTION (J3c-1nonies,
+/// Didier, 2026-05-21 — "il faut que ce soit exact").</b> Didier saw the
+/// bottom of the screen read as <i>not</i> a perfect left/right mirror:
+/// <i>"on perd à gauche, on gagne plus à droite"</i>. The diamond apexes
+/// were already exact mirrors — <see cref="MaquetteDiamond"/> builds them
+/// as <c>centreX ∓ halfW</c> at a shared <c>sideY</c>, equidistant from the
+/// centre for ANY <c>halfW</c>. The twin-clip frontier, however, used to be
+/// computed by running the half-plane builder twice, once per side, and the
+/// two sides came out symmetric only by an arithmetic coincidence. This
+/// round promotes that coincidence to a guarantee: <see cref="Compute"/>
+/// builds the LEFT half-plane, then derives the RIGHT one as the EXACT
+/// MIRROR of the left about the vertical split column. See
+/// <see cref="Compute"/> for the reflection maths and the defensive check
+/// that the diamond inputs really are mirror inputs.
+/// </para>
+///
+/// <para>
 /// <b>One SubViewport, two windows (architecture note).</b> The desk is
 /// still ONE iso space rendered into ONE <c>DeskViewport</c> SubViewport —
 /// the locked "two SubViewports" decision (maquette + desk) is intact. The
@@ -68,7 +85,8 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// into UV, two normals that must each point toward their own corner.
 /// Baked into <c>GameScreen._Ready</c> it would be invisible until an F6
 /// smoke. Pinned here it is xUnit-checkable: a flipped normal, a bad UV
-/// scale, a degenerate frontier — or a broken iso slope — all surface red.
+/// scale, a degenerate frontier — or a broken iso slope, or a broken
+/// mirror symmetry — all surface red.
 /// Same logic-vs-node split as <see cref="HudLayoutLogic"/>,
 /// <see cref="DeskFloorRectLogic"/>.
 /// </para>
@@ -101,6 +119,13 @@ public static class DeskClipFrontierLogic
     /// OR inside the bottom-RIGHT corner triangle
     /// (<c>p.x &gt;= SplitU</c> AND
     /// <c>dot(p - RightPointUv, RightNormalUv) &gt;= 0</c>).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Mirror invariant.</b> Since J3c-1nonies the right side is the
+    /// exact reflection of the left about <see cref="SplitU"/>:
+    /// <c>RightPointUv == (2·SplitU − LeftPointUv.X, LeftPointUv.Y)</c> and
+    /// <c>RightNormalUv == (−LeftNormalUv.X, LeftNormalUv.Y)</c>.
     /// </para>
     /// </summary>
     /// <param name="LeftPointUv">A point on the left triangle's hypotenuse, UV.</param>
@@ -289,6 +314,16 @@ public static class DeskClipFrontierLogic
     /// </para>
     ///
     /// <para>
+    /// <b>Mirror symmetry is structural (J3c-1nonies).</b> The two side
+    /// apexes are built as <c>centreX − halfW</c> and <c>centreX + halfW</c>
+    /// at the SAME <c>sideY</c>; the top apex and the lower point both sit
+    /// on <c>centreX</c>. So the four apexes are an exact left/right mirror
+    /// about <c>screenWidth/2</c> for ANY <c>halfW</c> — the symmetry is a
+    /// property of how the points are written, not an arithmetic
+    /// coincidence. <c>DeskClipFrontierLogicTests</c> pins it.
+    /// </para>
+    ///
+    /// <para>
     /// <b>Why the diamond overflows sideways instead of stretching down.</b>
     /// Commit 5f9aeb5 grew the maquette by driving the diamond's vertical
     /// extent from a free screen-height fraction — which made the edge slope
@@ -368,6 +403,10 @@ public static class DeskClipFrontierLogic
         float sideY = lowerY - halfH;
         float topY = lowerY - 2f * halfH;
 
+        // The two side apexes are written as centreX ∓ halfW at the SAME
+        // sideY; the top apex and the lower point both sit on centreX. The
+        // four apexes are therefore an EXACT left/right mirror about
+        // screenWidth/2 — for any halfW — by construction (J3c-1nonies).
         return new DiamondApexes(
             TopApex: new SysVec2(centreX, topY),
             LeftApex: new SysVec2(centreX - halfW, sideY),
@@ -392,17 +431,40 @@ public static class DeskClipFrontierLogic
     /// </para>
     ///
     /// <para>
-    /// Because the diamond overflows the screen sideways, the left and right
-    /// apexes are OFF the desk rect; their UV x is negative / greater than
-    /// one. That is fine — the half-plane is defined by any point on the
-    /// edge and a normal, and the shader only ever evaluates it for on-rect
-    /// fragments. The edge slope (and therefore the clip line) is identical
-    /// whether the apex is on- or off-screen.
+    /// Because the diamond overflows the screen sideways, the left apex is
+    /// OFF the desk rect; its UV x is negative. That is fine — the
+    /// half-plane is defined by any point on the edge and a normal, and the
+    /// shader only ever evaluates it for on-rect fragments. The edge slope
+    /// (and therefore the clip line) is identical whether the apex is on- or
+    /// off-screen.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The right half-plane is the EXACT MIRROR of the left
+    /// (J3c-1nonies, Didier, 2026-05-21 — "il faut que ce soit exact").</b>
+    /// Didier saw the bottom of the screen read as not a perfect mirror:
+    /// <i>"on perd à gauche, on gagne plus à droite"</i>. Only the LEFT
+    /// half-plane is computed here, from the diamond's left lower edge. The
+    /// RIGHT half-plane is then NOT computed independently — it is derived
+    /// as the reflection of the left one about the vertical split column
+    /// <c>splitU</c>:
+    /// <list type="bullet">
+    ///   <item>a UV point <c>(x, y)</c> reflects to <c>(2·splitU − x, y)</c>;</item>
+    ///   <item>a UV normal <c>(nx, ny)</c> reflects to <c>(−nx, ny)</c>.</item>
+    /// </list>
+    /// Reflecting rather than recomputing makes the left/right symmetry an
+    /// invariant the code cannot drift away from: the right frontier <i>is</i>
+    /// the mirrored left frontier, not a value that merely happens to match.
+    /// A defensive check first asserts the diamond's own apexes are genuine
+    /// mirror inputs (lower point on the split, side apexes equidistant at a
+    /// shared Y), so a caller passing a skewed diamond fails loud rather than
+    /// producing a silently mirrored-but-wrong clip.
     /// </para>
     /// </summary>
     /// <param name="diamond">
     /// The maquette diamond apexes in screen pixels, from
-    /// <see cref="MaquetteDiamond"/>.
+    /// <see cref="MaquetteDiamond"/>. Must be left/right mirror-symmetric
+    /// about its lower point's X.
     /// </param>
     /// <param name="deskRectOriginScreen">
     /// Top-left corner of the desk <c>TextureRect</c>, in screen pixels.
@@ -412,8 +474,9 @@ public static class DeskClipFrontierLogic
     /// </param>
     /// <returns>The <see cref="TwinClipFrontier"/> to push into the shader.</returns>
     /// <exception cref="System.ArgumentException">
-    /// If the desk rect has a non-positive dimension, or either hypotenuse
-    /// is degenerate (zero-length, or passing through its own desk corner).
+    /// If the desk rect has a non-positive dimension, the left hypotenuse is
+    /// degenerate (zero-length, or passing through its desk corner), or the
+    /// diamond is not left/right mirror-symmetric about its lower point.
     /// </exception>
     public static TwinClipFrontier Compute(
         DiamondApexes diamond,
@@ -427,30 +490,67 @@ public static class DeskClipFrontierLogic
                 nameof(deskRectSize));
         }
 
-        // The left desk triangle's hypotenuse: left apex -> lower point.
-        // Its keep side is the bottom-left desk corner, UV (0, 1).
+        // J3c-1nonies — the mirror invariant the shader symmetry rests on.
+        // The diamond must already be a left/right mirror about its lower
+        // point's X: the lower point is the mirror axis, the two side apexes
+        // must be equidistant from it and share a Y. A skewed diamond would
+        // otherwise be silently mirrored into a wrong-but-symmetric clip.
+        float axisScreenX = diamond.LowerPoint.X;
+        float leftGap = axisScreenX - diamond.LeftApex.X;
+        float rightGap = diamond.RightApex.X - axisScreenX;
+        if (System.MathF.Abs(leftGap - rightGap) > 1e-3f
+            || System.MathF.Abs(diamond.LeftApex.Y - diamond.RightApex.Y) > 1e-3f
+            || System.MathF.Abs(diamond.TopApex.X - axisScreenX) > 1e-3f)
+        {
+            throw new System.ArgumentException(
+                "Maquette diamond is not left/right mirror-symmetric about " +
+                $"its lower point X ({axisScreenX}): leftGap={leftGap}, " +
+                $"rightGap={rightGap}, leftApexY={diamond.LeftApex.Y}, " +
+                $"rightApexY={diamond.RightApex.Y}, topApexX={diamond.TopApex.X}.",
+                nameof(diamond));
+        }
+
+        // The split is the diamond lower point's UV x — the vertical that
+        // bounds each corner triangle to its own side of the screen, and the
+        // axis the right half-plane is mirrored about.
+        float splitU = ScreenToUv(
+            diamond.LowerPoint, deskRectOriginScreen, deskRectSize).X;
+
+        // The LEFT desk triangle's hypotenuse: left apex -> lower point.
+        // Its keep side is the bottom-left desk corner, UV (0, 1). This is
+        // the ONLY half-plane computed from geometry; the right side is its
+        // exact mirror.
         var (leftPoint, leftNormal) = BuildHalfPlane(
             diamond.LeftApex, diamond.LowerPoint,
             deskCornerUv: new SysVec2(0f, 1f),
-            deskRectOriginScreen, deskRectSize,
-            "left");
+            deskRectOriginScreen, deskRectSize);
 
-        // The right desk triangle's hypotenuse: lower point -> right apex.
-        // Its keep side is the bottom-right desk corner, UV (1, 1).
-        var (rightPoint, rightNormal) = BuildHalfPlane(
-            diamond.LowerPoint, diamond.RightApex,
-            deskCornerUv: new SysVec2(1f, 1f),
-            deskRectOriginScreen, deskRectSize,
-            "right");
-
-        // The split is the diamond lower point's UV x — the vertical that
-        // bounds each corner triangle to its own side of the screen.
-        float splitU = ScreenToUv(
-            diamond.LowerPoint, deskRectOriginScreen, deskRectSize).X;
+        // The RIGHT half-plane = the LEFT one reflected about the split
+        // column. A UV point (x,y) reflects to (2·split − x, y); a UV normal
+        // (nx,ny) reflects to (−nx, ny). The keep side flips with it: the
+        // mirror of "points toward UV (0,1)" is "points toward UV (1,1)".
+        var rightPoint = ReflectPointAboutSplit(leftPoint, splitU);
+        var rightNormal = ReflectNormalAboutSplit(leftNormal);
 
         return new TwinClipFrontier(
             leftPoint, leftNormal, rightPoint, rightNormal, splitU);
     }
+
+    /// <summary>
+    /// Reflect a UV-space point across the vertical line <c>x = splitU</c>:
+    /// <c>(x, y) ↦ (2·splitU − x, y)</c>. The mirror operation the right
+    /// twin-clip half-plane is built with (J3c-1nonies).
+    /// </summary>
+    public static SysVec2 ReflectPointAboutSplit(SysVec2 pointUv, float splitU)
+        => new(2f * splitU - pointUv.X, pointUv.Y);
+
+    /// <summary>
+    /// Reflect a UV-space direction/normal across a vertical line:
+    /// <c>(nx, ny) ↦ (−nx, ny)</c>. The Y component is unchanged because the
+    /// mirror axis is vertical (J3c-1nonies).
+    /// </summary>
+    public static SysVec2 ReflectNormalAboutSplit(SysVec2 normalUv)
+        => new(-normalUv.X, normalUv.Y);
 
     /// <summary>
     /// The absolute slope <c>|Δy / Δx|</c> of one diamond edge in screen
@@ -491,15 +591,14 @@ public static class DeskClipFrontierLogic
         SysVec2 edgeEndScreen,
         SysVec2 deskCornerUv,
         SysVec2 deskRectOriginScreen,
-        SysVec2 deskRectSize,
-        string which)
+        SysVec2 deskRectSize)
     {
         SysVec2 edgeScreen = edgeEndScreen - edgeStartScreen;
         if (edgeScreen.LengthSquared() <= float.Epsilon)
         {
             throw new System.ArgumentException(
-                $"Maquette diamond {which} edge is zero-length; the " +
-                "frontier is undefined.", nameof(edgeStartScreen));
+                "Maquette diamond left edge is zero-length; the frontier " +
+                "is undefined.", nameof(edgeStartScreen));
         }
 
         // Screen -> UV is a per-axis scale by 1/size. The point maps
@@ -522,7 +621,7 @@ public static class DeskClipFrontierLogic
         if (System.MathF.Abs(cornerSide) <= 1e-6f)
         {
             throw new System.ArgumentException(
-                $"Maquette/desk {which} frontier passes through the desk " +
+                "Maquette/desk left frontier passes through the desk " +
                 "corner; that desk triangle is degenerate (zero area).",
                 nameof(edgeStartScreen));
         }
