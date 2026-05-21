@@ -21,10 +21,11 @@
 // capture: "le bureau prend presque toute la place, a ajuster"). The desk
 // fills exactly the two lower corners that big diamond does not cover.
 //
-// The diamond's height -- hence how thin the desk corners are -- is driven
-// by two named C# fractions (DeskClipFrontierLogic.MaquetteLowerPointScreenFracY
-// / MaquetteSideApexScreenFracY); re-tuning the proportion is a C#-only
-// change, this shader is unaffected.
+// The diamond is a STRICT iso 2:1 rhombus (every edge slope = 0.5) that
+// overflows the screen sideways so the maquette stays large; its size is
+// driven by one named C# knob (DeskClipFrontierLogic.MaquetteHalfWidthScreenFracX)
+// and placed vertically by MaquetteLowerPointScreenFracY -- re-tuning the
+// proportion is a C#-only change, this shader is unaffected.
 //
 // SOLUTION. The desk SubViewport is shown via a plain TextureRect (no
 // SubViewportContainer -- a container is intrinsically rectangular). This

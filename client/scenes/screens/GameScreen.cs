@@ -1,4 +1,4 @@
-using Godot;
+﻿using Godot;
 using Wayfinders.Client.Scenes.Iso;
 using Wayfinders.Client.Scenes.Ui;
 using Wayfinders.Client.Scripts.Screens;
@@ -81,20 +81,25 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// whose top apex is cropped by the top HUD band.
 ///
 /// <para>
-/// <b>J3c-1quater — grow the maquette diamond, shrink the desk to two thin
-/// corners (2026-05-21, Rune, after the F6 capture: "c'est mieux mais le
-/// bureau prend presque toute la place, à ajuster").</b> J3c-1ter derived
-/// the diamond from the rigid iso 2:1 tile ratio, so the diamond was only
-/// half the screen tall and the two desk corner triangles ate the whole
-/// bottom half. J3c-1quater drives the diamond's vertical extent from two
-/// NAMED, tunable screen-height fractions in
-/// <see cref="DeskClipFrontierLogic"/> —
-/// <c>MaquetteLowerPointScreenFracY</c> (default 0.94, the lower point
-/// near the bottom HUD band) and <c>MaquetteSideApexScreenFracY</c>
-/// (default 0.30, the side apexes just under the top band). The maquette
-/// diamond now owns the bulk of the screen; the desk shrinks to two thin
-/// bottom corner wedges. Didier re-tunes the proportion by editing those
-/// two constants alone. The desk camera framing
+/// <b>J3c-1quinquies — re-lock the diamond to a strict iso 2:1 angle
+/// (2026-05-21, Rune, regression fix on commit 5f9aeb5).</b> J3c-1quater
+/// grew the maquette by driving the diamond's vertical extent from a free
+/// screen-height fraction — which BROKE the iso angle: with the side apexes
+/// at 0.30 and the lower point at 0.94 of a 1080-tall screen, a lower edge
+/// ran at slope ≈ 0.72 instead of the iso 2:1 slope of 0.5, so the diamond
+/// outline stopped being parallel to the iso grid drawn inside it. The fix
+/// re-locks the diamond to a strict iso 2:1 rhombus — every edge slope is
+/// exactly 0.5 (<c>DeskClipFrontierLogic.IsoEdgeSlope</c>) — and keeps the
+/// maquette large by letting the diamond OVERFLOW the screen horizontally
+/// (the side apexes fall off-screen, x &lt; 0 and x &gt; screenWidth). The
+/// diamond is sized by ONE named knob —
+/// <c>DeskClipFrontierLogic.MaquetteHalfWidthScreenFracX</c> (default 0.95,
+/// the half-width as a fraction of the screen width; &gt; 0.5 = sideways
+/// overflow) — and placed vertically by <c>MaquetteLowerPointScreenFracY</c>
+/// (default 0.92). The half-height is DERIVED from the locked iso slope,
+/// never free. The maquette diamond owns the bulk of the screen; the desk
+/// is two thin bottom corner wedges. Didier re-tunes the proportion by
+/// editing those two constants alone. The desk camera framing
 /// (<see cref="DeskCameraZoom"/>, <see cref="DeskFormationScreenFracX"/>,
 /// <see cref="DeskFormationScreenFracY"/>) is re-balanced so the 7-pawn
 /// Company still fits, fully visible, inside the now-thinner bottom-left
@@ -489,8 +494,9 @@ public partial class GameScreen : Control
     /// clip hypotenuses are the diamond's two LOWER edges, and a vertical
     /// split at the diamond's lower point bounds each corner triangle to
     /// its own side. The diamond's vertical extent is fraction-driven
-    /// (<c>DeskClipFrontierLogic.MaquetteLowerPointScreenFracY</c> /
-    /// <c>MaquetteSideApexScreenFracY</c>). All of it is derived in
+    /// (<c>DeskClipFrontierLogic.MaquetteHalfWidthScreenFracX</c> sizes the
+    /// strict iso 2:1 diamond, which overflows the screen sideways;
+    /// <c>MaquetteLowerPointScreenFracY</c> places it). All of it is derived in
     /// <see cref="DeskClipFrontierLogic"/> (Godot-free, xUnit-pinned); this
     /// method only feeds the screen size in and writes uniforms out.
     /// </para>
@@ -536,17 +542,25 @@ public partial class GameScreen : Control
         // plus the two proportion fractions that produced the diamond, so a
         // reader can see both kept corners without re-deriving signs.
         GD.Print($"[DESK-DIAG] proportion knobs: " +
+                 $"MaquetteHalfWidthScreenFracX=" +
+                 $"{DeskClipFrontierLogic.MaquetteHalfWidthScreenFracX} " +
                  $"MaquetteLowerPointScreenFracY=" +
                  $"{DeskClipFrontierLogic.MaquetteLowerPointScreenFracY} " +
-                 $"MaquetteSideApexScreenFracY=" +
-                 $"{DeskClipFrontierLogic.MaquetteSideApexScreenFracY} " +
-                 $"-- higher lower-frac = bigger maquette, thinner desk corners");
+                 $"IsoEdgeSlope={DeskClipFrontierLogic.IsoEdgeSlope} " +
+                 $"-- bigger half-width = bigger maquette (overflows sideways), " +
+                 $"thinner desk corners; iso slope is LOCKED, not a knob");
         GD.Print($"[DESK-DIAG] maquette diamond (screen px): " +
                  $"topApex=({diamond.TopApex.X},{diamond.TopApex.Y}) " +
                  $"leftApex=({diamond.LeftApex.X},{diamond.LeftApex.Y}) " +
                  $"rightApex=({diamond.RightApex.X},{diamond.RightApex.Y}) " +
                  $"lowerPoint=({diamond.LowerPoint.X},{diamond.LowerPoint.Y}) " +
-                 $"-- lower point near the bottom HUD band, diamond owns the screen");
+                 $"-- side apexes overflow off-screen, diamond owns the screen");
+        GD.Print($"[DESK-DIAG] diamond edge slopes (must all be iso 0.5): " +
+                 $"topLeft={DeskClipFrontierLogic.EdgeSlope(diamond.TopApex, diamond.LeftApex)} " +
+                 $"topRight={DeskClipFrontierLogic.EdgeSlope(diamond.TopApex, diamond.RightApex)} " +
+                 $"bottomLeft={DeskClipFrontierLogic.EdgeSlope(diamond.LeftApex, diamond.LowerPoint)} " +
+                 $"bottomRight={DeskClipFrontierLogic.EdgeSlope(diamond.LowerPoint, diamond.RightApex)} " +
+                 $"-- regression guard: any value != 0.5 means the iso angle broke");
         GD.Print($"[DESK-DIAG] twin clip (UV pushed to shader): " +
                  $"leftPoint=({frontier.LeftPointUv.X},{frontier.LeftPointUv.Y}) " +
                  $"leftNormal=({frontier.LeftNormalUv.X},{frontier.LeftNormalUv.Y}) " +
@@ -627,10 +641,11 @@ public partial class GameScreen : Control
 
         // (0) The proportion knobs that decide maquette vs desk balance.
         GD.Print($"[DESK-DIAG] proportion knobs: " +
+                 $"MaquetteHalfWidthScreenFracX=" +
+                 $"{DeskClipFrontierLogic.MaquetteHalfWidthScreenFracX} " +
                  $"MaquetteLowerPointScreenFracY=" +
                  $"{DeskClipFrontierLogic.MaquetteLowerPointScreenFracY} " +
-                 $"MaquetteSideApexScreenFracY=" +
-                 $"{DeskClipFrontierLogic.MaquetteSideApexScreenFracY} " +
+                 $"IsoEdgeSlope={DeskClipFrontierLogic.IsoEdgeSlope} " +
                  $"DeskCameraZoom={DeskCameraZoom} " +
                  $"formationFrac=({DeskFormationScreenFracX}," +
                  $"{DeskFormationScreenFracY})");
@@ -695,6 +710,11 @@ public partial class GameScreen : Control
                  $"leftApex=({diamond.LeftApex.X},{diamond.LeftApex.Y}) " +
                  $"rightApex=({diamond.RightApex.X},{diamond.RightApex.Y}) " +
                  $"lowerPoint=({diamond.LowerPoint.X},{diamond.LowerPoint.Y})");
+        GD.Print($"[DESK-DIAG] diamond edge slopes (must all be iso 0.5): " +
+                 $"topLeft={DeskClipFrontierLogic.EdgeSlope(diamond.TopApex, diamond.LeftApex)} " +
+                 $"topRight={DeskClipFrontierLogic.EdgeSlope(diamond.TopApex, diamond.RightApex)} " +
+                 $"bottomLeft={DeskClipFrontierLogic.EdgeSlope(diamond.LeftApex, diamond.LowerPoint)} " +
+                 $"bottomRight={DeskClipFrontierLogic.EdgeSlope(diamond.LowerPoint, diamond.RightApex)}");
         GD.Print($"[DESK-DIAG] twin clip (UV): " +
                  $"leftPoint=({frontier.LeftPointUv.X},{frontier.LeftPointUv.Y}) " +
                  $"leftNormal=({frontier.LeftNormalUv.X},{frontier.LeftNormalUv.Y}) " +

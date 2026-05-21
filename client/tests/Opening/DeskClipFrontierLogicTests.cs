@@ -4,40 +4,37 @@ using SysVec2 = System.Numerics.Vector2;
 namespace Wayfinders.Client.Tests.Opening;
 
 /// <summary>
-/// Pure-C# tests for <see cref="DeskClipFrontierLogic"/> — the J3c-1quater
-/// desk <b>twin-corner</b> triangular-clip geometry. Pins the contract that
-/// turns the centred maquette diamond into the five UV-space uniforms the
+/// Pure-C# tests for <see cref="DeskClipFrontierLogic"/> — the J3c-1 desk
+/// <b>twin-corner</b> triangular-clip geometry. Pins the contract that turns
+/// the centred maquette diamond into the five UV-space uniforms the
 /// <c>desk_triangle_clip.gdshader</c> consumes: a left hypotenuse half-plane,
 /// a right hypotenuse half-plane, and a vertical split.
 ///
 /// <para>
-/// <b>What this suite owns.</b> The centred-diamond placement (side apexes
-/// on the screen edges, lower point on the horizontal middle), the
-/// proportion knobs that size the diamond, the screen-to-UV mapping, the
-/// orientation of each hypotenuse normal toward its own desk corner, the
-/// split being the diamond lower point's UV x, and the loud failure on a
-/// degenerate input. The decisive behaviour test: the two bottom-screen
-/// corners are kept (the desk), the centre and the top-screen corners are
-/// dropped (the maquette diamond). The Godot-bound wiring — feeding scene
-/// geometry in and writing the shader uniforms out — lives in
+/// <b>What this suite owns.</b> The strict iso 2:1 slope of all four diamond
+/// edges (the regression invariant — see below), the sideways-overflowing
+/// diamond placement, the proportion knob that sizes it, the screen-to-UV
+/// mapping, the orientation of each hypotenuse normal toward its own desk
+/// corner, the split being the diamond lower point's UV x, and the loud
+/// failure on a degenerate input. The decisive behaviour test: the two
+/// bottom-screen corners are kept (the desk), the centre and the top-screen
+/// corners are dropped (the maquette diamond). The Godot-bound wiring —
+/// feeding scene geometry in and writing the shader uniforms out — lives in
 /// <c>GameScreen.ApplyDeskClipFrontier</c> and is validated via the
 /// <c>GameScreen.tscn</c> F6 smoke.
 /// </para>
 ///
 /// <para>
-/// <b>J3c-1quater shape (Didier, 2026-05-21, from the F6 capture —
-/// "the desk eats too much, the maquette must own the screen").</b>
-/// J3c-1ter cut two mirrored corner triangles but derived the diamond from
-/// the rigid iso 2:1 tile ratio, so the diamond was only screenWidth/2 tall
-/// and the desk ate the whole bottom half. J3c-1quater drives the diamond's
-/// vertical extent from two named screen-height fractions
-/// (<see cref="DeskClipFrontierLogic.MaquetteLowerPointScreenFracY"/>,
-/// <see cref="DeskClipFrontierLogic.MaquetteSideApexScreenFracY"/>): the
-/// lower point descends near the bottom HUD band, so the maquette owns the
-/// bulk of the screen and the desk shrinks to two thin corner wedges. The
-/// fixture rect below is the full 1920x1080 screen, matching
-/// <c>GameScreen.tscn</c>'s full-screen <c>DeskTextureRect</c>
-/// (anchors_preset 15).
+/// <b>The regression this suite locks (J3c-1quinquies, Didier,
+/// 2026-05-21).</b> Commit 5f9aeb5 grew the maquette by driving the
+/// diamond's vertical extent from a free screen-height fraction. That made
+/// a lower edge run <c>(0,324) -&gt; (960,1015.2)</c> — slope ≈ 0.72 — so
+/// the diamond outline stopped being parallel to the iso grid drawn inside
+/// it. The fix re-locks the diamond to a strict iso 2:1 rhombus (edge slope
+/// exactly <see cref="DeskClipFrontierLogic.IsoEdgeSlope"/> = 0.5) and keeps
+/// the maquette large by letting the diamond overflow the screen sideways
+/// (side apexes off-screen). <see cref="All_four_diamond_edges_have_the_iso_2to1_slope"/>
+/// is the dedicated invariant guard.
 /// </para>
 /// </summary>
 public sealed class DeskClipFrontierLogicTests
@@ -80,27 +77,104 @@ public sealed class DeskClipFrontierLogicTests
         Assert.Equal(0.5f, uv.Y, precision: 4);
     }
 
-    // --- The proportion knobs --------------------------------------------
+    // --- THE ISO INVARIANT — the regression guard -------------------------
 
     [Fact]
-    public void Proportion_knobs_keep_the_lower_point_strictly_below_the_side_apexes()
+    public void All_four_diamond_edges_have_the_iso_2to1_slope()
     {
-        // The diamond degenerates if the lower point is not below the side
-        // apexes. Pin the invariant on the two named tuning constants so a
-        // future re-tune that crosses them surfaces red here, not at F6.
+        // THE invariant commit 5f9aeb5 broke: every edge of the maquette
+        // diamond must have slope EXACTLY 0.5 (iso 2:1 — one vertical for
+        // two horizontal), so the diamond outline stays parallel to the
+        // diagonals of the iso grid drawn inside it. If a future change
+        // re-introduces a free vertical stretch, this test goes red here,
+        // not at an F6 capture.
+        var d = DeskClipFrontierLogic.MaquetteDiamond(DeskSize, TopHudBand);
+
+        // Top-left edge: top apex -> left apex.
+        Assert.Equal(
+            DeskClipFrontierLogic.IsoEdgeSlope,
+            DeskClipFrontierLogic.EdgeSlope(d.TopApex, d.LeftApex),
+            precision: 5);
+        // Top-right edge: top apex -> right apex.
+        Assert.Equal(
+            DeskClipFrontierLogic.IsoEdgeSlope,
+            DeskClipFrontierLogic.EdgeSlope(d.TopApex, d.RightApex),
+            precision: 5);
+        // Bottom-left edge: left apex -> lower point (the left desk
+        // hypotenuse — this is the one the F6 [DESK-DIAG] log diagnosed at
+        // slope 0.72).
+        Assert.Equal(
+            DeskClipFrontierLogic.IsoEdgeSlope,
+            DeskClipFrontierLogic.EdgeSlope(d.LeftApex, d.LowerPoint),
+            precision: 5);
+        // Bottom-right edge: lower point -> right apex.
+        Assert.Equal(
+            DeskClipFrontierLogic.IsoEdgeSlope,
+            DeskClipFrontierLogic.EdgeSlope(d.LowerPoint, d.RightApex),
+            precision: 5);
+    }
+
+    [Fact]
+    public void Iso_edge_slope_constant_is_exactly_one_half()
+    {
+        // The 2:1 iso ratio is a property of the projection, not a tunable
+        // value. Pin the constant itself so it cannot drift.
+        Assert.Equal(0.5f, DeskClipFrontierLogic.IsoEdgeSlope);
+    }
+
+    [Fact]
+    public void EdgeSlope_throws_on_a_vertical_edge()
+    {
+        // An iso diamond has no vertical edge; a Δx == 0 input is degenerate.
+        Assert.Throws<System.ArgumentException>(
+            () => DeskClipFrontierLogic.EdgeSlope(
+                new SysVec2(100f, 0f), new SysVec2(100f, 500f)));
+    }
+
+    [Fact]
+    public void Iso_slope_holds_across_screen_sizes()
+    {
+        // The slope is derived from IsoEdgeSlope, not from the screen — it
+        // must stay 0.5 on any screen aspect ratio.
+        foreach (var screen in new[]
+                 {
+                     new SysVec2(1280f, 720f),
+                     new SysVec2(2560f, 1080f),
+                     new SysVec2(1080f, 1920f), // portrait
+                 })
+        {
+            var d = DeskClipFrontierLogic.MaquetteDiamond(screen, TopHudBand);
+            Assert.Equal(
+                DeskClipFrontierLogic.IsoEdgeSlope,
+                DeskClipFrontierLogic.EdgeSlope(d.LeftApex, d.LowerPoint),
+                precision: 5);
+            Assert.Equal(
+                DeskClipFrontierLogic.IsoEdgeSlope,
+                DeskClipFrontierLogic.EdgeSlope(d.LowerPoint, d.RightApex),
+                precision: 5);
+        }
+    }
+
+    // --- The proportion knob ----------------------------------------------
+
+    [Fact]
+    public void Half_width_knob_overflows_the_screen_so_the_maquette_owns_it()
+    {
+        // The J3c-1quinquies intent: the maquette is kept large by making
+        // the diamond WIDER than the screen (side apexes off-screen), NOT
+        // by stretching it vertically. A half-width fraction > 0.5 is what
+        // produces that overflow.
         Assert.True(
-            DeskClipFrontierLogic.MaquetteLowerPointScreenFracY
-                > DeskClipFrontierLogic.MaquetteSideApexScreenFracY,
-            "the lower-point fraction must stay strictly below the " +
-            "side-apex fraction or the maquette diamond is degenerate");
+            DeskClipFrontierLogic.MaquetteHalfWidthScreenFracX > 0.5f,
+            "the half-width fraction must exceed 0.5 so the diamond " +
+            "overflows the screen sideways and the maquette stays large");
     }
 
     [Fact]
     public void Lower_point_fraction_puts_the_diamond_low_so_the_maquette_owns_the_screen()
     {
-        // The J3c-1quater intent: the maquette occupies the BULK of the
-        // screen, the desk is two thin bottom corners. That requires the
-        // diamond's lower point well below the vertical middle.
+        // The diamond points down; its lower point must sit below the
+        // vertical middle so the desk does not eat the bottom half.
         Assert.True(
             DeskClipFrontierLogic.MaquetteLowerPointScreenFracY > 0.5f,
             "the maquette diamond's lower point must sit below the screen " +
@@ -110,12 +184,22 @@ public sealed class DeskClipFrontierLogicTests
     // --- MaquetteDiamond --------------------------------------------------
 
     [Fact]
-    public void MaquetteDiamond_side_apexes_touch_the_screen_left_and_right_edges()
+    public void MaquetteDiamond_side_apexes_overflow_off_screen_left_and_right()
     {
+        // With the default half-width fraction (0.95 > 0.5) the diamond is
+        // wider than the screen: the left apex has a NEGATIVE x and the
+        // right apex an x past the screen width. This is the deliberate
+        // sideways overflow.
         var d = DeskClipFrontierLogic.MaquetteDiamond(DeskSize, TopHudBand);
 
-        Assert.Equal(0f, d.LeftApex.X, precision: 3);
-        Assert.Equal(DeskSize.X, d.RightApex.X, precision: 3);
+        Assert.True(d.LeftApex.X < 0f,
+            $"left apex must overflow off-screen left; got x={d.LeftApex.X}");
+        Assert.True(d.RightApex.X > DeskSize.X,
+            $"right apex must overflow off-screen right; got x={d.RightApex.X}");
+        // The diamond stays centred and symmetric: the two apexes are
+        // mirror images about the screen's horizontal middle.
+        float centreX = DeskSize.X * 0.5f;
+        Assert.Equal(centreX - d.LeftApex.X, d.RightApex.X - centreX, precision: 3);
         // Side apexes share the same Y — the diamond is symmetric.
         Assert.Equal(d.LeftApex.Y, d.RightApex.Y, precision: 3);
     }
@@ -134,15 +218,17 @@ public sealed class DeskClipFrontierLogicTests
     }
 
     [Fact]
-    public void MaquetteDiamond_side_apexes_sit_at_the_side_apex_fraction()
+    public void MaquetteDiamond_half_height_is_derived_from_the_locked_iso_slope()
     {
+        // The half-height is NOT a free parameter: it is the half-width
+        // times the locked iso slope. This is what guarantees the 0.5 edge
+        // slope. Pin the derivation explicitly.
         var d = DeskClipFrontierLogic.MaquetteDiamond(DeskSize, TopHudBand);
 
-        // The side apexes sit at MaquetteSideApexScreenFracY of the screen
-        // height — fraction-driven, not the old rigid iso 2:1 ratio.
-        Assert.Equal(
-            DeskSize.Y * DeskClipFrontierLogic.MaquetteSideApexScreenFracY,
-            d.LeftApex.Y, precision: 3);
+        float halfW = DeskSize.X * DeskClipFrontierLogic.MaquetteHalfWidthScreenFracX;
+        float expectedHalfH = halfW * DeskClipFrontierLogic.IsoEdgeSlope;
+        float actualHalfH = d.LowerPoint.Y - d.LeftApex.Y;
+        Assert.Equal(expectedHalfH, actualHalfH, precision: 2);
     }
 
     [Fact]
@@ -156,7 +242,8 @@ public sealed class DeskClipFrontierLogicTests
             "the lower point must be below the side apexes");
         Assert.True(d.LeftApex.Y > d.TopApex.Y,
             "the side apexes must be below the top apex");
-        // The top apex of this tall diamond is cropped above-screen.
+        // The top apex of this wide overflowing diamond is cropped
+        // above-screen.
         Assert.True(d.TopApex.Y < 0f,
             "the top apex is cropped above the screen / behind the HUD");
     }
@@ -164,10 +251,9 @@ public sealed class DeskClipFrontierLogicTests
     [Fact]
     public void MaquetteDiamond_is_symmetric_about_the_side_apex_line()
     {
-        // J3c-1quater drops the rigid iso 2:1 ratio: the diamond's height
-        // is fraction-driven. What stays true is the vertical symmetry —
-        // the top apex mirrors the lower point across the side-apex line,
-        // so the top and bottom triangles of the diamond are equal height.
+        // The diamond is a true rhombus: the top apex mirrors the lower
+        // point across the side-apex line, so the top and bottom triangles
+        // of the diamond are equal height.
         var d = DeskClipFrontierLogic.MaquetteDiamond(DeskSize, TopHudBand);
 
         float upperHalf = d.LeftApex.Y - d.TopApex.Y;
@@ -176,17 +262,18 @@ public sealed class DeskClipFrontierLogicTests
     }
 
     [Fact]
-    public void MaquetteDiamond_occupies_more_than_the_screen_height()
+    public void MaquetteDiamond_is_wider_than_the_screen()
     {
-        // The whole point of J3c-1quater: the diamond is tall — its lower
-        // point reaches near the screen bottom and its top apex is cropped
-        // above the screen, so the full diamond is TALLER than the screen.
+        // The whole point of J3c-1quinquies: the diamond overflows
+        // sideways so the maquette stays large WITHOUT a vertical stretch.
+        // The full diamond width must exceed the screen width.
         var d = DeskClipFrontierLogic.MaquetteDiamond(DeskSize, TopHudBand);
 
-        float fullHeight = d.LowerPoint.Y - d.TopApex.Y;
-        Assert.True(fullHeight > DeskSize.Y,
-            $"the maquette diamond must be taller than the screen so it " +
-            $"owns the bulk of it; got height={fullHeight}, screen={DeskSize.Y}");
+        float fullWidth = d.RightApex.X - d.LeftApex.X;
+        Assert.True(fullWidth > DeskSize.X,
+            $"the maquette diamond must be wider than the screen so it " +
+            $"owns the bulk of it without a vertical stretch; got " +
+            $"width={fullWidth}, screen={DeskSize.X}");
     }
 
     [Fact]
@@ -265,18 +352,31 @@ public sealed class DeskClipFrontierLogicTests
     [Fact]
     public void Compute_desk_corners_are_thin_so_the_maquette_owns_the_screen()
     {
-        // J3c-1quater intent check, in UV space: a point near the bottom
-        // edge but not in a corner — at the bottom-CENTRE, just left of the
-        // split — must be DROPPED. The diamond's lower point reaches the
-        // bottom centre, so the desk no longer covers the whole bottom
-        // strip; it is confined to the two corner wedges.
+        // J3c-1quinquies intent check, in UV space: a point at the
+        // bottom-CENTRE, just inside the diamond's lower wedge, must be
+        // DROPPED. The diamond's lower point reaches the bottom centre, so
+        // the desk no longer covers the whole bottom strip; it is confined
+        // to the two corner wedges.
         var d = DeskClipFrontierLogic.MaquetteDiamond(DeskSize, TopHudBand);
         var f = DeskClipFrontierLogic.Compute(d, DeskOrigin, DeskSize);
 
-        // Just left of the split, near the bottom — inside the diamond's
-        // lower wedge, NOT in the left desk corner.
-        var bottomCentreLeft = new SysVec2(f.SplitU - 0.03f, 0.90f);
-        Assert.False(KeptByShader(f, bottomCentreLeft),
+        // Derive the test point from the real geometry: take a UV y a touch
+        // above the lower point and an x a touch right of the left desk
+        // hypotenuse at that height — i.e. just INSIDE the diamond's lower
+        // wedge, not in the thin left desk corner. The diamond is wide
+        // (overflowing), so at this height the left edge is very close to
+        // the split; the point must still be read as maquette, not desk.
+        var leftApexUv = DeskClipFrontierLogic.ScreenToUv(
+            d.LeftApex, DeskOrigin, DeskSize);
+        var lowerUv = DeskClipFrontierLogic.ScreenToUv(
+            d.LowerPoint, DeskOrigin, DeskSize);
+        float testY = lowerUv.Y - 0.04f;
+        // x of the left hypotenuse at testY (linear interpolation).
+        float t = (testY - leftApexUv.Y) / (lowerUv.Y - leftApexUv.Y);
+        float edgeX = leftApexUv.X + t * (lowerUv.X - leftApexUv.X);
+        // A hair to the diamond side of that edge — inside the lower wedge.
+        var bottomCentre = new SysVec2(edgeX + 0.01f, testY);
+        Assert.False(KeptByShader(f, bottomCentre),
             "the bottom-centre belongs to the maquette diamond, not the desk");
     }
 
@@ -314,10 +414,9 @@ public sealed class DeskClipFrontierLogicTests
         var d = DeskClipFrontierLogic.MaquetteDiamond(DeskSize, TopHudBand);
         var f = DeskClipFrontierLogic.Compute(d, DeskOrigin, DeskSize);
 
-        // x = 0.75 (right of the split) and y = 0.15 (above the right side
-        // apex at frac 0.30, so inside the diamond and NOT in the right
-        // corner). If the left half-plane could bleed across the split it
-        // would be wrongly kept.
+        // x = 0.75 (right of the split) and y = 0.15 (well above the bottom,
+        // inside the diamond and NOT in the right corner). If the left
+        // half-plane could bleed across the split it would be wrongly kept.
         var rightOfSplitInsideDiamond = new SysVec2(0.75f, 0.15f);
         Assert.False(KeptByShader(f, rightOfSplitInsideDiamond),
             "a point right of the split inside the diamond must be dropped — " +
