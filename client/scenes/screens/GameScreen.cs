@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using Wayfinders.Client.Scenes.Iso;
 using Wayfinders.Client.Scenes.Ui;
 using Wayfinders.Client.Scripts.Screens;
@@ -242,6 +242,42 @@ public partial class GameScreen : Control
     private const float DeskFormationScreenFracY = 0.85f;
 
     /// <summary>
+    /// <b>J3c-1 desk-board cosmetic nudge — the desk board node's local-X
+    /// offset, pixels.</b> Applied to <c>DeskBoard.Position.X</c> in
+    /// <see cref="ConfigureDesk"/>.
+    ///
+    /// <para>
+    /// <b>What it is.</b> Didier eyeballed this -32 px shift in the Godot
+    /// editor (he nudged the <c>DeskBoard</c> node's <c>Position</c> in the
+    /// inspector and found it visually right) and asked to make it permanent.
+    /// It lives here in code, <b>not</b> in the <c>.tscn</c>, on purpose:
+    /// <see cref="ConfigureDesk"/> already owns the desk board's runtime
+    /// configuration, an inspector value sits in a scene file that is
+    /// vulnerable to an editor full re-save, and a single named constant is
+    /// the unambiguous, version-controlled, xUnit-reachable source of truth.
+    /// Re-tune the desk-board framing here in one place.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why this is purely cosmetic and side-effect-free.</b> The desk
+    /// pawns, the placeholder iso grid and the desk floor fill are <i>all</i>
+    /// positioned / drawn in the desk board's <b>own local space</b>: pawns
+    /// are children of the board (<see cref="IsoBoard.AddOccupant"/>), and the
+    /// grid + floor are the board's own <c>_Draw</c>. Moving the
+    /// <c>DeskBoard</c> node moves the whole subtree as one rigid unit — so
+    /// <c>CellToPixel</c>, the grid and the floor stay mutually aligned by
+    /// construction; <c>GRID-COVERS-FLOOR</c> is unaffected. The triangular
+    /// clip shader works in screen-space UV [0,1] on the <c>DeskTextureRect</c>
+    /// and is wholly independent of the board transform. The only visible
+    /// effect is that the whole desk content lands ~32·zoom px further left
+    /// on screen, because the immobile <c>DeskCamera2D</c> is a <i>sibling</i>
+    /// of the board (not a child) and stays put — exactly the nudge Didier
+    /// dialled in.
+    /// </para>
+    /// </summary>
+    private const float DeskBoardOffsetX = -32f;
+
+    /// <summary>
     /// Shader uniform names on <c>desk_triangle_clip.gdshader</c> — the
     /// J3c-1quater twin-corner clip. Held as constants so a rename surfaces
     /// at compile time on this one line rather than as a silent no-op clip
@@ -369,8 +405,9 @@ public partial class GameScreen : Control
     }
 
     /// <summary>
-    /// J3c-1 / J3c-1quater: stand up the static iso desk. Sizes the
-    /// <c>DeskViewport</c>'s render target, wires its texture onto the
+    /// J3c-1 / J3c-1quater: stand up the static iso desk. Applies the desk
+    /// board's cosmetic local-X nudge (<see cref="DeskBoardOffsetX"/>), sizes
+    /// the <c>DeskViewport</c>'s render target, wires its texture onto the
     /// <c>DeskTextureRect</c>, zooms and parks the immobile desk camera,
     /// fills the desk floor to the viewport, places one placeholder pawn
     /// per Company slot as a layer-3 occupant of the desk board, and
@@ -388,6 +425,21 @@ public partial class GameScreen : Control
     /// </param>
     private void ConfigureDesk(Vector2 screen)
     {
+        // J3c-1 cosmetic nudge: apply the desk board node's local-X offset
+        // BEFORE anything else, so the whole desk subtree (pawns, grid and
+        // floor are all in this board's local space) sits at its final
+        // transform. This replaces an inspector tweak Didier dialled in by
+        // hand; a runtime config method is the right owner, so the value
+        // can never be silently overwritten by a code path or lost to a
+        // scene re-save. Applied to Position (not GlobalPosition) on
+        // purpose — the board's parent is the un-transformed DeskViewport.
+        // See DeskBoardOffsetX for why this is purely cosmetic: the desk
+        // camera is a sibling of the board and stays put, so the board and
+        // its whole subtree slide together on screen; CellToPixel, the grid
+        // and the floor stay mutually aligned, and the screen-UV clip is
+        // untouched.
+        _deskBoard.Position = new Vector2(DeskBoardOffsetX, 0f);
+
         // J3c-1bis: the desk viewport and the DeskTextureRect are both
         // full-screen. Drive the viewport render size and force the
         // DeskTextureRect's Size off the reliable `screen` value so the
@@ -440,6 +492,13 @@ public partial class GameScreen : Control
         // `screen * frac`, i.e. `screen*frac - screen*0.5` screen-pixels
         // from centre, which is `(screen*frac - screen*0.5) / z` in desk
         // world space.
+        //
+        // J3c-1 nudge note: `formationCentre` is the centroid of the slot
+        // cells in the board's LOCAL space (CellToPixel), so it does NOT
+        // include DeskBoardOffsetX. Leaving the camera on that un-shifted
+        // centroid is exactly what makes the -32 px nudge visible: the
+        // board (with all its children) shifts on screen while the camera
+        // does not. Adding the offset here would cancel the nudge.
         var screenOffsetFromCentre = new Vector2(
             screen.X * DeskFormationScreenFracX - screen.X * 0.5f,
             screen.Y * DeskFormationScreenFracY - screen.Y * 0.5f);
@@ -649,6 +708,17 @@ public partial class GameScreen : Control
                  $"DeskCameraZoom={DeskCameraZoom} " +
                  $"formationFrac=({DeskFormationScreenFracX}," +
                  $"{DeskFormationScreenFracY})");
+
+        // (0b) J3c-1 desk-board cosmetic nudge — the DeskBoard node's
+        // applied local offset. Logged so the Output says without ambiguity
+        // that the -32 px shift is in effect and shows the resulting board
+        // transform; a reader correlates this with the pawn / floor / grid
+        // lines below to confirm the whole subtree moved together.
+        GD.Print($"[DESK-DIAG] DeskBoard cosmetic nudge: DeskBoardOffsetX=" +
+                 $"{DeskBoardOffsetX} => DeskBoard.Position=" +
+                 $"{_deskBoard.Position} -- whole board subtree (pawns+grid+" +
+                 $"floor) rides this offset; desk camera is a sibling and " +
+                 $"does NOT, so the content slides on screen (cosmetic)");
 
         // (1) DeskViewport + DeskTextureRect — the render target and the
         // screen-space surface the clip shader runs on.
