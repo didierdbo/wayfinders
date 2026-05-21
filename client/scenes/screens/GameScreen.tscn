@@ -62,7 +62,7 @@ DrawPlaceholderGrid = true
 [node name="DeskViewport" type="SubViewport" parent="."]
 handle_input_locally = false
 transparent_bg = true
-size = Vector2i(620, 420)
+size = Vector2i(1920, 1080)
 render_target_update_mode = 4
 
 [node name="DeskCamera2D" type="Camera2D" parent="DeskViewport"]
@@ -77,10 +77,11 @@ DrawPlaceholderFloor = true
 [node name="DeskTextureRect" type="TextureRect" parent="."]
 material = SubResource("ShaderMaterial_deskclip")
 layout_mode = 1
-offset_left = 0.0
-offset_top = 628.0
-offset_right = 620.0
-offset_bottom = 1048.0
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 mouse_filter = 2
 
 [node name="HudLayer" type="CanvasLayer" parent="."]

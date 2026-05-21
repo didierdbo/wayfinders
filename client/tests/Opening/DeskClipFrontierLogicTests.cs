@@ -18,13 +18,23 @@ namespace Wayfinders.Client.Tests.Opening;
 /// the shader uniforms out — lives in <c>GameScreen.ApplyDeskClipFrontier</c>
 /// and is validated via the <c>GameScreen.tscn</c> F6 smoke.
 /// </para>
+///
+/// <para>
+/// <b>Full-screen desk rect (J3c-1bis F6 fix, 2026-05-21).</b> The desk
+/// <c>TextureRect</c> is full-screen so the triangular clip runs corner to
+/// corner (a small rect bounded the triangle with a hard horizontal / hard
+/// vertical border — the "truncated triangle" F6 bug). The fixture rect
+/// below therefore matches the full screen, <c>[0,0 1920x1080]</c>. The
+/// helper itself is pure geometry and rect-size agnostic; the fixture is
+/// kept in sync only so the tests document the real wired rect.
+/// </para>
 /// </summary>
 public sealed class DeskClipFrontierLogicTests
 {
-    // A representative desk rect: bottom-left corner of a 1920x1080 screen,
-    // matching GameScreen.tscn's DeskTextureRect [0,628 620x420].
-    private static readonly SysVec2 DeskOrigin = new(0f, 628f);
-    private static readonly SysVec2 DeskSize = new(620f, 420f);
+    // A representative desk rect: the full 1920x1080 screen, matching
+    // GameScreen.tscn's full-screen DeskTextureRect (anchors_preset 15).
+    private static readonly SysVec2 DeskOrigin = new(0f, 0f);
+    private static readonly SysVec2 DeskSize = new(1920f, 1080f);
 
     [Fact]
     public void ScreenToUv_maps_rect_origin_to_uv_zero()
@@ -134,9 +144,9 @@ public sealed class DeskClipFrontierLogicTests
     }
 
     [Theory]
-    [InlineData(0f, 420f)]
-    [InlineData(620f, 0f)]
-    [InlineData(-1f, 420f)]
+    [InlineData(0f, 1080f)]
+    [InlineData(1920f, 0f)]
+    [InlineData(-1f, 1080f)]
     public void Compute_throws_on_a_non_positive_desk_rect(float w, float h)
     {
         var edgeStart = new SysVec2(0f, 0f);
