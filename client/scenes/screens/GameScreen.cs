@@ -53,18 +53,32 @@ namespace Wayfinders.Client.Scenes.Screens;
 //  Tentative A moved the pawns onto a screen-space node and hand-wrote a
 //  desk-local -> screen reprojection; that reprojection broke on every knob
 //  change. The reprojection is GONE. DeskFloorBoard and DeskEntitiesBoard are
-//  the SAME IsoBoard scene at the SAME TileWidthPx, with the SAME
-//  DeskBoardOffsetX applied. DeskFloorCamera2D and DeskEntitiesCamera2D are
-//  parked at the IDENTICAL Position and Zoom — computed ONCE, in pure-C#, and
-//  applied to both. A Camera2D cannot live in two viewports, so there are two
-//  camera NODES; they are kept mirror-identical by construction, not by a
-//  sync signal. Result: cell (col,row) projects to the SAME screen pixel in
-//  both viewports. A pawn's position is DeskEntitiesBoard.CellToPixel(cell)
-//  and nothing else — no reprojection, nothing to drift. Moving a proportion
-//  knob (MaquetteHalfWidthScreenFracX, MaquetteLowerPointScreenFracY, the
-//  camera framing fracs) only re-runs the SAME pure-C# placement for both
-//  boards and re-feeds the SAME clip shader — the floor/entity split is
-//  structural and untouched. This is why it will not re-clip a pawn.
+//  the SAME IsoBoard scene at the SAME TileWidthPx. DeskFloorCamera2D and
+//  DeskEntitiesCamera2D are parked at the IDENTICAL Position and Zoom —
+//  computed ONCE, in pure-C#, and applied to both. A Camera2D cannot live in
+//  two viewports, so there are two camera NODES; they are kept mirror-
+//  identical by construction, not by a sync signal. Result: cell (col,row)
+//  projects to the SAME screen pixel in both viewports. A pawn's position is
+//  DeskEntitiesBoard.CellToPixel(cell) and nothing else — no reprojection,
+//  nothing to drift. Moving the proportion knob
+//  (MaquetteHalfWidthScreenFracX, the camera framing fracs) only re-runs the
+//  SAME pure-C# placement for both boards and re-feeds the SAME clip shader —
+//  the floor/entity split is structural and untouched. This is why it will
+//  not re-clip a pawn.
+//
+//  WHY THE DESK BOARDS ARE NO LONGER NUDGED (J3c-1octies, Rune, 2026-05-21).
+//  Earlier rounds applied a -32 px DeskBoardOffsetX to both desk boards — a
+//  value Didier eyeballed in the editor BEFORE the maquette content was
+//  centred (the J3c-1sexies left-lean fix). Once the clip diamond and the
+//  maquette content were both centred on screenWidth/2, that leftover -32 px
+//  shifted the desk grid pattern off-centre and made the bottom-left and
+//  bottom-right desk wedges read with unequal-width grid bands — the
+//  asymmetry Didier saw ("bande marron plus epaisse a droite qu'a gauche").
+//  The nudge is now 0: the desk content is centred like everything else, so
+//  the two desk corners are mirror-symmetric. DeskBoardOffsetX is kept as a
+//  named constant (still applied to BOTH boards identically) so a future
+//  deliberate nudge has one obvious, version-controlled home — but its
+//  default is 0, not an eyeballed leftover.
 //
 //  WHY THREE VIEWPORTS IS ACCEPTED (the locked decision was "two SubViewports
 //  = maquette + desk"). The REAL constraint behind that decision was never a
@@ -78,8 +92,9 @@ namespace Wayfinders.Client.Scenes.Screens;
 //  COORDINATE FLOW.
 //    slot cell (TileCoordinate)
 //      -> DeskEntitiesBoard.CellToPixel(cell)   [board-local pixels]
-//      -> pawn.Position                          [board-local, board has the
-//                                                 DeskBoardOffsetX nudge]
+//      -> pawn.Position                          [board-local; the board
+//                                                 carries the DeskBoardOffsetX
+//                                                 nudge, 0 by default]
 //      -> rendered under DeskEntitiesCamera2D    [-> DeskEntitiesViewport
 //                                                 texture, transparent bg]
 //      -> DeskEntitiesTextureRect, full screen, NO shader  [-> screen]
@@ -141,9 +156,9 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// </list>
 /// The two desk boards (<c>DeskFloorBoard</c>, <c>DeskEntitiesBoard</c>) are
 /// the same <c>IsoBoard.tscn</c> at the same <see cref="DeskBoardOffsetX"/>
-/// and tile scale; the two desk cameras are parked at an identical
-/// Position/Zoom computed once in pure-C#. So a slot cell projects to the
-/// same screen pixel in both — a pawn's placement is
+/// (0 by default) and tile scale; the two desk cameras are parked at an
+/// identical Position/Zoom computed once in pure-C#. So a slot cell projects
+/// to the same screen pixel in both — a pawn's placement is
 /// <c>DeskEntitiesBoard.CellToPixel(cell)</c> with NO reprojection (the
 /// reprojection is what broke the abandoned screen-space attempt).
 /// </para>
@@ -161,8 +176,9 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// which <c>discard;</c>s every fragment in <i>neither</i> bottom corner
 /// triangle — i.e. the central maquette diamond. The maquette diamond is a
 /// strict iso 2:1 rhombus that overflows the screen sideways; it is sized by
-/// <c>DeskClipFrontierLogic.MaquetteHalfWidthScreenFracX</c> and placed by
-/// <c>MaquetteLowerPointScreenFracY</c>. The clip geometry is computed by
+/// <c>DeskClipFrontierLogic.MaquetteHalfWidthScreenFracX</c> and its lower
+/// point is placed flush on the bottom HUD band's top edge (J3c-1octies — so
+/// no desk strip shows below the diamond). The clip geometry is computed by
 /// <see cref="DeskClipFrontierLogic"/> (Godot-free, xUnit-pinned) from the
 /// diamond apexes — it works in screen-UV [0,1] and is wholly independent of
 /// the desk boards, so a board transform or a knob change never re-clips a
@@ -235,6 +251,14 @@ public partial class GameScreen : Control
     /// band height: it must match the <c>HudTop</c> panel's
     /// <c>offset_bottom</c> and the <c>HudBottom</c> panel's
     /// <c>-offset_top</c> in <c>GameScreen.tscn</c>.
+    ///
+    /// <para>
+    /// J3c-1octies: this value is also fed to
+    /// <c>DeskClipFrontierLogic.MaquetteDiamond</c> as the bottom HUD band
+    /// height, so the maquette diamond's lower point lands flush on the
+    /// bottom HUD band's top edge. If this changes, the diamond's lower
+    /// point follows automatically — no magic FracY to re-tune.
+    /// </para>
     /// </summary>
     private const float HudBandHeight = 32f;
 
@@ -278,24 +302,30 @@ public partial class GameScreen : Control
 
     /// <summary>
     /// <b>Desk-board cosmetic nudge — the desk boards' local-X offset,
-    /// pixels.</b> Applied to BOTH <c>DeskFloorBoard.Position.X</c> and
-    /// <c>DeskEntitiesBoard.Position.X</c> in <see cref="ConfigureDesk"/>.
+    /// pixels. Default 0 (J3c-1octies).</b> Applied to BOTH
+    /// <c>DeskFloorBoard.Position.X</c> and <c>DeskEntitiesBoard.Position.X</c>
+    /// in <see cref="ConfigureDesk"/>.
     ///
     /// <para>
-    /// <b>What it is.</b> Didier eyeballed this -32 px shift in the Godot
-    /// editor and asked to make it permanent. It lives here in code, not in
-    /// the <c>.tscn</c>: <see cref="ConfigureDesk"/> owns the desk runtime
-    /// configuration, and a single named constant is the unambiguous,
-    /// version-controlled source of truth.
+    /// <b>Why it is 0 now.</b> Earlier rounds carried a -32 px shift Didier
+    /// eyeballed in the editor — but that was dialled in BEFORE the maquette
+    /// content was centred on <c>screenWidth/2</c> (the J3c-1sexies left-lean
+    /// fix). Once the clip diamond and the maquette content were both
+    /// centred, the leftover -32 px shifted the desk grid pattern off-centre
+    /// and made the bottom-left and bottom-right desk wedges read with
+    /// unequal-width grid bands — the asymmetry Didier saw at the bottom of
+    /// the screen ("bande marron plus epaisse a droite qu'a gauche"). With
+    /// the nudge at 0 the desk content is centred like the rest of the
+    /// diorama and the two desk corners are mirror-symmetric.
     /// </para>
     ///
     /// <para>
-    /// <b>Why it is purely cosmetic and side-effect-free.</b> The desk pawns,
-    /// the placeholder grid and the desk floor are all positioned / drawn in
-    /// a desk board's <b>own local space</b>. Moving a board node moves its
-    /// whole subtree as one rigid unit, so <c>CellToPixel</c>, the grid and
-    /// the floor stay mutually aligned. The clip shader works in screen-UV
-    /// and is independent of the board transform.
+    /// <b>Why it is kept as a named constant.</b> A deliberate future nudge
+    /// (a real asset that genuinely needs an off-centre anchor) has one
+    /// obvious, version-controlled home. The constant lives in code, not in
+    /// the <c>.tscn</c>: <see cref="ConfigureDesk"/> owns the desk runtime
+    /// configuration. Its default is now an explicit, justified 0 — not an
+    /// eyeballed leftover.
     /// </para>
     ///
     /// <para>
@@ -304,10 +334,10 @@ public partial class GameScreen : Control
     /// the boxed architecture comment). Giving one board the nudge and not
     /// the other would slide the pawns off the floor grid. The two cameras
     /// stay un-nudged siblings, so the whole desk content slides together on
-    /// screen — exactly the nudge Didier dialled in.
+    /// screen.
     /// </para>
     /// </summary>
-    private const float DeskBoardOffsetX = -32f;
+    private const float DeskBoardOffsetX = 0f;
 
     /// <summary>
     /// Shader uniform names on <c>desk_triangle_clip.gdshader</c> — the
@@ -465,7 +495,8 @@ public partial class GameScreen : Control
     /// at the top of the file for the full rationale.
     ///
     /// <para>
-    /// Applies the cosmetic local-X nudge to BOTH desk boards, sizes both
+    /// Applies the cosmetic local-X nudge to BOTH desk boards (0 by default
+    /// since J3c-1octies — see <see cref="DeskBoardOffsetX"/>), sizes both
     /// desk SubViewports, wires the floor SubViewport's texture (with the
     /// clip shader) and the entities SubViewport's texture (no shader) onto
     /// their TextureRects, computes ONE desk camera Position/Zoom in pure-C#
@@ -491,6 +522,11 @@ public partial class GameScreen : Control
         // cell-to-pixel — see DeskBoardOffsetX. A board's whole subtree
         // (pawns, grid, floor) rides the offset; the desk cameras are
         // un-nudged siblings, so the content slides together on screen.
+        //
+        // J3c-1octies: DeskBoardOffsetX is 0 — the desk content is centred
+        // like the maquette content. A non-zero leftover was what made the
+        // bottom desk wedges asymmetric (Didier's "bande marron plus epaisse
+        // a droite").
         var boardNudge = new Vector2(DeskBoardOffsetX, 0f);
         _deskFloorBoard.Position = boardNudge;
         _deskEntitiesBoard.Position = boardNudge;
@@ -559,9 +595,9 @@ public partial class GameScreen : Control
         // `screen*frac - screen*0.5` screen-pixels from centre.
         //
         // `formationCentre` is the centroid of the slot cells in a board's
-        // LOCAL space (CellToPixel), so it does NOT include DeskBoardOffsetX —
-        // leaving the camera on that un-shifted centroid is what makes the
-        // -32 px board nudge visible.
+        // LOCAL space (CellToPixel); with DeskBoardOffsetX at 0 the board
+        // local space and the desk world coincide, so no offset term is
+        // needed here.
         var screenOffsetFromCentre = new Vector2(
             screen.X * DeskFormationScreenFracX - screen.X * 0.5f,
             screen.Y * DeskFormationScreenFracY - screen.Y * 0.5f);
@@ -619,7 +655,9 @@ public partial class GameScreen : Control
     /// architecture comment). The frontier follows the centred maquette
     /// diamond: the two clip hypotenuses are the diamond's two LOWER edges,
     /// and a vertical split at the diamond's lower point bounds each corner
-    /// triangle to its own side. All of it is derived in
+    /// triangle to its own side. The diamond's lower point is placed flush on
+    /// the bottom HUD band's top edge (J3c-1octies) so no desk strip shows
+    /// below the diamond. All of it is derived in
     /// <see cref="DeskClipFrontierLogic"/> (Godot-free, xUnit-pinned).
     /// </para>
     /// </summary>
@@ -633,9 +671,11 @@ public partial class GameScreen : Control
         var deskSize = new SysVec2(screen.X, screen.Y);
 
         // The centred maquette diamond: a strict iso 2:1 rhombus overflowing
-        // the screen sideways, lower point near the bottom HUD band.
+        // the screen sideways. Its lower point is placed flush on the BOTTOM
+        // HUD band's top edge (HudBandHeight) — J3c-1octies — so no strip of
+        // desk floor shows between the diamond and the bottom HUD.
         var diamond = DeskClipFrontierLogic.MaquetteDiamond(
-            deskSize, HudBandHeight);
+            deskSize, HudBandHeight, HudBandHeight);
 
         // The two corner-triangle half-planes + the vertical split.
         var frontier = DeskClipFrontierLogic.Compute(
@@ -659,18 +699,19 @@ public partial class GameScreen : Control
         material.SetShaderParameter(ClipSplitUniform, frontier.SplitU);
 
         // [DESK-DIAG] — the twin-corner clip in BOTH spaces.
-        GD.Print($"[DESK-DIAG] proportion knobs: " +
+        GD.Print($"[DESK-DIAG] proportion knob: " +
                  $"MaquetteHalfWidthScreenFracX=" +
                  $"{DeskClipFrontierLogic.MaquetteHalfWidthScreenFracX} " +
-                 $"MaquetteLowerPointScreenFracY=" +
-                 $"{DeskClipFrontierLogic.MaquetteLowerPointScreenFracY} " +
                  $"IsoEdgeSlope={DeskClipFrontierLogic.IsoEdgeSlope} " +
-                 $"-- iso slope is LOCKED, not a knob");
+                 $"-- iso slope is LOCKED, not a knob; the lower point is " +
+                 $"DERIVED from the bottom HUD band ({HudBandHeight}px)");
         GD.Print($"[DESK-DIAG] maquette diamond (screen px): " +
                  $"topApex=({diamond.TopApex.X},{diamond.TopApex.Y}) " +
                  $"leftApex=({diamond.LeftApex.X},{diamond.LeftApex.Y}) " +
                  $"rightApex=({diamond.RightApex.X},{diamond.RightApex.Y}) " +
-                 $"lowerPoint=({diamond.LowerPoint.X},{diamond.LowerPoint.Y})");
+                 $"lowerPoint=({diamond.LowerPoint.X},{diamond.LowerPoint.Y}) " +
+                 $"-- lowerPoint.Y should equal screenH-{HudBandHeight}=" +
+                 $"{screen.Y - HudBandHeight} (flush on the bottom HUD band)");
         GD.Print($"[DESK-DIAG] diamond edge slopes (must all be iso 0.5): " +
                  $"topLeft={DeskClipFrontierLogic.EdgeSlope(diamond.TopApex, diamond.LeftApex)} " +
                  $"topRight={DeskClipFrontierLogic.EdgeSlope(diamond.TopApex, diamond.RightApex)} " +
@@ -794,23 +835,24 @@ public partial class GameScreen : Control
         // ------------------------------------------------------------------
         var slots = DeskSlotLayoutLogic.CompanySlotCells();
 
-        // (0) The proportion knobs that decide maquette vs desk balance.
-        GD.Print($"[DESK-DIAG] proportion knobs: " +
+        // (0) The proportion knob that decides maquette vs desk balance.
+        GD.Print($"[DESK-DIAG] proportion knob: " +
                  $"MaquetteHalfWidthScreenFracX=" +
                  $"{DeskClipFrontierLogic.MaquetteHalfWidthScreenFracX} " +
-                 $"MaquetteLowerPointScreenFracY=" +
-                 $"{DeskClipFrontierLogic.MaquetteLowerPointScreenFracY} " +
                  $"IsoEdgeSlope={DeskClipFrontierLogic.IsoEdgeSlope} " +
                  $"DeskCameraZoom={DeskCameraZoom} " +
                  $"formationFrac=({DeskFormationScreenFracX}," +
-                 $"{DeskFormationScreenFracY})");
+                 $"{DeskFormationScreenFracY}) " +
+                 $"-- diamond lower point DERIVED from bottom HUD band " +
+                 $"({HudBandHeight}px), no magic FracY");
 
         // (0b) Desk-board cosmetic nudge — applied to BOTH desk boards.
         GD.Print($"[DESK-DIAG] DeskBoard cosmetic nudge: DeskBoardOffsetX=" +
                  $"{DeskBoardOffsetX} => DeskFloorBoard.Position=" +
                  $"{_deskFloorBoard.Position} DeskEntitiesBoard.Position=" +
                  $"{_deskEntitiesBoard.Position} -- BOTH boards nudged " +
-                 $"identically so floor and entities agree on cell-to-pixel");
+                 $"identically; 0 keeps the desk content centred so the two " +
+                 $"bottom desk wedges are mirror-symmetric (J3c-1octies)");
 
         // (1) The two desk viewports + the two desk TextureRects.
         GD.Print($"[DESK-DIAG] DeskFloorViewport (CLIPPED): " +
@@ -866,14 +908,16 @@ public partial class GameScreen : Control
         // (5) The twin-corner clip frontier.
         var screenSize = new SysVec2(screen.X, screen.Y);
         var diamond = DeskClipFrontierLogic.MaquetteDiamond(
-            screenSize, HudBandHeight);
+            screenSize, HudBandHeight, HudBandHeight);
         var frontier = DeskClipFrontierLogic.Compute(
             diamond, SysVec2.Zero, screenSize);
         GD.Print($"[DESK-DIAG] maquette diamond (screen px): " +
                  $"topApex=({diamond.TopApex.X},{diamond.TopApex.Y}) " +
                  $"leftApex=({diamond.LeftApex.X},{diamond.LeftApex.Y}) " +
                  $"rightApex=({diamond.RightApex.X},{diamond.RightApex.Y}) " +
-                 $"lowerPoint=({diamond.LowerPoint.X},{diamond.LowerPoint.Y})");
+                 $"lowerPoint=({diamond.LowerPoint.X},{diamond.LowerPoint.Y}) " +
+                 $"-- lowerPoint.Y flush on bottom HUD band top edge " +
+                 $"(screenH-{HudBandHeight}={screen.Y - HudBandHeight})");
         GD.Print($"[DESK-DIAG] twin clip (UV): " +
                  $"leftPoint=({frontier.LeftPointUv.X},{frontier.LeftPointUv.Y}) " +
                  $"rightPoint=({frontier.RightPointUv.X},{frontier.RightPointUv.Y}) " +

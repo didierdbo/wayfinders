@@ -38,15 +38,18 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// </para>
 ///
 /// <para>
-/// <b>The proportion is one named, tunable knob.</b> The diamond is sized
-/// by <see cref="MaquetteHalfWidthScreenFracX"/> alone — the half-width as
-/// a fraction of the screen <i>width</i> (values &gt; 0.5 overflow the
-/// screen sideways). Everything else is derived: the half-height is
-/// <c>halfWidth * IsoEdgeSlope</c> (locking the slope), the lower point
-/// sits at <see cref="MaquetteLowerPointScreenFracY"/> of the screen height,
-/// the side apexes and top apex follow. Didier re-tunes the maquette-vs-desk
-/// balance by editing those two constants alone; no other code changes.
-/// See their doc comments for the default values and their effect.
+/// <b>The lower point is derived from the bottom HUD band (J3c-1octies,
+/// Didier, 2026-05-21).</b> The diamond is sized by one knob
+/// (<see cref="MaquetteHalfWidthScreenFracX"/>) and its lower point is now
+/// <b>placed</b> flush against the bottom HUD band's top edge —
+/// <c>screenHeight - bottomHudBandHeight</c> — not at a magic screen-height
+/// fraction. Before this fix the lower point sat ~11 px above the HUD band,
+/// leaving a thin strip of desk floor visible between the diamond and the
+/// HUD; deriving the placement from the HUD band closes that strip and the
+/// lower point follows automatically if the band height changes. Everything
+/// else is still derived: the half-height is <c>halfWidth * IsoEdgeSlope</c>
+/// (locking the slope), the side apexes and top apex follow. Didier
+/// re-tunes the maquette-vs-desk balance with the half-width knob alone.
 /// </para>
 ///
 /// <para>
@@ -125,7 +128,7 @@ public static class DeskClipFrontierLogic
     /// <summary>
     /// The four apexes of the centred maquette diamond, in screen pixels.
     /// Computed by <see cref="MaquetteDiamond"/> from the screen size and
-    /// the HUD band; consumed by <see cref="Compute"/>. Exposed as a value
+    /// the HUD bands; consumed by <see cref="Compute"/>. Exposed as a value
     /// so a test can pin the diamond placement independently of the clip
     /// maths.
     ///
@@ -146,8 +149,8 @@ public static class DeskClipFrontierLogic
     /// <param name="LeftApex">Left side apex — off-screen left (x &lt; 0) when the diamond overflows.</param>
     /// <param name="RightApex">Right side apex — off-screen right (x &gt; screenWidth) when the diamond overflows.</param>
     /// <param name="LowerPoint">
-    /// Lower point — on the screen's horizontal middle, pointing down toward
-    /// the bottom HUD band.
+    /// Lower point — on the screen's horizontal middle, sitting flush on the
+    /// bottom HUD band's top edge so no desk strip shows below the diamond.
     /// </param>
     public readonly record struct DiamondApexes(
         SysVec2 TopApex,
@@ -181,11 +184,11 @@ public static class DeskClipFrontierLogic
     public const float IsoEdgeSlope = 0.5f;
 
     // ----------------------------------------------------------------------
-    //  THE TWO PROPORTION KNOBS — tune these to re-balance maquette vs desk.
+    //  THE PROPORTION KNOB — tune this to re-balance maquette vs desk.
     // ----------------------------------------------------------------------
 
     /// <summary>
-    /// <b>Proportion knob #1 — the maquette diamond's half-width, as a
+    /// <b>Proportion knob — the maquette diamond's half-width, as a
     /// fraction of the screen WIDTH.</b>
     ///
     /// <para>
@@ -206,9 +209,7 @@ public static class DeskClipFrontierLogic
     /// 1920x1080 screen the half-height is then
     /// <c>0.95 * 1920 * 0.5 = 912 px</c>, so the visible diamond is tall
     /// enough to own the bulk of the screen while every edge keeps the true
-    /// iso 0.5 slope. This replaces the broken J3c-1quater pair
-    /// (lower-point-frac 0.94 + side-apex-frac 0.30) that produced a 0.72
-    /// slope.
+    /// iso 0.5 slope.
     /// </para>
     ///
     /// <para>
@@ -222,45 +223,48 @@ public static class DeskClipFrontierLogic
     public const float MaquetteHalfWidthScreenFracX = 0.95f;
 
     /// <summary>
-    /// <b>Proportion knob #2 — how far down the maquette diamond's lower
-    /// point reaches, as a fraction of the screen height.</b>
+    /// <b>The maquette diamond's lower point is DERIVED from the bottom HUD
+    /// band — it is no longer a free fraction (J3c-1octies, Didier,
+    /// 2026-05-21, "no brown desk band must show below the diamond").</b>
     ///
     /// <para>
-    /// 0.0 = screen top, 1.0 = screen bottom. The maquette diamond points
-    /// DOWN: this knob places the lower point vertically. It does NOT
-    /// change the diamond's shape (the shape is fixed by
-    /// <see cref="MaquetteHalfWidthScreenFracX"/> and the locked
-    /// <see cref="IsoEdgeSlope"/>) — it only slides the whole rhombus up or
-    /// down the screen. The side apexes and the top apex are derived from
-    /// the lower point minus the (slope-locked) half-height.
+    /// <b>What changed and why.</b> Earlier rounds placed the lower point at
+    /// a magic screen-height fraction (0.94 → 0.96). At 0.96 of a 1080-tall
+    /// screen the lower point sat at y ≈ 1037 while the bottom HUD band
+    /// covers <c>[1048, 1080]</c> — so a ~11 px strip of desk floor stayed
+    /// visible <i>between</i> the diamond's lower point and the HUD. That
+    /// strip is the top of the previous row's desk wedge and must not show.
     /// </para>
     ///
     /// <para>
-    /// <b>Default 0.92 (J3c-1quinquies).</b> The lower point sits at 92% of
-    /// the screen height — just above the 32 px bottom HUD band. With the
-    /// half-height at 912 px (see knob #1) the side apexes then land at
-    /// <c>0.92 * 1080 - 912 = ~81.6 px</c> down — clear of the 32 px top HUD
-    /// band — and the top apex is cropped well above the screen.
+    /// <b>The fix: derive, do not tune.</b> <see cref="MaquetteDiamond"/>
+    /// now places the lower point at <c>screenHeight - bottomHudBandHeight</c>
+    /// — exactly on the bottom HUD band's TOP edge. The diamond's lower point
+    /// and the HUD band then meet with no gap, so no desk strip can show
+    /// below the diamond, and the lower point follows automatically if the
+    /// HUD band height ever changes — no magic FracY to keep re-tuning.
     /// </para>
     ///
     /// <para>
-    /// <b>To re-tune:</b> raise toward 1.0 to slide the diamond down (the
-    /// desk corner triangles get shorter); lower it to slide the diamond up.
-    /// Keep <c>lowerPointY - halfHeight</c> from leaving the diamond
-    /// degenerate; in practice any value in <c>[0.5, 1.0]</c> with the
-    /// default half-width is safe.
+    /// This constant is kept only as a documented <b>fallback default</b>,
+    /// used when a caller passes a zero bottom band. It is the fraction
+    /// equivalent of "flush with a 32 px band on a 1080 screen"
+    /// (<c>(1080 - 32) / 1080 ≈ 0.9704</c>) so the historical 1920x1080
+    /// behaviour is reproduced when no band is supplied. The live desk never
+    /// relies on it — <c>GameScreen</c> always passes the real
+    /// <see cref="HudBandHeight"/>.
     /// </para>
     /// </summary>
-    public const float MaquetteLowerPointScreenFracY = 0.96f;
+    public const float MaquetteLowerPointScreenFracY = (1080f - 32f) / 1080f;
 
     /// <summary>
-    /// Build the centred maquette diamond from the screen size and the top
-    /// HUD band height.
+    /// Build the centred maquette diamond from the screen size and the two
+    /// HUD band heights.
     ///
     /// <para>
-    /// <b>Placement rules (J3c-1quinquies, 2026-05-21 — regression fix:
-    /// "the diamond outline must be a real iso 2:1, parallel to the grid
-    /// diagonals").</b>
+    /// <b>Placement rules (J3c-1octies, 2026-05-21 — "no brown desk band
+    /// below the diamond"; J3c-1quinquies — "the diamond outline must be a
+    /// real iso 2:1, parallel to the grid diagonals").</b>
     /// <list type="bullet">
     ///   <item>The half-width is <see cref="MaquetteHalfWidthScreenFracX"/>
     ///     of the screen width. The diamond is centred on the screen's
@@ -271,8 +275,12 @@ public static class DeskClipFrontierLogic
     ///     This locks every edge to the iso 2:1 slope of 0.5 — the diamond
     ///     is never stretched vertically.</item>
     ///   <item>The lower point sits on the horizontal middle, at
-    ///     <see cref="MaquetteLowerPointScreenFracY"/> of the screen height
-    ///     down — the diamond points down toward the bottom HUD band.</item>
+    ///     <c>screenHeight - bottomHudBandHeight</c> — flush on the bottom
+    ///     HUD band's top edge, so no strip of desk floor shows between the
+    ///     diamond's lower point and the HUD. If
+    ///     <paramref name="bottomHudBandHeight"/> is zero the lower point
+    ///     falls back to <see cref="MaquetteLowerPointScreenFracY"/> of the
+    ///     screen height.</item>
     ///   <item>The side apexes sit half-height above the lower point; the
     ///     top apex sits a full height above it. With a wide overflowing
     ///     diamond the top apex lands well above the screen — the diamond's
@@ -288,27 +296,30 @@ public static class DeskClipFrontierLogic
     /// is the defining property of an iso shape; it cannot be a free
     /// parameter. To keep the maquette large, J3c-1quinquies instead grows
     /// the diamond's WIDTH past the screen width and derives the height from
-    /// the slope-locked ratio. The visible portion is large, the slope stays
-    /// a true iso 0.5, the desk stays two thin corners. Tweak the two
-    /// constants to re-tune; no other code changes.
-    /// </para>
-    ///
-    /// <para>
-    /// The <paramref name="topHudBandHeight"/> is accepted so a future tweak
-    /// can clamp the side apexes against the HUD; J3c-1quinquies keeps the
-    /// fraction-driven placement and only documents the band.
+    /// the slope-locked ratio. Pushing the lower point down to the HUD band
+    /// (J3c-1octies) only lets the diamond overflow sideways a little more —
+    /// the slope is untouched. The visible portion is large, the slope stays
+    /// a true iso 0.5, the desk stays two thin corners.
     /// </para>
     /// </summary>
     /// <param name="screenSize">The screen size in pixels. Both positive.</param>
     /// <param name="topHudBandHeight">
-    /// The top HUD band height in pixels. Non-negative.
+    /// The top HUD band height in pixels. Non-negative. Accepted so a future
+    /// tweak can clamp the side apexes against the top HUD band; the current
+    /// placement does not consume it.
+    /// </param>
+    /// <param name="bottomHudBandHeight">
+    /// The bottom HUD band height in pixels. Non-negative. The lower point
+    /// is placed at <c>screenHeight - bottomHudBandHeight</c> — flush on the
+    /// band's top edge. A zero value falls back to the
+    /// <see cref="MaquetteLowerPointScreenFracY"/> fraction.
     /// </param>
     /// <returns>The four diamond apexes in screen pixels.</returns>
     /// <exception cref="System.ArgumentException">
-    /// If a screen dimension is non-positive or the band height is negative.
+    /// If a screen dimension is non-positive or a band height is negative.
     /// </exception>
     public static DiamondApexes MaquetteDiamond(
-        SysVec2 screenSize, float topHudBandHeight)
+        SysVec2 screenSize, float topHudBandHeight, float bottomHudBandHeight)
     {
         if (screenSize.X <= 0f || screenSize.Y <= 0f)
         {
@@ -322,11 +333,17 @@ public static class DeskClipFrontierLogic
                 $"Top HUD band height must be non-negative; got " +
                 $"{topHudBandHeight}.", nameof(topHudBandHeight));
         }
+        if (bottomHudBandHeight < 0f)
+        {
+            throw new System.ArgumentException(
+                $"Bottom HUD band height must be non-negative; got " +
+                $"{bottomHudBandHeight}.", nameof(bottomHudBandHeight));
+        }
 
         // The diamond is centred on the screen's horizontal middle.
         float centreX = screenSize.X * 0.5f;
 
-        // Knob #1 sizes the diamond: half-width as a fraction of the screen
+        // The knob sizes the diamond: half-width as a fraction of the screen
         // WIDTH. A fraction > 0.5 makes the diamond wider than the screen,
         // so the side apexes land off-screen — the deliberate sideways
         // overflow that keeps the maquette large without vertical stretch.
@@ -337,9 +354,13 @@ public static class DeskClipFrontierLogic
         // slope exactly 0.5 and stays parallel to the iso grid diagonals.
         float halfH = halfW * IsoEdgeSlope;
 
-        // Knob #2 places the (slope-locked) diamond vertically: the lower
-        // point sits this fraction of the screen height down.
-        float lowerY = screenSize.Y * MaquetteLowerPointScreenFracY;
+        // J3c-1octies: the lower point is placed flush on the bottom HUD
+        // band's TOP edge — screenHeight - bottomHudBandHeight — so no strip
+        // of desk floor shows between the diamond and the HUD. With a zero
+        // bottom band the lower point falls back to the documented fraction.
+        float lowerY = bottomHudBandHeight > 0f
+            ? screenSize.Y - bottomHudBandHeight
+            : screenSize.Y * MaquetteLowerPointScreenFracY;
 
         // The side apexes are half-height above the lower point; the top
         // apex a full height above it. With a wide overflowing diamond the
