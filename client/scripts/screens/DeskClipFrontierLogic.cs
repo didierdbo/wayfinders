@@ -251,7 +251,7 @@ public static class DeskClipFrontierLogic
     /// default half-width is safe.
     /// </para>
     /// </summary>
-    public const float MaquetteLowerPointScreenFracY = 0.92f;
+    public const float MaquetteLowerPointScreenFracY = 0.96f;
 
     /// <summary>
     /// Build the centred maquette diamond from the screen size and the top

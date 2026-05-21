@@ -577,12 +577,31 @@
     <Compile Include="..\scripts\screens\DeskFloorRectLogic.cs" Link="src\DeskFloorRectLogic.cs" />
   </ItemGroup>
 
-  <!-- J3c-1bis NOTE (Rune, 2026-05-21): the earlier DeskEntityLayerLogic
-       helper (a screen-space layer that hosted the desk pawns OUTSIDE the
-       desk SubViewport to dodge the clip shader) is removed. It forced a
-       hand-written desk-local -> screen reprojection that broke on every
-       F6 round-trip. The desk pawns now ride INSIDE the desk SubViewport
-       as layer-3 occupants of the desk board, in the same coordinate frame
-       as the floor — no reprojection, nothing to drift. -->
+  <!-- J3c-1sexies maquette content centring (Rune, 2026-05-21).
+       MaquetteContentLogic is the pure-C# geometry that returns the
+       maquette content GEOMETRIC centre — the point the pannable
+       MapCamera2D must be parked on so the maquette content is centred on
+       screen, aligned with the clip diamond. The bug it locks: the camera
+       was parked on the content BOUNDING-BOX centre, which for the iso
+       placeholder grid is offset from the diamond geometric centre, so the
+       maquette leaned left. Godot-free by design (System.Numerics.Vector2)
+       so it pins here without an engine. The Godot-bound wiring
+       (GameScreen._Ready parking MapCamera2D) lives in the client csproj
+       only and is validated via the GameScreen.tscn F6 smoke. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\MaquetteContentLogic.cs" Link="src\MaquetteContentLogic.cs" />
+  </ItemGroup>
+
+  <!-- J3c-1septies NOTE (Rune, 2026-05-21): the desk is now THREE
+       SubViewports — a clipped FLOOR viewport and an UNCLIPPED ENTITIES
+       viewport sharing one camera frame, plus the maquette viewport. The
+       desk_triangle_clip shader runs on the FLOOR TextureRect only; the
+       pawns ride the entities viewport and are never sliced, even when a
+       body overflows above the floor triangle. The two desk boards share
+       TileWidthPx and DeskBoardOffsetX and the two desk cameras share
+       Position/Zoom, so cell-to-pixel agrees and there is NO reprojection.
+       That node wiring lives in the client csproj only; the pure-C#
+       geometry it consumes (DeskClipFrontierLogic, DeskFloorRectLogic,
+       DeskSlotLayoutLogic, MaquetteContentLogic) is all pinned above. -->
 
 </Project>

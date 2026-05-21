@@ -452,6 +452,58 @@ public sealed class DeskClipFrontierLogicTests
             () => DeskClipFrontierLogic.Compute(degenerate, DeskOrigin, DeskSize));
     }
 
+    // --- THE PAWN-OVERFLOW INVARIANT — locks the three-viewport split ----
+
+    [Fact]
+    public void A_pawn_standing_at_the_floor_edge_has_its_body_dropped_by_the_floor_clip()
+    {
+        // THE invariant behind the J3c-1septies three-viewport architecture.
+        //
+        // A DeskCompanyPawn is ~96-120 px tall: its foot sits on a desk
+        // cell, its body and head extend UP from that foot. A pawn whose
+        // foot is near the floor edge therefore has its upper body
+        // OVERFLOWING above the desk floor triangle, into the maquette
+        // diamond zone.
+        //
+        // This test proves the floor clip shader WOULD discard that upper
+        // body — i.e. if the pawns rendered through the clipped FLOOR
+        // viewport they would be sliced. That is exactly why the pawns must
+        // ride a SEPARATE, UNCLIPPED entities viewport. If a future change
+        // ever merges the floor and the pawns back into one clipped
+        // viewport, the pawn-clipping bug returns; this test documents and
+        // pins the reason the split exists.
+        var d = DeskClipFrontierLogic.MaquetteDiamond(DeskSize, TopHudBand);
+        var f = DeskClipFrontierLogic.Compute(d, DeskOrigin, DeskSize);
+
+        // Pick a point ON the left desk-floor hypotenuse — a pawn foot
+        // placed right at the floor edge. Derive it from the real geometry:
+        // a UV y partway down the left hypotenuse, x exactly on the edge.
+        var leftApexUv = DeskClipFrontierLogic.ScreenToUv(
+            d.LeftApex, DeskOrigin, DeskSize);
+        var lowerUv = DeskClipFrontierLogic.ScreenToUv(
+            d.LowerPoint, DeskOrigin, DeskSize);
+        float footY = leftApexUv.Y + 0.6f * (lowerUv.Y - leftApexUv.Y);
+        float t = (footY - leftApexUv.Y) / (lowerUv.Y - leftApexUv.Y);
+        float footEdgeX = leftApexUv.X + t * (lowerUv.X - leftApexUv.X);
+
+        // The foot, a hair INSIDE the desk floor triangle — kept (the floor
+        // covers the foot, the pawn does stand on the desk).
+        var foot = new SysVec2(footEdgeX - 0.01f, footY);
+        Assert.True(KeptByShader(f, foot),
+            "the pawn foot stands on the desk floor triangle");
+
+        // The pawn body/head: the SAME screen x, but well ABOVE the foot
+        // (smaller UV y — the body extends up). For a ~100 px tall pawn on a
+        // 1080 screen that is roughly 0.10 of the screen height up. This
+        // upper body is in the maquette diamond zone, NOT on the floor
+        // triangle: the floor clip shader DROPS it.
+        var bodyTop = new SysVec2(footEdgeX - 0.01f, footY - 0.10f);
+        Assert.False(KeptByShader(f, bodyTop),
+            "the pawn body overflows above the floor triangle and would be " +
+            "clipped by the FLOOR shader — hence the pawns ride a separate " +
+            "UNCLIPPED entities viewport (the three-viewport architecture)");
+    }
+
     /// <summary>
     /// Mirror of the shader's keep test: a fragment at UV <paramref name="uv"/>
     /// is kept when it is inside the bottom-left corner triangle

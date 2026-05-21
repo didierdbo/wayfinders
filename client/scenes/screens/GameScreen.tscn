@@ -62,23 +62,45 @@ PlaceholderGridWidth = 16
 PlaceholderGridHeight = 16
 DrawPlaceholderGrid = true
 
-[node name="DeskViewport" type="SubViewport" parent="."]
+[node name="DeskFloorViewport" type="SubViewport" parent="."]
 handle_input_locally = false
 transparent_bg = true
 size = Vector2i(1920, 1080)
 render_target_update_mode = 4
 
-[node name="DeskCamera2D" type="Camera2D" parent="DeskViewport"]
+[node name="DeskFloorCamera2D" type="Camera2D" parent="DeskFloorViewport"]
 
-[node name="DeskBoard" parent="DeskViewport" instance=ExtResource("2_isoboard")]
+[node name="DeskFloorBoard" parent="DeskFloorViewport" instance=ExtResource("2_isoboard")]
 TileWidthPx = 256
 PlaceholderGridWidth = 8
 PlaceholderGridHeight = 8
 DrawPlaceholderGrid = true
 DrawPlaceholderFloor = true
 
-[node name="DeskTextureRect" type="TextureRect" parent="."]
+[node name="DeskEntitiesViewport" type="SubViewport" parent="."]
+handle_input_locally = false
+transparent_bg = true
+size = Vector2i(1920, 1080)
+render_target_update_mode = 4
+
+[node name="DeskEntitiesCamera2D" type="Camera2D" parent="DeskEntitiesViewport"]
+
+[node name="DeskEntitiesBoard" parent="DeskEntitiesViewport" instance=ExtResource("2_isoboard")]
+TileWidthPx = 256
+PlaceholderGridWidth = 8
+PlaceholderGridHeight = 8
+
+[node name="DeskFloorTextureRect" type="TextureRect" parent="."]
 material = SubResource("ShaderMaterial_deskclip")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="DeskEntitiesTextureRect" type="TextureRect" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
