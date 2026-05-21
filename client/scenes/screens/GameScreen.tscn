@@ -1,10 +1,18 @@
-[gd_scene load_steps=4 format=3 uid="uid://dgamescreenj3a0"]
+[gd_scene load_steps=7 format=3 uid="uid://dgamescreenj3a0"]
 
 [ext_resource type="Script" path="res://scenes/screens/GameScreen.cs" id="1_gamescreen"]
 [ext_resource type="PackedScene" uid="uid://b3iso0boardj3i" path="res://scenes/iso/IsoBoard.tscn" id="2_isoboard"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_deskbg"]
 bg_color = Color(0.16, 0.12, 0.09, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hudband"]
+bg_color = Color(0.83, 0.74, 0.56, 1)
+border_width_left = 0
+border_width_top = 3
+border_width_right = 0
+border_width_bottom = 3
+border_color = Color(0.36, 0.22, 0.13, 1)
 
 [node name="GameScreen" type="Control"]
 layout_mode = 3
@@ -27,15 +35,14 @@ theme_override_styles/panel = SubResource("StyleBoxFlat_deskbg")
 
 [node name="MapViewportContainer" type="SubViewportContainer" parent="."]
 layout_mode = 1
-offset_left = 480.0
 offset_top = 90.0
-offset_right = 1860.0
+offset_right = 1920.0
 offset_bottom = 990.0
 stretch = true
 
 [node name="MapViewport" type="SubViewport" parent="MapViewportContainer"]
 handle_input_locally = false
-size = Vector2i(1380, 900)
+size = Vector2i(1920, 900)
 render_target_update_mode = 4
 
 [node name="MapCamera2D" type="Camera2D" parent="MapViewportContainer/MapViewport"]
@@ -45,3 +52,51 @@ TileWidthPx = 128
 PlaceholderGridWidth = 16
 PlaceholderGridHeight = 16
 DrawPlaceholderGrid = true
+
+[node name="HudLayer" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="HudTop" type="Panel" parent="HudLayer"]
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 90.0
+grow_horizontal = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_hudband")
+
+[node name="HudTopLabel" type="Label" parent="HudLayer/HudTop"]
+layout_mode = 1
+anchors_preset = 4
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 24.0
+offset_top = -16.0
+offset_right = 480.0
+offset_bottom = 16.0
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.24, 0.14, 0.08, 1)
+text = "HUD top — placeholder (J3b)"
+vertical_alignment = 1
+
+[node name="HudBottom" type="Panel" parent="HudLayer"]
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -90.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_hudband")
+
+[node name="HudBottomLabel" type="Label" parent="HudLayer/HudBottom"]
+layout_mode = 1
+anchors_preset = 4
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 24.0
+offset_top = -16.0
+offset_right = 480.0
+offset_bottom = 16.0
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.24, 0.14, 0.08, 1)
+text = "HUD bottom — placeholder (J3b)"
+vertical_alignment = 1

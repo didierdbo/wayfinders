@@ -6,11 +6,11 @@ namespace Wayfinders.Client.Scenes.Screens;
 
 /// <summary>
 /// Root of the Game Screen Shell — the cartographer's-desk diorama in
-/// which eM and eT are shown (roadmap <c>wayfinders-mvp-roadmap-eM-eT</c>,
-/// milestone J3a). This first slice is deliberately narrow: it stands up
-/// the <b>clipped, pannable map maquette</b> only. The fixed HUD frame
-/// (J3b) and the interactive iso desk (J3c) are later milestones and are
-/// not present here.
+/// which eM and eT are shown (roadmap <c>wayfinders-mvp-roadmap-eM-eT</c>).
+/// As of J3b this slice stands up two layers of the diorama: the
+/// <b>clipped, pannable map maquette</b> (J3a) and the <b>fixed top/bottom
+/// HUD frame</b> (J3b). The interactive iso desk (J3c) is a later
+/// milestone and is not present here.
 ///
 /// <para>
 /// <b>What J3a delivers.</b>
@@ -34,25 +34,59 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// </para>
 ///
 /// <para>
-/// <b>State ownership.</b> The pan decision — when a drag is live, where
-/// the clamped camera centre lands — is pure-C# in
-/// <see cref="MapViewportPanLogic"/>, Godot-free and xUnit-pinned. This
-/// node is the engine seam only: it converts <see cref="InputEvent"/>s
-/// into helper calls and assigns the helper's <see cref="PanVec2"/>
-/// result onto <see cref="_mapCamera"/>'s <see cref="Node2D.Position"/>.
-/// Same logic-vs-node split as J3-iso (<c>IsoBoard</c> ↔
-/// <c>IsoProjection</c>) and P8.2 (<c>E1WorldMap</c> ↔
-/// <c>CameraPanLogic</c>).
+/// <b>What J3b adds — the fixed HUD frame.</b> A <see cref="CanvasLayer"/>
+/// (<c>HudLayer</c>, high <c>layer</c> index) carries two full-width
+/// <see cref="Panel"/> bands anchored to the top and bottom of the
+/// screen. This is the <b>first legitimate <see cref="CanvasLayer"/></b>
+/// of the shell. A <see cref="CanvasLayer"/> has its own canvas transform
+/// that is <i>not</i> affected by any 2D camera — so the HUD stays welded
+/// to the screen no matter how the maquette pans inside its SubViewport.
+/// That is exactly the behaviour we want for a permanent overlay, and it
+/// is free: no per-frame work, no maths on the bands themselves.
+/// <list type="bullet">
+///   <item><b>Clipped behind the HUD.</b> Two independent guarantees that
+///     the maquette never bleeds over the HUD. (1) <c>HudLayer.layer</c>
+///     is higher than the default-layer maquette, so the HUD draws last.
+///     (2) <see cref="_Ready"/> re-sizes the
+///     <see cref="SubViewportContainer"/> to the <i>residual central
+///     rectangle</i> — the screen minus both bands — so the maquette is
+///     physically clipped to the gap between the bands. Belt and braces.</item>
+///   <item><b>Placeholder, swap-ready.</b> The bands are
+///     <see cref="Panel"/>s with a flat parchment <c>StyleBoxFlat</c>.
+///     Mira's real parchment liseré (J3-assets) swaps in by replacing the
+///     <c>theme_override_styles/panel</c> with a <see cref="TextureRect"/>
+///     child — the band node names and rects do not change, the J7 / HUD
+///     content milestones key off the same <c>HudTop</c> / <c>HudBottom</c>
+///     nodes. The two test <see cref="Label"/>s are placeholders for that
+///     future content (district name in J7, etc.).</item>
+/// </list>
+/// </para>
+///
+/// <para>
+/// <b>State ownership.</b> Two pure-C# helpers, each Godot-free and
+/// xUnit-pinned, carry the only arithmetic in this shell. (1) The pan
+/// decision — when a drag is live, where the clamped camera centre lands
+/// — is <see cref="MapViewportPanLogic"/> (J3a). (2) The residual
+/// central rectangle the maquette viewport must occupy — screen minus the
+/// two HUD bands — is <see cref="HudLayoutLogic"/> (J3b). This node is the
+/// engine seam only: it converts <see cref="InputEvent"/>s into helper
+/// calls and applies the helper results onto Godot nodes. Same
+/// logic-vs-node split as J3-iso (<c>IsoBoard</c> ↔ <c>IsoProjection</c>)
+/// and P8.2 (<c>E1WorldMap</c> ↔ <c>CameraPanLogic</c>).
 /// </para>
 ///
 /// <para>
 /// <b>CanvasLayer discipline (trap #1).</b> The maquette
 /// <see cref="SubViewportContainer"/> is a direct child of this
-/// <see cref="Control"/> root — never under a <see cref="CanvasLayer"/>.
-/// A <see cref="CanvasLayer"/> has its own canvas transform that ignores
-/// the SubViewport's <see cref="Camera2D"/>; the only legitimate
-/// <see cref="CanvasLayer"/> citizen of this shell is the fixed HUD,
-/// which arrives in J3b. There is none here yet, by design.
+/// <see cref="Control"/> root — <b>never</b> under the
+/// <c>HudLayer</c> <see cref="CanvasLayer"/>. A <see cref="CanvasLayer"/>
+/// has its own canvas transform that ignores the SubViewport's
+/// <see cref="Camera2D"/>; putting pannable world content under it would
+/// silently break the pan (trap #1 in the wrong direction). The
+/// <c>HudLayer</c> is the <i>only</i> <see cref="CanvasLayer"/> in this
+/// scene and it carries <i>only</i> the HUD — fixed content is exactly
+/// what a <see cref="CanvasLayer"/> is for (trap #1 in the right
+/// direction).
 /// </para>
 ///
 /// <para>
@@ -64,7 +98,11 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// GUI routing and is immune to <c>mouse_filter</c>. Motion events are
 /// <b>not</b> marked handled: J3a owns the pan <i>response</i>, not the
 /// event — future hover / selection systems on this surface must still
-/// see the same motion.
+/// see the same motion. The J3b HUD <see cref="Panel"/>s default to
+/// <c>MouseFilter = Stop</c> too; that is harmless here (they sit on a
+/// separate <see cref="CanvasLayer"/> and the pan is read in
+/// <see cref="_Input"/>) and is the correct default for when the HUD
+/// gains real buttons in a later milestone.
 /// </para>
 ///
 /// <para>
@@ -80,24 +118,45 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// <para>
 /// <b>Preflight (trap #2).</b> <see cref="_Ready"/> prints a fixed
 /// diagnostics block — viewport size, content extent, clamp bounds,
-/// camera start, the resolved pan button. A pan or clipping bug is then
-/// visible in the Godot Output on the first run.
+/// camera start, the resolved pan button, and (J3b) the HUD band heights
+/// plus the residual map rect with a loud warning if the bands leave no
+/// usable centre. A pan, clipping, or HUD-layout bug is then visible in
+/// the Godot Output on the first run.
 /// </para>
 /// </summary>
 public partial class GameScreen : Control
 {
     /// <summary>
     /// Autoload-injected opening flow must not draw its CanvasLayer over
-    /// this scene when launched standalone for the J3a smoke (trap #1bis).
-    /// The <c>.tscn</c> root carries <c>metadata/skip_opening_bootstrap</c>;
-    /// this constant documents the contract for readers of the code.
+    /// this scene when launched standalone for the J3a/J3b smoke
+    /// (trap #1bis). The <c>.tscn</c> root carries
+    /// <c>metadata/skip_opening_bootstrap</c>; this constant documents
+    /// the contract for readers of the code.
     /// </summary>
     private const string SkipBootstrapMeta = "skip_opening_bootstrap";
+
+    /// <summary>
+    /// Fixed height of the top HUD band, pixels. Must match the
+    /// <c>HudTop</c> panel's <c>offset_bottom</c> in
+    /// <c>GameScreen.tscn</c>. Held here as the single source of truth so
+    /// <see cref="HudLayoutLogic"/> sizes the residual map rect to exactly
+    /// the band the scene draws. When Mira's parchment liseré lands the
+    /// asset's authored height is propagated to both places at once.
+    /// </summary>
+    private const float TopBandHeight = 90f;
+
+    /// <summary>
+    /// Fixed height of the bottom HUD band, pixels. Must match the
+    /// <c>HudBottom</c> panel's <c>-offset_top</c> in
+    /// <c>GameScreen.tscn</c>. See <see cref="TopBandHeight"/>.
+    /// </summary>
+    private const float BottomBandHeight = 90f;
 
     private SubViewportContainer _mapContainer = null!;
     private SubViewport _mapViewport = null!;
     private Camera2D _mapCamera = null!;
     private IsoBoard _maquette = null!;
+    private CanvasLayer _hudLayer = null!;
 
     private readonly MapViewportPanLogic _pan = new();
 
@@ -107,10 +166,26 @@ public partial class GameScreen : Control
         _mapViewport = GetNode<SubViewport>("MapViewportContainer/MapViewport");
         _mapCamera = GetNode<Camera2D>("MapViewportContainer/MapViewport/MapCamera2D");
         _maquette = GetNode<IsoBoard>("MapViewportContainer/MapViewport/Maquette");
+        _hudLayer = GetNode<CanvasLayer>("HudLayer");
 
-        // The SubViewport's render size follows the container's rect, so
-        // the maquette is clipped exactly to the on-screen panel. Stretch
-        // keeps the two in lockstep when the window resizes.
+        // J3b: size the map viewport to the residual central rectangle —
+        // the screen minus the two fixed HUD bands. This is the second of
+        // two guarantees that the maquette never bleeds over the HUD: the
+        // HudLayer's higher layer index already draws the bands last, and
+        // this re-size physically clips the maquette to the gap between
+        // them. The maths is HudLayoutLogic (Godot-free, xUnit-pinned);
+        // this node only applies the result to the SubViewportContainer's
+        // offsets. The CanvasLayer HUD bands themselves need no code —
+        // their .tscn anchors keep them welded to the screen edges.
+        var screen = Size;
+        var residual = HudLayoutLogic.ResidualMapRect(
+            screen.X, screen.Y, TopBandHeight, BottomBandHeight);
+        ApplyResidualRect(residual);
+
+        // The SubViewport's render size follows the (now residual)
+        // container rect, so the maquette is clipped exactly to the
+        // central panel between the HUD bands. Stretch keeps the two in
+        // lockstep.
         _mapViewport.Size = (Vector2I)_mapContainer.Size;
 
         // Park the camera centred on the maquette content, then clamp so
@@ -123,7 +198,7 @@ public partial class GameScreen : Control
             ToPan(start), ToPan(content), ToPan(viewport));
         _mapCamera.Position = ToGodot(clampedStart);
 
-        Preflight(content, viewport, clampedStart);
+        Preflight(content, viewport, clampedStart, screen);
     }
 
     /// <summary>
@@ -182,6 +257,22 @@ public partial class GameScreen : Control
     }
 
     /// <summary>
+    /// Apply a <see cref="HudRect"/> (from <see cref="HudLayoutLogic"/>)
+    /// onto the <see cref="SubViewportContainer"/>'s offsets. The
+    /// container uses corner anchors at the screen origin in the
+    /// <c>.tscn</c>, so positioning is offset-driven. Kept as one method
+    /// so the J3b residual-rect application has a single, named seam — a
+    /// future window-resize handler would call exactly this.
+    /// </summary>
+    private void ApplyResidualRect(HudRect rect)
+    {
+        _mapContainer.OffsetLeft = rect.X;
+        _mapContainer.OffsetTop = rect.Y;
+        _mapContainer.OffsetRight = rect.X + rect.Width;
+        _mapContainer.OffsetBottom = rect.Y + rect.Height;
+    }
+
+    /// <summary>
     /// The pannable maquette content extent in world pixels. Prefers the
     /// real <c>IsoBoard</c> floor bitmap size; falls back to the
     /// placeholder iso-diamond bounding box while Mira's district asset
@@ -209,7 +300,7 @@ public partial class GameScreen : Control
     private Vector2 ViewportSize() => _mapContainer.Size;
 
     /// <summary>Trap #2 preflight: a fixed diagnostics block at <see cref="_Ready"/>.</summary>
-    private void Preflight(Vector2 content, Vector2 viewport, PanVec2 cameraStart)
+    private void Preflight(Vector2 content, Vector2 viewport, PanVec2 cameraStart, Vector2 screen)
     {
         GD.Print($"[GameScreen] preflight: skip_bootstrap=" +
                  $"{HasMeta(SkipBootstrapMeta)}");
@@ -225,6 +316,23 @@ public partial class GameScreen : Control
                  $"Y=[{halfVy},{content.Y - halfVy}] start={cameraStart}");
         GD.Print($"[GameScreen] preflight: pan button={MapViewportPanLogic.PanButton} " +
                  $"state={_pan.State} -- _Input wired (trap #9)");
+
+        // J3b HUD diagnostics: the CanvasLayer index, the band heights,
+        // and the residual map rect. A collapsed residual (HUD bands
+        // larger than the screen) is a design error — shout it.
+        var residual = HudLayoutLogic.ResidualMapRect(
+            screen.X, screen.Y, TopBandHeight, BottomBandHeight);
+        GD.Print($"[GameScreen] preflight: HudLayer layer={_hudLayer.Layer} " +
+                 $"bands top={TopBandHeight} bottom={BottomBandHeight} " +
+                 $"-- CanvasLayer overlay (trap #1, legitimate)");
+        GD.Print($"[GameScreen] preflight: residual map rect=" +
+                 $"[{residual.X},{residual.Y} {residual.Width}x{residual.Height}]");
+        if (!HudLayoutLogic.HasUsableResidual(
+                screen.X, screen.Y, TopBandHeight, BottomBandHeight))
+        {
+            GD.PushWarning("[GameScreen] HUD bands leave no usable central " +
+                           "rectangle — the maquette would be invisible.");
+        }
     }
 
     // --- engine seam: Godot.Vector2 <-> PanVec2 ----------------------------
