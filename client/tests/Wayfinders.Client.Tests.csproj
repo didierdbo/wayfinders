@@ -495,4 +495,19 @@
     <Compile Include="..\services\Iso\IsoProjection.cs" Link="src\IsoProjection.cs" />
   </ItemGroup>
 
+  <!-- J3a map-viewport pan (Rune, 2026-05-21, roadmap milestone J3a).
+       MapViewportPanLogic is the pure-C# composition layer that wires the
+       already-tested MapPanInputLogic (P8.3 drag state machine) and
+       CameraPanLogic.ClampCameraCenter (P8.2 rectangular clamp) into one
+       press/motion/release -> clamped camera centre contract for the
+       Game Screen Shell maquette. Godot-free by design : it consumes only
+       MapPanButton, PanVec2 and the two helpers above (all cherry-picked
+       earlier), so it pins here without an engine. The Godot-bound
+       GameScreen node (SubViewportContainer + SubViewport + internal
+       Camera2D + IsoBoard instance, _Input routing) lives in the client
+       csproj only and is validated via the GameScreen.tscn F6 smoke. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\MapViewportPanLogic.cs" Link="src\MapViewportPanLogic.cs" />
+  </ItemGroup>
+
 </Project>
