@@ -66,6 +66,18 @@ namespace Wayfinders.Client.Scenes.Iso;
 /// </para>
 ///
 /// <para>
+/// <b>Placeholder grid draw (J3a).</b> Until Mira's district floor bitmap
+/// lands, the board has nothing visible to pan or clip-test against. With
+/// <see cref="DrawPlaceholderGrid"/> enabled, <see cref="_Draw"/> strokes
+/// the iso diamond outline of every grid cell — a developer-only visual
+/// placeholder, off by default, on for the J3a maquette so the pan and
+/// the SubViewport clipping are observable. It is <i>not</i> a renderer
+/// and <i>not</i> the per-cell draw loop the hybrid forbids: it is one
+/// debug <see cref="_Draw"/> pass over the logical grid, dropped the
+/// moment a real floor bitmap exists.
+/// </para>
+///
+/// <para>
 /// <b>Preflight (trap #2).</b> <see cref="_Ready"/> prints a fixed block
 /// of diagnostics — background size, grid cell count, projection tile
 /// size, the round-trip self-check of a known cell. A rendering bug in
@@ -112,6 +124,16 @@ public partial class IsoBoard : Node2D
     public int PlaceholderGridHeight { get; set; } = 8;
 
     /// <summary>
+    /// When true, <see cref="_Draw"/> strokes the iso diamond of every
+    /// grid cell — a developer-only placeholder so the J3a maquette is
+    /// visible (pan + clip observable) before Mira's floor bitmap lands.
+    /// Off by default; the J3a <c>GameScreen.tscn</c> turns it on for its
+    /// <c>Maquette</c> instance. Drop it once a real floor bitmap exists.
+    /// </summary>
+    [Export]
+    public bool DrawPlaceholderGrid { get; set; }
+
+    /// <summary>
     /// The layer-2 logical grid for this board. Authoritative game data;
     /// the authoritative <i>owner</i> is <c>GameState</c>, which adopts
     /// this reference when a district loads. Null until <see cref="_Ready"/>
@@ -128,6 +150,11 @@ public partial class IsoBoard : Node2D
 
     private Sprite2D _background = null!;
 
+    // Placeholder-grid stroke colours — warm earth, Wayfinders visual DNA
+    // (terracotta / parchment / umber). Developer placeholder only.
+    private static readonly Color GridLineColor = new(0.62f, 0.40f, 0.27f, 0.85f);
+    private static readonly Color GridFillColor = new(0.91f, 0.85f, 0.72f, 0.10f);
+
     public override void _Ready()
     {
         _background = GetNode<Sprite2D>("Background");
@@ -143,6 +170,11 @@ public partial class IsoBoard : Node2D
         // not change.
         Grid = IsoGrid.BuildRectangle(PlaceholderGridWidth, PlaceholderGridHeight);
         Projection = IsoProjection.Iso2To1(TileWidthPx, ComputeAnchorPixel());
+
+        if (DrawPlaceholderGrid)
+        {
+            QueueRedraw();
+        }
 
         Preflight();
     }
@@ -171,6 +203,53 @@ public partial class IsoBoard : Node2D
     {
         var coord = Projection!.WorldToCell(new SysVec2(pixel.X, pixel.Y));
         return new Vector2I(coord.Col, coord.Row);
+    }
+
+    /// <summary>
+    /// The layer-1 floor bitmap size in pixels, or <see cref="Vector2.Zero"/>
+    /// when no background texture is set (the tolerated placeholder state
+    /// before Mira's district asset lands). The board owns its texture, so
+    /// the board exposes its size — callers that need the maquette content
+    /// extent (e.g. <c>GameScreen</c>'s pan clamp) ask the board rather
+    /// than reaching into the <see cref="Sprite2D"/> child. Safe to call
+    /// only after <see cref="_Ready"/>.
+    /// </summary>
+    public Vector2 GetBackgroundTextureSizeOrZero()
+        => _background.Texture?.GetSize() ?? Vector2.Zero;
+
+    /// <summary>
+    /// Developer placeholder draw (see <see cref="DrawPlaceholderGrid"/>).
+    /// Strokes the iso diamond outline of every cell using the board's
+    /// own <see cref="IsoProjection"/> — the projection is the single
+    /// source of truth, this draw does not re-derive any iso maths. One
+    /// pass at <see cref="_Ready"/>, not per-frame; the grid is static.
+    /// </summary>
+    public override void _Draw()
+    {
+        if (!DrawPlaceholderGrid || Grid is null || Projection is null)
+        {
+            return;
+        }
+
+        float halfW = Projection.TileWidth * 0.5f;
+        float halfH = Projection.TileHeight * 0.5f;
+
+        foreach (var cell in Grid.AllCells())
+        {
+            var centre = CellToPixel(new Vector2I(cell.Coord.Col, cell.Coord.Row));
+            // Four diamond apexes around the cell centre.
+            var diamond = new[]
+            {
+                centre + new Vector2(0f, -halfH),     // top
+                centre + new Vector2(halfW, 0f),      // right
+                centre + new Vector2(0f, halfH),      // bottom
+                centre + new Vector2(-halfW, 0f),     // left
+            };
+            DrawColoredPolygon(diamond, GridFillColor);
+            DrawPolyline(
+                new[] { diamond[0], diamond[1], diamond[2], diamond[3], diamond[0] },
+                GridLineColor, 2f, antialiased: true);
+        }
     }
 
     /// <summary>
@@ -229,7 +308,8 @@ public partial class IsoBoard : Node2D
                  $"{_background.Texture?.GetSize().ToString() ?? "(none)"} " +
                  $"centered={_background.Centered}");
         GD.Print($"[IsoBoard] preflight: grid cells={grid.Count} " +
-                 $"placeholder={PlaceholderGridWidth}x{PlaceholderGridHeight}");
+                 $"placeholder={PlaceholderGridWidth}x{PlaceholderGridHeight} " +
+                 $"drawPlaceholder={DrawPlaceholderGrid}");
         GD.Print($"[IsoBoard] preflight: projection tile=" +
                  $"{proj.TileWidth}x{proj.TileHeight} anchor={proj.AnchorPixel}");
 

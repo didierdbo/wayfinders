@@ -1,0 +1,47 @@
+[gd_scene load_steps=4 format=3 uid="uid://dgamescreenj3a0"]
+
+[ext_resource type="Script" path="res://scenes/screens/GameScreen.cs" id="1_gamescreen"]
+[ext_resource type="PackedScene" uid="uid://b3iso0boardj3i" path="res://scenes/iso/IsoBoard.tscn" id="2_isoboard"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_deskbg"]
+bg_color = Color(0.16, 0.12, 0.09, 1)
+
+[node name="GameScreen" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_gamescreen")
+metadata/skip_opening_bootstrap = true
+
+[node name="DeskBackground" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_deskbg")
+
+[node name="MapViewportContainer" type="SubViewportContainer" parent="."]
+layout_mode = 1
+offset_left = 480.0
+offset_top = 90.0
+offset_right = 1860.0
+offset_bottom = 990.0
+stretch = true
+
+[node name="MapViewport" type="SubViewport" parent="MapViewportContainer"]
+handle_input_locally = false
+size = Vector2i(1380, 900)
+render_target_update_mode = 4
+
+[node name="MapCamera2D" type="Camera2D" parent="MapViewportContainer/MapViewport"]
+
+[node name="Maquette" parent="MapViewportContainer/MapViewport" instance=ExtResource("2_isoboard")]
+TileWidthPx = 128
+PlaceholderGridWidth = 16
+PlaceholderGridHeight = 16
+DrawPlaceholderGrid = true
