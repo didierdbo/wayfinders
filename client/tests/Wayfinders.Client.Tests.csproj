@@ -510,4 +510,20 @@
     <Compile Include="..\scripts\screens\MapViewportPanLogic.cs" Link="src\MapViewportPanLogic.cs" />
   </ItemGroup>
 
+  <!-- J3b Game Screen Shell HUD frame (Rune, 2026-05-21, roadmap milestone
+       J3b). HudLayoutLogic is the pure-C# residual-rect maths : screen
+       size + two fixed HUD band heights -> the central rectangle the
+       MapViewportContainer must occupy so the maquette clips strictly
+       behind the top/bottom HUD bands. Godot-free by design (float maths
+       wrapped in HudRect) so it pins here without an engine. The two HUD
+       Panels themselves carry no maths : they sit on a CanvasLayer whose
+       canvas transform ignores the SubViewport Camera2D, so the HUD is
+       fixed for free. The Godot-bound GameScreen node (CanvasLayer
+       HudLayer + two band Panels + the MapViewportContainer re-size at
+       _Ready) lives in the client csproj only and is validated via the
+       GameScreen.tscn F6 smoke (pan the maquette, HUD must not move). -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\HudLayoutLogic.cs" Link="src\HudLayoutLogic.cs" />
+  </ItemGroup>
+
 </Project>
