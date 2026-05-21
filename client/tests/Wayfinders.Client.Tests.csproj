@@ -476,4 +476,23 @@
     <Compile Include="..\scripts\screens\CompanyPanelRosterLogic.cs" Link="src\CompanyPanelRosterLogic.cs" />
   </ItemGroup>
 
+  <!-- J3-iso hybrid rendering socle (Rune, 2026-05-21, design doc
+       rune-iso-rendering-design-2026-05-20.md decision #1 validated by
+       Didier). Three pure-C# pieces of the iso district socle :
+       IsoCell (purely-logical cell record, zero visual), IsoGrid (the
+       layer-2 logical grid, Dictionary<Vector2I, IsoCell>, decision #3),
+       and IsoProjection (the single source of truth for cell <-> pixel
+       conversion). All three reference only Godot Vector2 / Vector2I
+       struct types (no Node, no engine runtime) so they are
+       cherry-pickable here exactly like FogTileGridLogic / AreaGridLogic.
+       xUnit pins the projection round-trip + edge cases and the grid
+       placement gate. The Godot-bound IsoBoard node (Node2D, layer-1
+       Sprite2D floor + preflight) lives in the client csproj only and is
+       validated via the IsoBoard.tscn F6 smoke. -->
+  <ItemGroup>
+    <Compile Include="..\services\Iso\IsoCell.cs" Link="src\IsoCell.cs" />
+    <Compile Include="..\services\Iso\IsoGrid.cs" Link="src\IsoGrid.cs" />
+    <Compile Include="..\services\Iso\IsoProjection.cs" Link="src\IsoProjection.cs" />
+  </ItemGroup>
+
 </Project>
