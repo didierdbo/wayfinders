@@ -555,4 +555,37 @@
     <Compile Include="..\scripts\screens\DeskClipFrontierLogic.cs" Link="src\DeskClipFrontierLogic.cs" />
   </ItemGroup>
 
+
+  <!-- J3c-1bis F6 fix #1 desk floor fill rect (Rune, 2026-05-21).
+       DeskFloorRectLogic is the pure-C# geometry that turns the immobile
+       desk camera centre + viewport size into a viewport-covering
+       axis-aligned floor rect, so the desk floor reaches the screen edges
+       and the only edge the player sees is the triangular clip shader's
+       diagonal — not a parasitic iso-diamond edge sitting inside the
+       screen. Godot-free by design (System.Numerics.Vector2) so it pins
+       here without an engine. The Godot-bound wiring (IsoBoard.SetDeskFloorFillRect
+       + GameScreen.ConfigureDesk feeding the camera and viewport in) lives
+       in the client csproj only and is validated via the GameScreen.tscn
+       F6 smoke. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\DeskFloorRectLogic.cs" Link="src\DeskFloorRectLogic.cs" />
+  </ItemGroup>
+
+  <!-- J3c-1bis F6 fix #2 desk entity layer (Rune, 2026-05-21).
+       DeskEntityLayerLogic is the pure-C# geometry for the un-clipped
+       screen-space layer that hosts the desk pawns. The triangular clip
+       shader runs on the whole DeskViewport texture (floor + pawns), so a
+       pawn near the floor edge was sliced off — only its feet survived.
+       The clip must cut only the FLOOR; the pawns move to a separate
+       Node2D under the Control root, no shader. This helper computes that
+       layer node origin so a pawn placed at a desk-local cell pixel lands
+       on the exact screen pixel the clipped floor draws that cell — the
+       two layers share one coordinate frame. Godot-free by design so it
+       pins here without an engine. The Godot-bound wiring (the Y-sorted
+       DeskEntities Node2D, the pawn parenting) lives in the client csproj
+       only and is validated via the GameScreen.tscn F6 smoke. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\DeskEntityLayerLogic.cs" Link="src\DeskEntityLayerLogic.cs" />
+  </ItemGroup>
+
 </Project>

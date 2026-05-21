@@ -1,4 +1,5 @@
 using Godot;
+using Wayfinders.Client.Scripts.Screens;
 using Wayfinders.Client.Services.Dtos;
 using Wayfinders.Client.Services.Iso;
 using Wayfinders.Client.Utils;
@@ -42,9 +43,11 @@ namespace Wayfinders.Client.Scenes.Iso;
 /// <c>Occupants</c> child created lazily by <see cref="AddOccupant"/>.
 /// That child has <c>YSortEnabled</c> so an occupant lower on screen
 /// draws over one higher up — the standard iso depth sort, free, no
-/// per-cell draw loop. The desk (J3c-1) uses this to place its ~7
-/// Company pawns; the maquette will use it for POIs (J6). The socle does
-/// not own the occupants' state — it only parents their nodes.
+/// per-cell draw loop. The maquette will use this for POIs (J6).
+/// <b>The J3c-1bis desk does NOT</b> — see the "desk entity layer"
+/// paragraph below: the desk pawns are clipped by the triangular clip
+/// shader if they ride inside the desk's SubViewport, so they live in a
+/// separate, un-clipped screen-space layer instead.
 /// </para>
 ///
 /// <para>
@@ -88,9 +91,24 @@ namespace Wayfinders.Client.Scenes.Iso;
 /// forbids: it is one debug <see cref="_Draw"/> pass over the logical
 /// grid, dropped the moment a real floor bitmap exists. With
 /// <see cref="DrawPlaceholderFloor"/> the same pass first fills the
-/// grid-bounding diamond with a flat table-surface colour — the desk's
-/// placeholder floor (see that property's doc for why it is here and not
-/// a UI Panel).
+/// desk floor with a flat table-surface colour — the desk's placeholder
+/// floor (see that property's doc for why it is here and not a UI Panel).
+/// </para>
+///
+/// <para>
+/// <b>Desk floor fill rect (J3c-1bis F6 fix, 2026-05-21).</b> The desk
+/// floor was originally drawn as the iso diamond that bounds the 8×8
+/// placeholder grid — a compact rhombus whose upper-left and lower-left
+/// edges sit well inside the screen. Once the triangular clip shader had
+/// cut the maquette-side wedge, the kept desk triangle still showed those
+/// diamond edges as a <i>parasitic border</i> top-left, not reaching the
+/// screen edge (the F6 "truncated triangle" bug). The fix:
+/// <see cref="SetDeskFloorFillRect"/> lets <c>GameScreen</c> hand the
+/// board an explicit axis-aligned floor rect covering the whole desk
+/// viewport (<see cref="DeskFloorRectLogic"/>). When that rect is set,
+/// <see cref="_Draw"/> fills it instead of the diamond — so the only edge
+/// the player sees on the desk floor is the shader's clean diagonal
+/// hypotenuse; the other three borders are the screen edges themselves.
 /// </para>
 ///
 /// <para>
@@ -151,18 +169,25 @@ public partial class IsoBoard : Node2D
     public bool DrawPlaceholderGrid { get; set; }
 
     /// <summary>
-    /// When true, <see cref="_Draw"/> fills the iso diamond that bounds the
-    /// whole placeholder grid with a flat warm-earth "table surface" colour
-    /// <i>before</i> the per-cell grid strokes. A developer-only placeholder
-    /// for the desk's floor while Mira's desk-floor bitmap is not wired.
+    /// When true, <see cref="_Draw"/> fills the desk floor with a flat
+    /// warm-earth "table surface" colour <i>before</i> the per-cell grid
+    /// strokes. A developer-only placeholder for the desk's floor while
+    /// Mira's desk-floor bitmap is not wired.
+    ///
+    /// <para>
+    /// <b>Which rect is filled.</b> By default the fill is the iso diamond
+    /// bounding the placeholder grid. If <c>GameScreen</c> has called
+    /// <see cref="SetDeskFloorFillRect"/> (the J3c-1bis F6 fix), the fill
+    /// is instead that explicit viewport-covering rect — see the
+    /// "desk floor fill rect" paragraph on the class.
+    /// </para>
     ///
     /// <para>
     /// <b>Why this is a board <see cref="_Draw"/> and not a UI Panel.</b>
     /// The J3c-1 desk originally carried its brown surface as a
     /// <c>Panel</c> child of the desk's <c>SubViewportContainer</c> — an
     /// <i>opaque UI overlay</i> that sat ON TOP of the SubViewport texture
-    /// and hid the iso grid and the pawns rendered inside it: the F6 "flat
-    /// brown rectangle" bug. The desk surface belongs <i>in the iso world</i>,
+    /// and hid the iso grid. The desk surface belongs <i>in the iso world</i>,
     /// drawn below the grid in the same render pass, not as a screen-space
     /// Panel. Off by default; the desk board turns it on. Dropped once a
     /// real desk-floor bitmap exists, exactly like
@@ -190,13 +215,24 @@ public partial class IsoBoard : Node2D
     private Sprite2D _background = null!;
 
     /// <summary>
-    /// Lazily-created Y-sorted parent for layer-3 occupant nodes (J3c-1
-    /// desk pawns, J6 maquette POIs). Created on the first
-    /// <see cref="AddOccupant"/> call so a board with no occupants does
-    /// not carry an empty node. Y-sort makes an occupant lower on screen
-    /// draw over one higher up — the standard iso depth sort.
+    /// Lazily-created Y-sorted parent for layer-3 occupant nodes (J6
+    /// maquette POIs). Created on the first <see cref="AddOccupant"/> call
+    /// so a board with no occupants does not carry an empty node. Y-sort
+    /// makes an occupant lower on screen draw over one higher up — the
+    /// standard iso depth sort.
     /// </summary>
     private Node2D? _occupants;
+
+    /// <summary>
+    /// The explicit desk-floor fill rect, in this board's local pixel
+    /// space, set by <c>GameScreen</c> via <see cref="SetDeskFloorFillRect"/>
+    /// (J3c-1bis F6 fix). Null on the maquette board and before the desk
+    /// is configured — in which case <see cref="_Draw"/> falls back to the
+    /// grid-bounding diamond. A struct-typed nullable so a missing rect is
+    /// an explicit "not set" rather than a zero-sized rect that would draw
+    /// nothing.
+    /// </summary>
+    private DeskFloorRectLogic.FloorRect? _deskFloorFillRect;
 
     // Placeholder-grid stroke colours — warm earth, Wayfinders visual DNA
     // (terracotta / parchment / umber). Developer placeholder only.
@@ -259,17 +295,51 @@ public partial class IsoBoard : Node2D
     }
 
     /// <summary>
-    /// Attach a layer-3 entity node (a desk pawn, a POI sprite) to this
-    /// board. The occupant becomes a child of the lazily-created
-    /// Y-sorted <c>Occupants</c> node, so it depth-sorts against the
-    /// other occupants for free. The caller positions the occupant —
-    /// typically via <see cref="CellToPixel"/> for the target cell.
+    /// J3c-1bis F6 fix: hand the board an explicit desk-floor fill rect, in
+    /// this board's local pixel space, so <see cref="_Draw"/> fills the
+    /// whole desk viewport instead of the compact grid-bounding diamond.
+    /// <c>GameScreen.ConfigureDesk</c> computes the rect with
+    /// <see cref="DeskFloorRectLogic"/> from the immobile desk camera and
+    /// the viewport size, then calls this. Triggers a redraw so the new
+    /// fill is picked up even though <see cref="_Ready"/> already ran one
+    /// draw pass on the old diamond.
+    /// </summary>
+    /// <param name="rect">
+    /// The viewport-covering floor rect, from
+    /// <see cref="DeskFloorRectLogic.Compute"/>.
+    /// </param>
+    public void SetDeskFloorFillRect(DeskFloorRectLogic.FloorRect rect)
+    {
+        _deskFloorFillRect = rect;
+        if (IsInsideTree() && DrawPlaceholderFloor)
+        {
+            QueueRedraw();
+        }
+    }
+
+    /// <summary>
+    /// Attach a layer-3 entity node (a POI sprite) to this board. The
+    /// occupant becomes a child of the lazily-created Y-sorted
+    /// <c>Occupants</c> node, so it depth-sorts against the other
+    /// occupants for free. The caller positions the occupant — typically
+    /// via <see cref="CellToPixel"/> for the target cell.
     ///
     /// <para>
     /// The socle parents the node; it does <b>not</b> own the occupant's
-    /// state. Which Company member a desk pawn represents, or which
-    /// mission a POI belongs to, is authoritative <c>GameState</c> data
-    /// (NPC-autonomy lock 2026-05-09) — the occupant node is a view.
+    /// state. Which mission a POI belongs to is authoritative
+    /// <c>GameState</c> data (NPC-autonomy lock 2026-05-09) — the occupant
+    /// node is a view.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Note (J3c-1bis).</b> The desk pawns are <i>not</i> added through
+    /// this method. An occupant added here rides inside the board's render
+    /// world; for the desk that world is the clipped <c>DeskViewport</c>,
+    /// so a pawn here would be sliced by the triangular clip shader. The
+    /// desk pawns live in a separate un-clipped screen-space layer owned by
+    /// <c>GameScreen</c> — see <see cref="DeskEntityLayerLogic"/>. This
+    /// method stays for the maquette POIs (J6), which legitimately ride
+    /// inside the un-clipped maquette SubViewport.
     /// </para>
     /// </summary>
     /// <param name="occupant">The entity node to attach. Not null.</param>
@@ -309,9 +379,9 @@ public partial class IsoBoard : Node2D
     /// maths, just composition of the already-pinned projection.
     ///
     /// <para>
-    /// Used by <see cref="_Draw"/> for the placeholder floor fill, and by
-    /// <c>GameScreen</c> to derive the maquette/desk clip frontier. Safe to
-    /// call only after <see cref="_Ready"/>.
+    /// Used by <c>GameScreen</c> to derive the maquette/desk clip frontier,
+    /// and (as the fallback fill) by <see cref="_Draw"/>. Safe to call only
+    /// after <see cref="_Ready"/>.
     /// </para>
     /// </summary>
     public Vector2[] GridBoundingDiamond()
@@ -342,12 +412,15 @@ public partial class IsoBoard : Node2D
     /// <summary>
     /// Developer placeholder draw (see <see cref="DrawPlaceholderGrid"/>,
     /// <see cref="DrawPlaceholderFloor"/>). With the floor flag, first
-    /// fills the grid-bounding diamond with the flat table-surface colour;
-    /// with the grid flag, then strokes the iso diamond outline of every
-    /// cell using the board's own <see cref="IsoProjection"/> — the
-    /// projection is the single source of truth, this draw does not
-    /// re-derive any iso maths. One pass at <see cref="_Ready"/>, not
-    /// per-frame; the grid is static.
+    /// fills the desk floor with the flat table-surface colour — the
+    /// explicit viewport-covering rect if <c>GameScreen</c> set one
+    /// (J3c-1bis), otherwise the grid-bounding diamond. With the grid flag,
+    /// then strokes the iso diamond outline of every cell using the
+    /// board's own <see cref="IsoProjection"/> — the projection is the
+    /// single source of truth, this draw does not re-derive any iso maths.
+    /// One pass at <see cref="_Ready"/> (plus one on
+    /// <see cref="SetDeskFloorFillRect"/>), not per-frame; the grid is
+    /// static.
     /// </summary>
     public override void _Draw()
     {
@@ -357,12 +430,12 @@ public partial class IsoBoard : Node2D
         }
 
         // Placeholder desk floor — the warm table surface, drawn FIRST so
-        // the grid strokes and any layer-3 occupant sit on top of it. This
-        // is the in-world replacement for the old opaque UI Panel that hid
-        // the desk SubViewport content (the F6 "flat brown rectangle" bug).
+        // the grid strokes sit on top of it. This is the in-world
+        // replacement for the old opaque UI Panel that hid the desk
+        // SubViewport content.
         if (DrawPlaceholderFloor)
         {
-            DrawColoredPolygon(GridBoundingDiamond(), FloorFillColor);
+            DrawColoredPolygon(DeskFloorFillCorners(), FloorFillColor);
         }
 
         if (!DrawPlaceholderGrid)
@@ -389,6 +462,31 @@ public partial class IsoBoard : Node2D
                 new[] { diamond[0], diamond[1], diamond[2], diamond[3], diamond[0] },
                 GridLineColor, 2f, antialiased: true);
         }
+    }
+
+    /// <summary>
+    /// The polygon corners the desk-floor fill is drawn between, in this
+    /// board's local pixel space. Returns the explicit viewport-covering
+    /// rect set by <see cref="SetDeskFloorFillRect"/> (J3c-1bis F6 fix) if
+    /// one was set; otherwise the compact grid-bounding diamond. The
+    /// <see cref="DeskFloorRectLogic.Corners"/> maths is pure-C# and
+    /// xUnit-pinned; this method only converts the result to
+    /// <see cref="Vector2"/> at the engine seam.
+    /// </summary>
+    private Vector2[] DeskFloorFillCorners()
+    {
+        if (_deskFloorFillRect is { } rect)
+        {
+            var sysCorners = DeskFloorRectLogic.Corners(rect);
+            var corners = new Vector2[sysCorners.Length];
+            for (int i = 0; i < sysCorners.Length; i++)
+            {
+                corners[i] = new Vector2(sysCorners[i].X, sysCorners[i].Y);
+            }
+            return corners;
+        }
+
+        return GridBoundingDiamond();
     }
 
     /// <summary>
