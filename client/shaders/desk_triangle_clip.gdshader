@@ -1,4 +1,4 @@
-// desk_triangle_clip.gdshader -- J3c-1ter desk TWIN-corner triangular clip.
+// desk_triangle_clip.gdshader -- J3c-1quater desk TWIN-corner triangular clip.
 //
 // PROBLEM. The cartographer's-desk is the second iso space of the Game
 // Screen Shell. Its content is rendered into its own SubViewport (the
@@ -14,9 +14,17 @@
 // separated by the lower point of the central maquette diamond. Each desk
 // triangle is bounded by a screen edge (left or right), the screen bottom,
 // and a HYPOTENUSE that is one lower edge of the iso maquette diamond. The
-// maquette therefore reads as a centred iso diamond whose lower point falls
-// on the screen's horizontal middle; the desk fills exactly the two lower
-// corners that diamond does not cover.
+// maquette therefore reads as a centred iso diamond whose lower point sits
+// on the screen's horizontal centre and reaches DOWN near the bottom HUD
+// band, so the diamond owns the bulk of the screen and the two desk
+// triangles are thin bottom corner wedges (J3c-1quater, after the F6
+// capture: "le bureau prend presque toute la place, a ajuster"). The desk
+// fills exactly the two lower corners that big diamond does not cover.
+//
+// The diamond's height -- hence how thin the desk corners are -- is driven
+// by two named C# fractions (DeskClipFrontierLogic.MaquetteLowerPointScreenFracY
+// / MaquetteSideApexScreenFracY); re-tuning the proportion is a C#-only
+// change, this shader is unaffected.
 //
 // SOLUTION. The desk SubViewport is shown via a plain TextureRect (no
 // SubViewportContainer -- a container is intrinsically rectangular). This

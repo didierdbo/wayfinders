@@ -3,28 +3,44 @@ using SysVec2 = System.Numerics.Vector2;
 namespace Wayfinders.Client.Scripts.Screens;
 
 /// <summary>
-/// Pure-C# geometry for the J3c-1ter desk <b>twin-corner</b> triangular
-/// clip: turns the central maquette diamond — a centred iso rhombus whose
-/// lower point sits on the screen's horizontal middle — into the five
-/// uniforms the <c>desk_triangle_clip.gdshader</c> consumes in the desk
+/// Pure-C# geometry for the J3c-1quater desk <b>twin-corner</b> triangular
+/// clip: turns the central maquette diamond — a centred iso rhombus that
+/// owns the bulk of the screen and whose lower point reaches down toward
+/// the bottom HUD band — into the five uniforms the
+/// <c>desk_triangle_clip.gdshader</c> consumes in the desk
 /// <c>TextureRect</c>'s <i>UV</i> space.
 ///
 /// <para>
-/// <b>The shape this solves.</b> Earlier J3c-1bis cut the desk as a single
-/// bottom-left half-screen triangle (clip diagonal corner to corner). The
-/// refined spec (Didier, 2026-05-21, from the in-game capture) is:
+/// <b>The shape this solves.</b> J3c-1bis cut the desk as a single
+/// bottom-left half-screen triangle. J3c-1ter cut two mirrored corner
+/// triangles but derived the diamond from the rigid iso 2:1 tile ratio, so
+/// the diamond was only <c>screenWidth/2</c> tall and the two desk corners
+/// ate the entire bottom half of the screen. The J3c-1quater spec (Didier,
+/// 2026-05-21, from the F6 capture — <i>"c'est mieux mais le bureau prend
+/// presque toute la place, à ajuster"</i>) is:
 /// <list type="bullet">
-///   <item>The <b>maquette</b> reads as a centred iso <b>diamond</b>: its
-///     left/right side apexes touch the screen's left/right edges high up,
-///     its <b>lower point falls on the screen's horizontal middle</b>
-///     (x ≈ screenWidth/2), its top apex is cropped by the top HUD band.</item>
+///   <item>The <b>maquette</b> reads as a centred iso <b>diamond</b> that
+///     occupies the MAJORITY of the screen: its left/right side apexes
+///     touch the screen's left/right edges, its <b>lower point falls near
+///     the bottom HUD band</b> (well below the vertical middle), its top
+///     apex is cropped by the top HUD band.</item>
 ///   <item>The <b>desk</b> is <b>two mirrored brown triangles</b>, one in
 ///     the bottom-left screen corner and one in the bottom-right, in
-///     vis-à-vis, separated by the diamond's lower point. Each desk triangle
-///     is bounded by a screen edge (left or right), the screen bottom, and
-///     a <b>hypotenuse</b> = one lower edge of the maquette diamond.</item>
+///     vis-à-vis, separated by the diamond's lower point. They are now
+///     thin corner wedges — large enough to seat the 7-pawn Company in the
+///     bottom-left one, but no longer eating half the screen.</item>
 /// </list>
 /// The desk fills exactly the two lower corners the diamond does not cover.
+/// </para>
+///
+/// <para>
+/// <b>The proportion is a named, tunable parameter.</b> The diamond's
+/// vertical extent is driven by two screen-height fractions —
+/// <see cref="MaquetteLowerPointScreenFracY"/> and
+/// <see cref="MaquetteSideApexScreenFracY"/> — NOT by the iso 2:1 tile
+/// ratio. Didier re-tunes the maquette-vs-desk balance by editing those two
+/// constants alone; no other code changes. See their doc comments for the
+/// default values and their effect.
 /// </para>
 ///
 /// <para>
@@ -115,7 +131,8 @@ public static class DeskClipFrontierLogic
     /// <param name="LeftApex">Left side apex — touches the screen left edge.</param>
     /// <param name="RightApex">Right side apex — touches the screen right edge.</param>
     /// <param name="LowerPoint">
-    /// Lower point — on the screen's horizontal middle, pointing down.
+    /// Lower point — on the screen's horizontal middle, pointing down toward
+    /// the bottom HUD band.
     /// </param>
     public readonly record struct DiamondApexes(
         SysVec2 TopApex,
@@ -123,30 +140,112 @@ public static class DeskClipFrontierLogic
         SysVec2 RightApex,
         SysVec2 LowerPoint);
 
+    // ----------------------------------------------------------------------
+    //  THE TWO PROPORTION KNOBS — tune these to re-balance maquette vs desk.
+    // ----------------------------------------------------------------------
+
+    /// <summary>
+    /// <b>Proportion knob #1 — how far down the maquette diamond's lower
+    /// point reaches, as a fraction of the screen height.</b>
+    ///
+    /// <para>
+    /// 0.0 = screen top, 1.0 = screen bottom. The maquette diamond points
+    /// DOWN: the larger this value, the lower the diamond's point, the more
+    /// of the screen the maquette owns, and the thinner the two desk corner
+    /// triangles become.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Default 0.94 (J3c-1quater).</b> The lower point sits at 94% of the
+    /// screen height — just above the 32 px bottom HUD band (which starts at
+    /// ~0.97 on a 1080-tall screen). The maquette diamond therefore occupies
+    /// almost the whole screen and the desk is reduced to two thin triangles
+    /// in the bottom-left and bottom-right corners — exactly the shape
+    /// Didier asked for after the F6 capture. The previous J3c-1ter value
+    /// was 0.5 (lower point on the vertical middle), which let the desk eat
+    /// the entire bottom half.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>To re-tune:</b> raise toward 1.0 to grow the maquette further and
+    /// shrink the desk; lower it to give the desk corners more room. Keep it
+    /// strictly above <see cref="MaquetteSideApexScreenFracY"/> or the
+    /// diamond degenerates (the lower point would be above the side apexes).
+    /// </para>
+    /// </summary>
+    public const float MaquetteLowerPointScreenFracY = 0.94f;
+
+    /// <summary>
+    /// <b>Proportion knob #2 — where the maquette diamond's left/right side
+    /// apexes sit vertically, as a fraction of the screen height.</b>
+    ///
+    /// <para>
+    /// The side apexes are the diamond's widest points; they always touch
+    /// the screen's left and right edges horizontally. This fraction sets
+    /// their height. It also fixes where each desk corner triangle's
+    /// hypotenuse starts on the screen edge: a desk triangle runs from this
+    /// height down to the screen bottom corner.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Default 0.30 (J3c-1quater).</b> The side apexes sit at 30% of the
+    /// screen height — clear of the 32 px top HUD band. With the lower point
+    /// at 0.94 the diamond's lower edges are long and steep, so the desk
+    /// triangles are tall-but-thin corner wedges, large enough to seat the
+    /// 7-pawn Company in the bottom-left one without the desk dominating.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>To re-tune:</b> lower toward 0.0 to make the desk corner triangles
+    /// taller (their hypotenuse starts higher); raise it to make them
+    /// shorter. Keep it strictly below
+    /// <see cref="MaquetteLowerPointScreenFracY"/>.
+    /// </para>
+    /// </summary>
+    public const float MaquetteSideApexScreenFracY = 0.30f;
+
     /// <summary>
     /// Build the centred maquette diamond from the screen size and the top
     /// HUD band height.
     ///
     /// <para>
-    /// <b>Placement rules (from the in-game capture).</b>
+    /// <b>Placement rules (J3c-1quater, 2026-05-21 — "the desk eats too
+    /// much, the maquette must own the screen").</b>
     /// <list type="bullet">
     ///   <item>The left/right side apexes touch the screen's left/right
-    ///     edges (x = 0 and x = screenWidth).</item>
+    ///     edges (x = 0 and x = screenWidth) — unchanged. The diamond is
+    ///     always full screen width.</item>
     ///   <item>The lower point sits on the screen's horizontal middle
-    ///     (x = screenWidth/2) and at <see cref="LowerPointScreenFracY"/>
-    ///     of the screen height down — the diamond points down into the
-    ///     centre of the screen.</item>
-    ///   <item>The side apexes sit just under the top HUD band. Their Y is
-    ///     derived from the iso 2:1 ratio: a diamond whose half-width is
-    ///     screenWidth/2 has a half-height of screenWidth/4, so the side
-    ///     apexes are screenWidth/4 above the lower point.</item>
+    ///     (x = screenWidth/2) and at <see cref="MaquetteLowerPointScreenFracY"/>
+    ///     of the screen height down — the diamond points down toward the
+    ///     bottom HUD band.</item>
+    ///   <item>The side apexes sit at <see cref="MaquetteSideApexScreenFracY"/>
+    ///     of the screen height down — just under the top HUD band.</item>
     ///   <item>The top apex mirrors the lower point across the side-apex
-    ///     line; it lands above the screen / behind the top HUD band, which
-    ///     is correct — the spec says the diamond's top is cropped.</item>
+    ///     line, so it lands above the screen / behind the top HUD band —
+    ///     the diamond's top is cropped, as the spec wants.</item>
     /// </list>
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why the diamond is no longer a rigid 2:1 iso shape.</b> J3c-1ter
+    /// derived the diamond half-height from the iso 2:1 tile ratio
+    /// (<c>halfH = halfW / 2</c>). That made the diamond only
+    /// <c>screenWidth/2</c> tall and pinned the lower point to the screen's
+    /// vertical middle — so the two desk corner triangles ate the entire
+    /// bottom half of the screen. The 2:1 ratio is a property of an iso
+    /// <i>tile</i>, not of the clip <i>frame</i> the maquette is drawn into:
+    /// the frame is free to be any height. J3c-1quater therefore drives the
+    /// diamond's vertical extent from two screen-height fractions, so the
+    /// maquette can own the bulk of the screen and the desk shrinks to two
+    /// thin bottom corner wedges. Tweak the two constants to re-tune the
+    /// proportion; no other code changes.
+    /// </para>
+    ///
+    /// <para>
     /// The <paramref name="topHudBandHeight"/> is accepted so a future tweak
-    /// can clamp the side apexes against the HUD; J3c-1ter keeps the pure
-    /// iso-ratio placement and only documents the band.
+    /// can clamp the side apexes against the HUD; J3c-1quater keeps the
+    /// fraction-driven placement and only documents the band.
     /// </para>
     /// </summary>
     /// <param name="screenSize">The screen size in pixels. Both positive.</param>
@@ -173,13 +272,20 @@ public static class DeskClipFrontierLogic
                 $"{topHudBandHeight}.", nameof(topHudBandHeight));
         }
 
+        // The diamond spans the full screen width: the side apexes always
+        // touch the left and right edges.
         float halfW = screenSize.X * 0.5f;
-        // Iso 2:1: the diamond half-height is half the half-width.
-        float halfH = halfW * 0.5f;
 
-        float lowerY = screenSize.Y * LowerPointScreenFracY;
-        float sideY = lowerY - halfH;   // side apexes, halfH above the lower point
-        float topY = sideY - halfH;     // top apex, mirrors the lower point
+        // The vertical extent is fraction-driven, NOT the rigid iso 2:1
+        // ratio — see the doc comment above. The lower point descends near
+        // the bottom HUD band; the side apexes sit just under the top band.
+        float lowerY = screenSize.Y * MaquetteLowerPointScreenFracY;
+        float sideY = screenSize.Y * MaquetteSideApexScreenFracY;
+
+        // The top apex mirrors the lower point across the side-apex line.
+        // With the lower point near the screen bottom this lands above the
+        // screen / behind the top HUD band — the spec's cropped diamond top.
+        float topY = sideY - (lowerY - sideY);
 
         return new DiamondApexes(
             TopApex: new SysVec2(halfW, topY),
@@ -187,13 +293,6 @@ public static class DeskClipFrontierLogic
             RightApex: new SysVec2(screenSize.X, sideY),
             LowerPoint: new SysVec2(halfW, lowerY));
     }
-
-    /// <summary>
-    /// Where the maquette diamond's lower point sits vertically, as a
-    /// fraction of the screen height. 0.5 = the screen's vertical middle —
-    /// the spec's "the lower point arrives at the middle of the screen".
-    /// </summary>
-    public const float LowerPointScreenFracY = 0.5f;
 
     /// <summary>
     /// Build the twin-corner clip frontier from the maquette diamond and
