@@ -165,6 +165,22 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///     layers share one coordinate frame, only the clip differs. The two
 ///     locked SubViewports are untouched: <c>DeskEntities</c> is a plain
 ///     node, not a third render world.</item>
+///   <item><b>Reliable screen size — the F6 root cause (2026-05-21).</b>
+///     A second F6 smoke caught the pawns landing on the maquette and a
+///     translucent desk bleed along the clip diagonal. Both had ONE root
+///     cause: the desk size was read from <c>DeskTextureRect.Size</c> in
+///     <see cref="_Ready"/>, but a <see cref="Control"/> authored with
+///     <c>anchors_preset 15</c> has not had its layout resolved that
+///     early — <c>Size</c> was still the design-time default. The desk
+///     viewport, the floor rect, the camera park, the entity-layer origin
+///     and the clip frontier were all sized off that stale value: the
+///     pawns mapped onto the wrong screen region, and the clip frontier
+///     maths threw on a non-positive rect so the shader kept its
+///     <c>(0,0)</c> default normal and clipped nothing. The fix:
+///     <see cref="_Ready"/> reads <c>GetViewportRect().Size</c> — the
+///     real window rect, valid the instant <c>_Ready</c> runs — and
+///     passes it down to <see cref="ConfigureDesk"/> as the one screen
+///     size every desk computation uses.</item>
 ///   <item><b>Static-frontier scope (J3c-1).</b> The clip frontier, the
 ///     floor rect, and the entity-layer origin are all computed once in
 ///     <see cref="ConfigureDesk"/> from the maquette's <i>parked</i>
@@ -319,7 +335,21 @@ public partial class GameScreen : Control
         // the screen minus the two fixed HUD bands. The maths is
         // HudLayoutLogic (Godot-free, xUnit-pinned); this node only
         // applies the result to the SubViewportContainer's offsets.
-        var screen = Size;
+        //
+        // J3c-1bis F6 fix (2026-05-21): the screen size is read from
+        // GetViewportRect, NOT from this Control's Size. At _Ready() a
+        // Control authored with anchors_preset 15 has NOT had its layout
+        // resolved yet — Size is still the design-time default (often
+        // (0,0)), and the desk's full-screen DeskTextureRect carries the
+        // same unresolved Size. Sizing the desk viewport, the floor rect,
+        // the camera park, the clip frontier and the entity layer off that
+        // stale value put the pawns on the maquette and made the clip
+        // frontier maths throw (DeskClipFrontierLogic rejects a
+        // non-positive rect) — the shader then kept its (0,0) default
+        // normal and clipped nothing, so the desk rectangle bled
+        // translucently over the maquette. GetViewportRect().Size is the
+        // real window rect and is valid the instant _Ready runs.
+        var screen = GetViewportRect().Size;
         var residual = HudLayoutLogic.ResidualMapRect(
             screen.X, screen.Y, HudBandHeight, HudBandHeight);
         ApplyResidualRect(residual);
@@ -339,7 +369,7 @@ public partial class GameScreen : Control
             ToPan(start), ToPan(content), ToPan(viewport));
         _mapCamera.Position = ToGodot(clampedStart);
 
-        ConfigureDesk();
+        ConfigureDesk(screen);
 
         Preflight(content, viewport, clampedStart, screen);
     }
@@ -413,15 +443,35 @@ public partial class GameScreen : Control
     /// method only converts to / from Godot types and applies results
     /// onto nodes. No pawn carries game state — J3c-1 is static.
     /// </para>
+    ///
+    /// <para>
+    /// <b>Screen size is a parameter (J3c-1bis F6 fix, 2026-05-21).</b>
+    /// The desk is sized off <paramref name="screen"/> — the real window
+    /// rect from <c>GetViewportRect().Size</c>, taken in <see cref="_Ready"/>
+    /// — NOT off <c>DeskTextureRect.Size</c>. At <c>_Ready()</c> the
+    /// full-screen <c>DeskTextureRect</c>'s layout is not yet resolved, so
+    /// its <c>Size</c> is stale; reading it sized the whole desk wrong and
+    /// scattered the pawns onto the maquette. One screen size, taken from
+    /// a reliable source, flows through every desk computation here.
+    /// </para>
     /// </summary>
-    private void ConfigureDesk()
+    /// <param name="screen">
+    /// The real screen size in pixels, from <c>GetViewportRect().Size</c>.
+    /// Both the desk viewport and the full-screen <c>DeskTextureRect</c>
+    /// cover exactly this rect.
+    /// </param>
+    private void ConfigureDesk(Vector2 screen)
     {
         // J3c-1bis: the desk viewport and the DeskTextureRect are both
-        // full-screen (authored in GameScreen.tscn with anchors_preset 15).
-        // A full-screen rect lets the clip diagonal run corner to corner;
-        // the render size follows the rect so the desk world maps 1:1 onto
-        // the screen before the triangular shader clip.
-        _deskViewport.Size = (Vector2I)_deskTextureRect.Size;
+        // full-screen. The DeskTextureRect is authored with anchors_preset
+        // 15, so it WILL cover `screen` once layout resolves — but at
+        // _Ready() its Size is not yet resolved. Drive both the viewport
+        // render size and (below) every desk computation off the reliable
+        // `screen` value, and force the DeskTextureRect to that size now so
+        // the shader's UV space matches the desk viewport 1:1.
+        var screenSize = new SysVec2(screen.X, screen.Y);
+        _deskViewport.Size = (Vector2I)screen;
+        _deskTextureRect.Size = screen;
 
         // Show the desk SubViewport's render target through the plain
         // TextureRect. The TextureRect carries the clip shader; the locked
@@ -432,17 +482,26 @@ public partial class GameScreen : Control
         // an MMB press over the desk corner still reaches the maquette pan.
         _deskTextureRect.MouseFilter = MouseFilterEnum.Ignore;
 
+        // J3c-1bis F6 fix #2 (clip-frontier crispness): sample the desk
+        // SubViewport texture with NEAREST filtering, not the default
+        // bilinear. The DeskViewport has transparent_bg = true; the floor
+        // rect covers it, but along the shader's discard diagonal a
+        // bilinear tap blends the brown floor texel against a transparent
+        // texel one pixel over, leaving a half-alpha fringe that reads as
+        // the desk "bleeding" translucently onto the maquette. NEAREST
+        // takes one texel, no cross-edge blend, so the clip boundary is
+        // exactly the shader's crisp discard line.
+        _deskTextureRect.TextureFilter = TextureFilterEnum.Nearest;
+
         // J3c-1bis F6 fix #1: fill the desk floor across the whole desk
         // viewport rather than the compact grid-bounding diamond, so no
         // parasitic diamond edge survives the triangular clip. The desk
         // camera's Position is the desk-local point shown at the viewport
         // centre, so it IS the camera centre in the board's local space.
-        // DeskFloorRectLogic (Godot-free, xUnit-pinned) computes the rect;
-        // the board fills it in its _Draw.
-        var floorRect = DeskFloorRectLogic.Compute(
-            ToSys(_deskCamera.Position),
-            new SysVec2(_deskTextureRect.Size.X, _deskTextureRect.Size.Y));
-        _deskBoard.SetDeskFloorFillRect(floorRect);
+        // The desk camera is parked further below; pass its FINAL parked
+        // position to the floor-rect maths by computing the park first.
+        // DeskFloorRectLogic (Godot-free, xUnit-pinned) computes the rect.
+        var slots = DeskSlotLayoutLogic.CompanySlotCells();
 
         // J3c-1bis F6 fix #2: the desk pawns ride an un-clipped
         // screen-space layer, NOT the clipped DeskViewport. Build it as a
@@ -456,21 +515,57 @@ public partial class GameScreen : Control
         };
         AddChild(_deskEntities);
 
-        var slots = DeskSlotLayoutLogic.CompanySlotCells();
-
-        // One placeholder pawn per slot. The leader slot (index 0) renders
-        // slightly larger. The pawn lives on _deskEntities at the SAME
-        // desk-local pixel the floor's iso grid uses for that cell — the
-        // entity layer's origin makes the two coordinate frames coincide.
-        // Y-sort on _deskEntities keeps a pawn lower on screen drawing over
-        // one higher up. The pawn pixel positions are summed here so the
-        // desk camera can be parked on the true pixel centroid below.
+        // Sum the desk-local pixel of every slot cell first, so the desk
+        // camera can be parked on the true pixel centroid of the formation
+        // before any pawn or floor rect depends on the parked position.
         var formationCentre = Vector2.Zero;
         for (int i = 0; i < slots.Count; i++)
         {
             var cell = slots[i];
+            formationCentre += _deskBoard.CellToPixel(new Vector2I(cell.Col, cell.Row));
+        }
+        formationCentre /= slots.Count;
+
+        // Park the immobile desk camera so the formation centroid lands in
+        // the lower-left quadrant of the full-screen desk viewport — inside
+        // the bottom-left clip triangle. A Camera2D's Position is the world
+        // point shown at the screen centre. This is computed off `screen`
+        // (the reliable window rect), not the stale DeskTextureRect.Size.
+        var screenTarget = new Vector2(
+            screen.X * DeskFormationScreenFracX,
+            screen.Y * DeskFormationScreenFracY);
+        _deskCamera.Position =
+            formationCentre - (screenTarget - screen * 0.5f);
+
+        // J3c-1bis F6 fix #1: now the desk camera is parked, compute the
+        // viewport-covering floor fill rect from the FINAL camera position.
+        var floorRect = DeskFloorRectLogic.Compute(
+            ToSys(_deskCamera.Position), screenSize);
+        _deskBoard.SetDeskFloorFillRect(floorRect);
+
+        // J3c-1bis F6 fix #2: place the un-clipped entity layer so a pawn
+        // at a desk-local cell pixel lands on the exact screen pixel the
+        // clipped floor draws that cell. DeskEntityLayerLogic (Godot-free,
+        // xUnit-pinned) computes the origin: screenSize/2 - deskCameraCentre.
+        // It is taken off the SAME `screen` size as the floor rect and the
+        // camera park, so the pawn layer, the floor and the clip frontier
+        // all live in one coordinate frame — the F6 fix root cause.
+        var layerOrigin = DeskEntityLayerLogic.LayerOrigin(
+            ToSys(_deskCamera.Position), screenSize);
+        _deskEntities.Position = new Vector2(layerOrigin.X, layerOrigin.Y);
+
+        // One placeholder pawn per slot. The leader slot (index 0) renders
+        // slightly larger. The pawn lives on _deskEntities at the SAME
+        // desk-local pixel the floor's iso grid uses for that cell — the
+        // entity layer's origin makes the two coordinate frames coincide,
+        // so the pawn sits on the brown desk floor on its formation cell.
+        // Y-sort on _deskEntities keeps a pawn lower on screen drawing over
+        // one higher up; the leader (largest col+row) projects lowest, so
+        // it draws foreground — front-of-formation, exactly the mockup.
+        for (int i = 0; i < slots.Count; i++)
+        {
+            var cell = slots[i];
             var pixel = _deskBoard.CellToPixel(new Vector2I(cell.Col, cell.Row));
-            formationCentre += pixel;
             var pawn = new DeskCompanyPawn
             {
                 Name = $"DeskPawn{i}",
@@ -481,30 +576,8 @@ public partial class GameScreen : Control
                 isLeader: DeskSlotLayoutLogic.IsLeaderSlot(i));
             _deskEntities.AddChild(pawn);
         }
-        formationCentre /= slots.Count;
 
-        // Park the immobile desk camera so the formation centroid lands in
-        // the lower-left quadrant of the full-screen desk viewport — inside
-        // the bottom-left clip triangle. A Camera2D's Position is the world
-        // point shown at the screen centre.
-        Vector2 deskViewport = _deskTextureRect.Size;
-        var screenTarget = new Vector2(
-            deskViewport.X * DeskFormationScreenFracX,
-            deskViewport.Y * DeskFormationScreenFracY);
-        _deskCamera.Position =
-            formationCentre - (screenTarget - deskViewport * 0.5f);
-
-        // J3c-1bis F6 fix #2: now the desk camera is parked, place the
-        // un-clipped entity layer so a pawn at a desk-local cell pixel
-        // lands on the exact screen pixel the clipped floor draws that
-        // cell. DeskEntityLayerLogic (Godot-free, xUnit-pinned) computes
-        // the origin: screenSize/2 - deskCameraCentre.
-        var layerOrigin = DeskEntityLayerLogic.LayerOrigin(
-            ToSys(_deskCamera.Position),
-            new SysVec2(_deskTextureRect.Size.X, _deskTextureRect.Size.Y));
-        _deskEntities.Position = new Vector2(layerOrigin.X, layerOrigin.Y);
-
-        ApplyDeskClipFrontier();
+        ApplyDeskClipFrontier(screen);
     }
 
     /// <summary>
@@ -518,8 +591,19 @@ public partial class GameScreen : Control
     /// offsets is done here, then handed — as two screen points plus the
     /// desk rect — to <see cref="DeskClipFrontierLogic"/>.
     /// </para>
+    ///
+    /// <para>
+    /// <b>Screen size is a parameter (J3c-1bis F6 fix, 2026-05-21).</b>
+    /// The desk rect handed to <see cref="DeskClipFrontierLogic"/> is the
+    /// reliable <paramref name="screen"/> size, not <c>DeskTextureRect.Size</c>
+    /// — an unresolved <c>Size</c> is non-positive, which would make the
+    /// frontier maths throw, leaving the shader on its no-clip default.
+    /// </para>
     /// </summary>
-    private void ApplyDeskClipFrontier()
+    /// <param name="screen">
+    /// The real screen size in pixels, from <c>GetViewportRect().Size</c>.
+    /// </param>
+    private void ApplyDeskClipFrontier(Vector2 screen)
     {
         // The maquette grid-bounding diamond, in the maquette board's
         // local space: [top, right, bottom, left] apexes.
@@ -531,11 +615,11 @@ public partial class GameScreen : Control
         Vector2 leftApexScreen = MaquetteLocalToScreen(leftApexLocal);
         Vector2 bottomApexScreen = MaquetteLocalToScreen(bottomApexLocal);
 
-        // The desk TextureRect is full-screen.
-        var deskOrigin = new SysVec2(
-            _deskTextureRect.OffsetLeft, _deskTextureRect.OffsetTop);
-        var deskSize = new SysVec2(
-            _deskTextureRect.Size.X, _deskTextureRect.Size.Y);
+        // The desk TextureRect is full-screen at the screen origin. Use the
+        // reliable `screen` size — at _Ready() DeskTextureRect.Size is not
+        // yet resolved and would be non-positive (the F6 root cause).
+        var deskOrigin = SysVec2.Zero;
+        var deskSize = new SysVec2(screen.X, screen.Y);
 
         var frontier = DeskClipFrontierLogic.Compute(
             ToSys(leftApexScreen), ToSys(bottomApexScreen), deskOrigin, deskSize);
@@ -619,11 +703,17 @@ public partial class GameScreen : Control
                            "rectangle — the maquette would be invisible.");
         }
 
-        // J3c-1 / bis desk diagnostics.
+        // J3c-1 / bis desk diagnostics. The desk is sized off `screen`
+        // (GetViewportRect, reliable at _Ready) — see the F6 fix note on
+        // ConfigureDesk. Print `screen` so a regression to the stale
+        // DeskTextureRect.Size is immediately visible.
+        var screenSize = new SysVec2(screen.X, screen.Y);
         var slots = DeskSlotLayoutLogic.CompanySlotCells();
-        GD.Print($"[GameScreen] preflight: DeskViewport size={_deskViewport.Size} " +
+        GD.Print($"[GameScreen] preflight: screen={screen} (GetViewportRect) " +
+                 $"DeskViewport size={_deskViewport.Size} " +
                  $"DeskTextureRect rect={_deskTextureRect.Size} " +
-                 $"mouseFilter={_deskTextureRect.MouseFilter} (J3c-1 static, full-screen)");
+                 $"mouseFilter={_deskTextureRect.MouseFilter} " +
+                 $"textureFilter={_deskTextureRect.TextureFilter} (J3c-1 static, full-screen)");
         GD.Print($"[GameScreen] preflight: desk iso tile={_deskBoard.TileWidthPx}px " +
                  $"(maquette tile={_maquette.TileWidthPx}px) " +
                  $"-- two iso scales, distinct SubViewports");
@@ -665,10 +755,10 @@ public partial class GameScreen : Control
             }
         }
 
-        // J3c-1bis F6 fix #1: the desk floor fill rect.
+        // J3c-1bis F6 fix #1: the desk floor fill rect, computed off the
+        // FINAL parked desk camera and the reliable `screen` size.
         var floorRect = DeskFloorRectLogic.Compute(
-            ToSys(_deskCamera.Position),
-            new SysVec2(_deskTextureRect.Size.X, _deskTextureRect.Size.Y));
+            ToSys(_deskCamera.Position), screenSize);
         GD.Print($"[GameScreen] preflight: desk floor fill rect topLeft=" +
                  $"({floorRect.TopLeft.X},{floorRect.TopLeft.Y}) " +
                  $"size=({floorRect.Size.X},{floorRect.Size.Y}) " +
@@ -678,7 +768,7 @@ public partial class GameScreen : Control
         GD.Print($"[GameScreen] preflight: desk clip frontier " +
                  $"point={clipMaterial.GetShaderParameter(ClipPointUniform)} " +
                  $"normal={clipMaterial.GetShaderParameter(ClipNormalUniform)} " +
-                 $"-- triangular clip, FLOOR ONLY (J3c-1bis)");
+                 $"-- triangular clip, FLOOR ONLY, NEAREST sampled (J3c-1bis)");
     }
 
     // --- engine seam: Godot.Vector2 <-> PanVec2 / System.Numerics --------
