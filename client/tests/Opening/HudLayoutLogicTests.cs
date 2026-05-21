@@ -16,28 +16,37 @@ namespace Wayfinders.Client.Tests.Opening;
 /// overlay wiring itself carries no maths and is validated via the
 /// <c>GameScreen.tscn</c> F6 smoke.
 /// </para>
+///
+/// <para>
+/// <b>Band height adjusted 2026-05-21 (Didier).</b> The nominal HUD band
+/// height was re-authored from 90 px to <see cref="HudBand"/> = 32 px
+/// (slim bands), so the residual map rect on a 1920x1080 screen grows to
+/// <c>[0,32 1920x1016]</c>. These tests are updated to the new value;
+/// <see cref="HudBand"/> here mirrors <c>GameScreen.HudBandHeight</c>, the
+/// single source of truth in the scene.
+/// </para>
 /// </summary>
 public sealed class HudLayoutLogicTests
 {
-    // The J3b GameScreen.tscn shape: 1920x1080 screen, 90 px bands.
+    // The J3b GameScreen.tscn shape: 1920x1080 screen, 32 px slim bands
+    // (Didier adjustment 2026-05-21 — was 90 px).
     private const float ScreenW = 1920f;
     private const float ScreenH = 1080f;
-    private const float TopBand = 90f;
-    private const float BottomBand = 90f;
+    private const float HudBand = 32f;
 
     [Fact]
     public void Residual_rect_drops_top_left_by_the_top_band()
     {
-        var rect = HudLayoutLogic.ResidualMapRect(ScreenW, ScreenH, TopBand, BottomBand);
+        var rect = HudLayoutLogic.ResidualMapRect(ScreenW, ScreenH, HudBand, HudBand);
 
         Assert.Equal(0f, rect.X);
-        Assert.Equal(TopBand, rect.Y);
+        Assert.Equal(HudBand, rect.Y);
     }
 
     [Fact]
     public void Residual_rect_keeps_the_full_screen_width()
     {
-        var rect = HudLayoutLogic.ResidualMapRect(ScreenW, ScreenH, TopBand, BottomBand);
+        var rect = HudLayoutLogic.ResidualMapRect(ScreenW, ScreenH, HudBand, HudBand);
 
         // The HUD bands span the full width; the central rect is only
         // squeezed vertically.
@@ -47,9 +56,23 @@ public sealed class HudLayoutLogicTests
     [Fact]
     public void Residual_rect_height_is_screen_minus_both_bands()
     {
-        var rect = HudLayoutLogic.ResidualMapRect(ScreenW, ScreenH, TopBand, BottomBand);
+        var rect = HudLayoutLogic.ResidualMapRect(ScreenW, ScreenH, HudBand, HudBand);
 
-        Assert.Equal(ScreenH - TopBand - BottomBand, rect.Height); // 900
+        Assert.Equal(ScreenH - HudBand - HudBand, rect.Height); // 1016
+    }
+
+    [Fact]
+    public void Nominal_slim_band_shape_is_the_locked_residual_rect()
+    {
+        // Pins the exact 32 px adjustment: 1920x1080 screen, two 32 px
+        // bands -> [0,32 1920x1016]. A drift in HudBandHeight surfaces
+        // here red.
+        var rect = HudLayoutLogic.ResidualMapRect(ScreenW, ScreenH, HudBand, HudBand);
+
+        Assert.Equal(0f, rect.X);
+        Assert.Equal(32f, rect.Y);
+        Assert.Equal(1920f, rect.Width);
+        Assert.Equal(1016f, rect.Height);
     }
 
     [Fact]
@@ -86,7 +109,7 @@ public sealed class HudLayoutLogicTests
     [Fact]
     public void HasUsableResidual_true_for_the_nominal_shape()
     {
-        Assert.True(HudLayoutLogic.HasUsableResidual(ScreenW, ScreenH, TopBand, BottomBand));
+        Assert.True(HudLayoutLogic.HasUsableResidual(ScreenW, ScreenH, HudBand, HudBand));
     }
 
     [Fact]
@@ -98,6 +121,6 @@ public sealed class HudLayoutLogicTests
     [Fact]
     public void HasUsableResidual_false_for_a_zero_width_screen()
     {
-        Assert.False(HudLayoutLogic.HasUsableResidual(0f, ScreenH, TopBand, BottomBand));
+        Assert.False(HudLayoutLogic.HasUsableResidual(0f, ScreenH, HudBand, HudBand));
     }
 }

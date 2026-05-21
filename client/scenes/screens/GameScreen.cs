@@ -51,6 +51,12 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///     <see cref="SubViewportContainer"/> to the <i>residual central
 ///     rectangle</i> — the screen minus both bands — so the maquette is
 ///     physically clipped to the gap between the bands. Belt and braces.</item>
+///   <item><b>Slim 32 px bands (2026-05-21, Didier).</b> The two bands
+///     were re-authored from 90 px to <see cref="HudBandHeight"/> = 32 px,
+///     so the residual map rect grows to <c>[0,32 1920x1016]</c>. The
+///     single source of truth for that height is <see cref="HudBandHeight"/>
+///     — both the top and the bottom band read it, and the
+///     <c>GameScreen.tscn</c> panel offsets are authored to the same value.</item>
 ///   <item><b>Placeholder, swap-ready.</b> The bands are
 ///     <see cref="Panel"/>s with a flat parchment <c>StyleBoxFlat</c>.
 ///     Mira's real parchment liseré (J3-assets) swaps in by replacing the
@@ -136,21 +142,23 @@ public partial class GameScreen : Control
     private const string SkipBootstrapMeta = "skip_opening_bootstrap";
 
     /// <summary>
-    /// Fixed height of the top HUD band, pixels. Must match the
-    /// <c>HudTop</c> panel's <c>offset_bottom</c> in
-    /// <c>GameScreen.tscn</c>. Held here as the single source of truth so
+    /// Fixed height of each HUD band, pixels — the same value for the top
+    /// and the bottom band. <b>The single named source of truth</b> for
+    /// the band height: it must match the <c>HudTop</c> panel's
+    /// <c>offset_bottom</c> and the <c>HudBottom</c> panel's
+    /// <c>-offset_top</c> in <c>GameScreen.tscn</c>. Held here so
     /// <see cref="HudLayoutLogic"/> sizes the residual map rect to exactly
-    /// the band the scene draws. When Mira's parchment liseré lands the
-    /// asset's authored height is propagated to both places at once.
+    /// the band the scene draws, and so the magic number is not duplicated
+    /// across the top/bottom pair. When Mira's parchment liseré lands the
+    /// asset's authored height is propagated from this one constant.
+    ///
+    /// <para>
+    /// Adjusted 2026-05-21 (Didier) from 90 px to 32 px — slim bands. The
+    /// residual map rect grows accordingly to
+    /// <c>[0,32 1920x1016]</c> on a 1920x1080 screen.
+    /// </para>
     /// </summary>
-    private const float TopBandHeight = 90f;
-
-    /// <summary>
-    /// Fixed height of the bottom HUD band, pixels. Must match the
-    /// <c>HudBottom</c> panel's <c>-offset_top</c> in
-    /// <c>GameScreen.tscn</c>. See <see cref="TopBandHeight"/>.
-    /// </summary>
-    private const float BottomBandHeight = 90f;
+    private const float HudBandHeight = 32f;
 
     private SubViewportContainer _mapContainer = null!;
     private SubViewport _mapViewport = null!;
@@ -179,7 +187,7 @@ public partial class GameScreen : Control
         // their .tscn anchors keep them welded to the screen edges.
         var screen = Size;
         var residual = HudLayoutLogic.ResidualMapRect(
-            screen.X, screen.Y, TopBandHeight, BottomBandHeight);
+            screen.X, screen.Y, HudBandHeight, HudBandHeight);
         ApplyResidualRect(residual);
 
         // The SubViewport's render size follows the (now residual)
@@ -321,14 +329,14 @@ public partial class GameScreen : Control
         // and the residual map rect. A collapsed residual (HUD bands
         // larger than the screen) is a design error — shout it.
         var residual = HudLayoutLogic.ResidualMapRect(
-            screen.X, screen.Y, TopBandHeight, BottomBandHeight);
+            screen.X, screen.Y, HudBandHeight, HudBandHeight);
         GD.Print($"[GameScreen] preflight: HudLayer layer={_hudLayer.Layer} " +
-                 $"bands top={TopBandHeight} bottom={BottomBandHeight} " +
+                 $"bands top={HudBandHeight} bottom={HudBandHeight} " +
                  $"-- CanvasLayer overlay (trap #1, legitimate)");
         GD.Print($"[GameScreen] preflight: residual map rect=" +
                  $"[{residual.X},{residual.Y} {residual.Width}x{residual.Height}]");
         if (!HudLayoutLogic.HasUsableResidual(
-                screen.X, screen.Y, TopBandHeight, BottomBandHeight))
+                screen.X, screen.Y, HudBandHeight, HudBandHeight))
         {
             GD.PushWarning("[GameScreen] HUD bands leave no usable central " +
                            "rectangle — the maquette would be invisible.");
