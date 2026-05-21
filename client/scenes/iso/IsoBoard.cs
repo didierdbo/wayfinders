@@ -94,41 +94,46 @@ namespace Wayfinders.Client.Scenes.Iso;
 /// </para>
 ///
 /// <para>
-/// <b>Desk floor fill — always the whole viewport (J3c-1bis F6 fix,
-/// 2026-05-21, second round).</b> The desk floor must be a <i>homogeneous</i>
-/// brown triangle: every pixel of the clipped desk viewport is floor, same
-/// colour, iso grid everywhere — no separate "viewport background" band.
-/// Earlier rounds drew the floor as the iso diamond bounding the 8×8 grid;
-/// that diamond is a compact rhombus whose edges sit well inside the screen,
-/// so the clipped desk triangle showed the dark <c>DeskBackground</c>
-/// (the desk SubViewport is <c>transparent_bg</c>) bleeding through the
-/// rhombus corners as a parasitic dark band.
-///
-/// <para>
-/// The fix is structural: when <see cref="DrawPlaceholderFloor"/> is on,
-/// <see cref="_Draw"/> <b>never</b> draws the grid-bounding diamond. It
-/// always fills an axis-aligned rect covering the <i>whole</i> board
-/// viewport. <c>GameScreen</c> may hand the board an explicit rect via
-/// <see cref="SetDeskFloorFillRect"/> (computed by
-/// <see cref="DeskFloorRectLogic"/> from the parked desk camera); if no
-/// rect has been pushed yet, the board falls back to its <i>own</i>
-/// viewport rect — <see cref="ViewportFloorFillRect"/> — never to the
-/// diamond. A missing push is then still a full-viewport floor, not the
-/// losange-shaped bug. The 8×8 placeholder grid stays the semantic game
-/// grid (the occupiable cells); the floor is the full visual surface
-/// underneath it, a superset.
+/// <b>Desk floor + grid both fill the whole viewport (J3c-1bis F6 fix,
+/// 2026-05-21, sixth round — the instrumented diagnostic round).</b> The
+/// desk must read as ONE homogeneous brown triangle with iso grid
+/// everywhere. Two earlier rounds corrected the <i>floor</i> (it fills the
+/// whole viewport rect) and changed nothing on screen — because the
+/// visible bug was the <i>grid</i>, not the floor. The desk floor and the
+/// <c>GameScreen.tscn</c> <c>DeskBackground</c> panel are authored the
+/// SAME brown, so a floor-coverage gap is invisible by construction. What
+/// was visible was a dark band <i>without grid</i> and a lighter triangle
+/// <i>with grid</i>: the grid only striped the 8×8 logical
+/// <see cref="Grid"/> (a compact iso rhombus well inside the viewport),
+/// while the floor filled the whole viewport — so the wedge between the
+/// grid rhombus edge and the clip diagonal was bare floor, no grid, and it
+/// read darker (the grid's faint fill + lines lighten the rhombus). The
+/// fix: when <see cref="DrawPlaceholderFloor"/> is on, <see cref="_Draw"/>
+/// stripes the grid over <i>every</i> cell whose diamond touches the floor
+/// rect (<see cref="DrawGridOverRect"/>), a purely visual superset of the
+/// 8×8 logical grid — exactly as the floor rect is a visual superset of
+/// the grid diamond. The logical <see cref="Grid"/> stays 8×8 (the
+/// occupiable cells, J3c-1 scope).
 /// </para>
 ///
 /// <para>
 /// The fill is a hard-edged <see cref="CanvasItem.DrawRect"/>, not a
 /// <c>DrawColoredPolygon</c>: the polygon triangulator feathers the
 /// rasterised boundary, and over the desk SubViewport's <c>transparent_bg</c>
-/// that feather left a half-alpha rim that read as an off-tint wedge. The
-/// belt-and-braces companion is that <c>GameScreen</c>'s <c>DeskBackground</c>
-/// panel is authored the <i>same</i> brown as <see cref="FloorFillColor"/>,
-/// so even a sub-pixel gap between the floor rect and the screen edge can
-/// never read as a demarcation — there is simply no second colour to expose.
+/// that feather left a half-alpha rim. The belt-and-braces companion is
+/// that <c>GameScreen</c>'s <c>DeskBackground</c> panel is authored the
+/// <i>same</i> brown as <see cref="FloorFillColor"/>.
 /// </para>
+///
+/// <para>
+/// <b>[DESK-DIAG] instrumentation.</b> When <see cref="DrawPlaceholderFloor"/>
+/// is on, every <see cref="_Draw"/> pass prints a <c>[DESK-DIAG]</c> block:
+/// viewport render size, camera position, the floor rect (corners + source),
+/// the striped grid cell count and pixel bounds, a <c>GRID-COVERS-FLOOR</c>
+/// verdict, and the real RGBA of the floor / grid colours. The point: the
+/// logs say without ambiguity which element produces a "dark band" and
+/// where coverage stops. Kept in the code on purpose — if a fix regresses,
+/// the next F6 Output answers it rather than another blind round-trip.
 /// </para>
 ///
 /// <para>
@@ -191,8 +196,8 @@ public partial class IsoBoard : Node2D
     /// <summary>
     /// When true, <see cref="_Draw"/> fills the desk floor with a flat
     /// warm-earth "table surface" colour <i>before</i> the per-cell grid
-    /// strokes. A developer-only placeholder for the desk's floor while
-    /// Mira's desk-floor bitmap is not wired.
+    /// strokes, and (J3c-1bis F6 sixth round) stripes the grid over the
+    /// whole floor rect rather than only the 8×8 logical grid.
     ///
     /// <para>
     /// <b>Which rect is filled.</b> Always an axis-aligned rect covering
@@ -201,8 +206,7 @@ public partial class IsoBoard : Node2D
     /// <see cref="SetDeskFloorFillRect"/> the fill uses that explicit
     /// rect; otherwise the board derives its own viewport-covering rect
     /// (<see cref="ViewportFloorFillRect"/>). The desk floor is therefore
-    /// a homogeneous full-viewport surface in both cases — see the
-    /// "desk floor fill" paragraph on the class.
+    /// a homogeneous full-viewport surface in both cases.
     /// </para>
     ///
     /// <para>
@@ -528,11 +532,12 @@ public partial class IsoBoard : Node2D
     /// <i>whole</i> board viewport — the explicit camera-derived rect if
     /// <c>GameScreen</c> set one, otherwise the board's own viewport rect.
     /// With the grid flag, then strokes the iso diamond outline of every
-    /// cell using the board's own <see cref="IsoProjection"/> — the
-    /// projection is the single source of truth, this draw does not
-    /// re-derive any iso maths. One pass at <see cref="_Ready"/> (plus one
-    /// on <see cref="SetDeskFloorFillRect"/>), not per-frame; the grid is
-    /// static.
+    /// cell. On a placeholder-floor board (the desk) the grid is striped
+    /// over the <i>whole floor rect</i> (<see cref="DrawGridOverRect"/>),
+    /// not only the 8×8 logical grid — the J3c-1bis F6 sixth-round fix for
+    /// the "dark band" (bare floor with no grid between the grid rhombus
+    /// and the clip diagonal). One pass at <see cref="_Ready"/> (plus one
+    /// on <see cref="SetDeskFloorFillRect"/>), not per-frame.
     /// </summary>
     public override void _Draw()
     {
@@ -548,26 +553,13 @@ public partial class IsoBoard : Node2D
         //
         // J3c-1bis F6 fix (2026-05-21, Rune, second round): the floor is
         // ALWAYS a full-viewport axis-aligned rect — never the grid-bounding
-        // diamond. The diamond is a compact rhombus that left the viewport
-        // corners unpainted; over the desk SubViewport's transparent_bg
-        // those corners exposed the dark DeskBackground, so the desk read
-        // as two distinct brown zones (the F6 "dark band between the
-        // frontier and the floor" bug). The rect comes from GameScreen's
-        // explicit camera-derived push if present, otherwise from the
-        // board's own viewport (ViewportFloorFillRect) — both cover the
-        // whole clipped viewport, so the desk is one homogeneous brown
-        // triangle either way.
-        //
-        // The fill is a hard-edged DrawRect, not a DrawColoredPolygon:
-        // DrawColoredPolygon feeds the canvas-item triangulator, which
-        // applies a sub-pixel coverage feather on the rasterised boundary,
-        // and over transparent_bg that feather left a half-alpha rim. The
-        // belt-and-braces companion is GameScreen.tscn's DeskBackground
-        // panel, authored the same brown as FloorFillColor — so even a
-        // rounded edge has no second colour to expose.
+        // diamond. The rect comes from GameScreen's explicit camera-derived
+        // push if present, otherwise from the board's own viewport
+        // (ViewportFloorFillRect). The fill is a hard-edged DrawRect.
+        DeskFloorRectLogic.FloorRect? floorRect = null;
         if (DrawPlaceholderFloor)
         {
-            var floorRect = _deskFloorFillRect ?? ViewportFloorFillRect();
+            floorRect = _deskFloorFillRect ?? ViewportFloorFillRect();
             if (floorRect is { } rect)
             {
                 DrawRect(
@@ -581,28 +573,210 @@ public partial class IsoBoard : Node2D
 
         if (!DrawPlaceholderGrid)
         {
+            DiagDraw(floorRect, gridCellsDrawn: 0, Vector2.Zero, Vector2.Zero);
             return;
         }
 
+        // J3c-1bis F6 DIAGNOSTIC FIX (2026-05-21, Rune, sixth round).
+        //
+        // The previous two fixes corrected the FLOOR (it now fills the whole
+        // viewport rect). They changed nothing on screen because the visible
+        // bug is the GRID, not the floor. The desk floor and the desk
+        // DeskBackground panel are authored the SAME brown (FloorFillColor ==
+        // DeskBackground bg_color = 0.27,0.19,0.12) — so a floor-coverage gap
+        // is by construction invisible. What Didier sees is:
+        //   - a "dark brown band WITHOUT grid"  : floor painted, grid absent
+        //   - a "lighter brown triangle WITH grid" : floor + iso grid stacked
+        // The grid only striped the 8x8 LOGICAL Grid (a compact iso rhombus
+        // well inside the viewport). The floor fills the whole viewport. The
+        // wedge between the grid rhombus edge and the clip diagonal is bare
+        // floor with no grid on it — THE DARK BAND. The grid's faint
+        // 0.10-alpha fill plus its 0.85-alpha lines is what makes the rhombus
+        // read as a "lighter" triangle; bare floor reads darker.
+        //
+        // The fix: when DrawPlaceholderFloor is on (the desk), stripe the
+        // grid over EVERY cell whose diamond touches the floor rect, not
+        // just the 8x8 logical Grid. The logical Grid stays 8x8 (the
+        // occupiable cells, J3c-1 scope) — this is a purely visual superset,
+        // exactly as the floor rect is a visual superset of the grid diamond.
         float halfW = Projection.TileWidth * 0.5f;
         float halfH = Projection.TileHeight * 0.5f;
 
-        foreach (var cell in Grid.AllCells())
+        int cellsDrawn;
+        Vector2 gridMin = Vector2.Zero, gridMax = Vector2.Zero;
+        if (DrawPlaceholderFloor && floorRect is { } fr)
         {
-            var centre = CellToPixel(new Vector2I(cell.Coord.Col, cell.Coord.Row));
-            // Four diamond apexes around the cell centre.
-            var diamond = new[]
-            {
-                centre + new Vector2(0f, -halfH),     // top
-                centre + new Vector2(halfW, 0f),      // right
-                centre + new Vector2(0f, halfH),      // bottom
-                centre + new Vector2(-halfW, 0f),     // left
-            };
-            DrawColoredPolygon(diamond, GridFillColor);
-            DrawPolyline(
-                new[] { diamond[0], diamond[1], diamond[2], diamond[3], diamond[0] },
-                GridLineColor, 2f, antialiased: true);
+            cellsDrawn = DrawGridOverRect(fr, halfW, halfH, out gridMin, out gridMax);
         }
+        else
+        {
+            cellsDrawn = 0;
+            bool first = true;
+            foreach (var cell in Grid.AllCells())
+            {
+                var centre = CellToPixel(new Vector2I(cell.Coord.Col, cell.Coord.Row));
+                DrawCellDiamond(centre, halfW, halfH);
+                cellsDrawn++;
+                AccumulateBounds(centre, halfW, halfH, ref first, ref gridMin, ref gridMax);
+            }
+        }
+
+        DiagDraw(floorRect, cellsDrawn, gridMin, gridMax);
+    }
+
+    /// <summary>
+    /// Stripe the placeholder iso grid over every cell whose diamond
+    /// intersects <paramref name="rect"/> — the desk's visual grid superset
+    /// (J3c-1bis F6 sixth-round fix). The logical <see cref="Grid"/> stays
+    /// 8×8; this fills the whole floor rect so no painted-floor wedge is
+    /// left without a grid (the "dark band" bug). Returns the cell count
+    /// drawn and, via out params, the pixel-space bounds of the striped grid.
+    /// </summary>
+    private int DrawGridOverRect(
+        DeskFloorRectLogic.FloorRect rect, float halfW, float halfH,
+        out Vector2 gridMin, out Vector2 gridMax)
+    {
+        // The four rect corners map to four cells; the covering cell range
+        // is their integer bounding box, grown one ring so edge diamonds
+        // that only partially overlap the rect are still included.
+        var c0 = PixelToCell(new Vector2(rect.TopLeft.X, rect.TopLeft.Y));
+        var c1 = PixelToCell(new Vector2(
+            rect.TopLeft.X + rect.Size.X, rect.TopLeft.Y));
+        var c2 = PixelToCell(new Vector2(
+            rect.TopLeft.X, rect.TopLeft.Y + rect.Size.Y));
+        var c3 = PixelToCell(new Vector2(
+            rect.TopLeft.X + rect.Size.X, rect.TopLeft.Y + rect.Size.Y));
+
+        int minCol = Mathf.Min(Mathf.Min(c0.X, c1.X), Mathf.Min(c2.X, c3.X)) - 1;
+        int maxCol = Mathf.Max(Mathf.Max(c0.X, c1.X), Mathf.Max(c2.X, c3.X)) + 1;
+        int minRow = Mathf.Min(Mathf.Min(c0.Y, c1.Y), Mathf.Min(c2.Y, c3.Y)) - 1;
+        int maxRow = Mathf.Max(Mathf.Max(c0.Y, c1.Y), Mathf.Max(c2.Y, c3.Y)) + 1;
+
+        float left = rect.TopLeft.X;
+        float top = rect.TopLeft.Y;
+        float right = rect.TopLeft.X + rect.Size.X;
+        float bottom = rect.TopLeft.Y + rect.Size.Y;
+
+        int drawn = 0;
+        bool first = true;
+        gridMin = Vector2.Zero;
+        gridMax = Vector2.Zero;
+        for (int col = minCol; col <= maxCol; col++)
+        {
+            for (int row = minRow; row <= maxRow; row++)
+            {
+                var centre = CellToPixel(new Vector2I(col, row));
+                // Cull cells whose diamond cannot touch the rect at all.
+                if (centre.X + halfW < left || centre.X - halfW > right
+                    || centre.Y + halfH < top || centre.Y - halfH > bottom)
+                {
+                    continue;
+                }
+                DrawCellDiamond(centre, halfW, halfH);
+                drawn++;
+                AccumulateBounds(centre, halfW, halfH, ref first, ref gridMin, ref gridMax);
+            }
+        }
+        return drawn;
+    }
+
+    /// <summary>Stroke one iso cell diamond around <paramref name="centre"/>.</summary>
+    private void DrawCellDiamond(Vector2 centre, float halfW, float halfH)
+    {
+        var diamond = new[]
+        {
+            centre + new Vector2(0f, -halfH),     // top
+            centre + new Vector2(halfW, 0f),      // right
+            centre + new Vector2(0f, halfH),      // bottom
+            centre + new Vector2(-halfW, 0f),     // left
+        };
+        DrawColoredPolygon(diamond, GridFillColor);
+        DrawPolyline(
+            new[] { diamond[0], diamond[1], diamond[2], diamond[3], diamond[0] },
+            GridLineColor, 2f, antialiased: true);
+    }
+
+    /// <summary>
+    /// Grow the running pixel-space bounding box by one cell diamond.
+    /// </summary>
+    private static void AccumulateBounds(
+        Vector2 centre, float halfW, float halfH,
+        ref bool first, ref Vector2 min, ref Vector2 max)
+    {
+        var lo = new Vector2(centre.X - halfW, centre.Y - halfH);
+        var hi = new Vector2(centre.X + halfW, centre.Y + halfH);
+        if (first)
+        {
+            min = lo;
+            max = hi;
+            first = false;
+            return;
+        }
+        min = new Vector2(Mathf.Min(min.X, lo.X), Mathf.Min(min.Y, lo.Y));
+        max = new Vector2(Mathf.Max(max.X, hi.X), Mathf.Max(max.Y, hi.Y));
+    }
+
+    /// <summary>
+    /// J3c-1bis instrumented diagnostic (prefix <c>[DESK-DIAG]</c>). Prints,
+    /// at every <see cref="_Draw"/> pass of a board that fills a placeholder
+    /// floor (the desk), the exact rect the floor filled, the grid cell
+    /// count striped and its pixel bounds, a <c>GRID-COVERS-FLOOR</c>
+    /// verdict, and the two real RGBA colours. The point: the logs reveal
+    /// without ambiguity which element produces the "dark band" and where
+    /// grid coverage stops versus where the floor stops. Kept in the code
+    /// on purpose — if a fix ever regresses, the next F6 Output gives the
+    /// answer rather than another blind round-trip.
+    /// </summary>
+    private void DiagDraw(
+        DeskFloorRectLogic.FloorRect? floorRect, int gridCellsDrawn,
+        Vector2 gridMin, Vector2 gridMax)
+    {
+        if (!DrawPlaceholderFloor)
+        {
+            return;
+        }
+
+        var vp = GetViewport();
+        var cam = vp?.GetCamera2D();
+        GD.Print($"[DESK-DIAG] IsoBoard._Draw '{Name}': " +
+                 $"viewportRenderSize={(vp?.GetVisibleRect().Size.ToString() ?? "(none)")} " +
+                 $"camera2DPos={(cam?.Position.ToString() ?? "(none)")}");
+        if (floorRect is { } fr)
+        {
+            GD.Print($"[DESK-DIAG]   floor rect: topLeft=({fr.TopLeft.X},{fr.TopLeft.Y}) " +
+                     $"size=({fr.Size.X},{fr.Size.Y}) " +
+                     $"bottomRight=({fr.TopLeft.X + fr.Size.X},{fr.TopLeft.Y + fr.Size.Y}) " +
+                     $"source={(_deskFloorFillRect is null ? "ViewportFloorFillRect-fallback" : "GameScreen-push")}");
+            GD.Print($"[DESK-DIAG]   floor 4 corners: " +
+                     $"TL=({fr.TopLeft.X},{fr.TopLeft.Y}) " +
+                     $"TR=({fr.TopLeft.X + fr.Size.X},{fr.TopLeft.Y}) " +
+                     $"BR=({fr.TopLeft.X + fr.Size.X},{fr.TopLeft.Y + fr.Size.Y}) " +
+                     $"BL=({fr.TopLeft.X},{fr.TopLeft.Y + fr.Size.Y})");
+        }
+        else
+        {
+            GD.Print("[DESK-DIAG]   floor rect: NULL — floor NOT drawn this pass " +
+                     "(no pushed rect, and ViewportFloorFillRect could not " +
+                     "resolve a camera). THIS WOULD BE A DARK ZONE.");
+        }
+        GD.Print($"[DESK-DIAG]   iso grid: cellsDrawn={gridCellsDrawn} " +
+                 $"pixelBounds min=({gridMin.X},{gridMin.Y}) max=({gridMax.X},{gridMax.Y})");
+        if (floorRect is { } f2 && gridCellsDrawn > 0)
+        {
+            // The decisive comparison: does the striped grid actually reach
+            // the floor rect edges? A grid bound well inside the floor rect
+            // IS the dark-band bug — floor with no grid between the two.
+            bool gridCoversFloor =
+                gridMin.X <= f2.TopLeft.X && gridMin.Y <= f2.TopLeft.Y
+                && gridMax.X >= f2.TopLeft.X + f2.Size.X
+                && gridMax.Y >= f2.TopLeft.Y + f2.Size.Y;
+            GD.Print($"[DESK-DIAG]   GRID-COVERS-FLOOR={gridCoversFloor} " +
+                     $"(false => bare-floor wedge with no grid = the dark band)");
+        }
+        GD.Print($"[DESK-DIAG]   colours: FloorFillColor(rgba)=" +
+                 $"({FloorFillColor.R},{FloorFillColor.G},{FloorFillColor.B},{FloorFillColor.A}) " +
+                 $"GridLineColor(rgba)=({GridLineColor.R},{GridLineColor.G},{GridLineColor.B},{GridLineColor.A}) " +
+                 $"GridFillColor(rgba)=({GridFillColor.R},{GridFillColor.G},{GridFillColor.B},{GridFillColor.A})");
     }
 
     /// <summary>
