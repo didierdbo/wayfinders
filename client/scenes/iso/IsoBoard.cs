@@ -10,8 +10,8 @@ namespace Wayfinders.Client.Scenes.Iso;
 /// Reusable root node of the J3-iso hybrid socle (design doc
 /// <c>rune-iso-rendering-design-2026-05-20.md</c>, decision #1 validated
 /// by Didier 2026-05-21). One <see cref="IsoBoard"/> instance is one
-/// isometric space — the district maquette and, later, the cartographer's
-/// desk both instance this same scene (<c>IsoBoard.tscn</c>).
+/// isometric space — the district maquette and the cartographer's desk
+/// both instance this same scene (<c>IsoBoard.tscn</c>).
 ///
 /// <para>
 /// <b>What this socle is — and is not.</b> It is exactly three things:
@@ -30,9 +30,21 @@ namespace Wayfinders.Client.Scenes.Iso;
 ///     single source of truth for cell ↔ pixel conversion.</item>
 /// </list>
 /// It is <b>not</b> a renderer. There is no per-cell draw loop. Layer-3
-/// entities (character pawns, building sprites), Y-sorting, panning, and
-/// input are deliberately out of this socle — they are later sub-milestones
-/// (design doc §4, build brief item 4).
+/// entities (character pawns, building sprites) attach as children of the
+/// <see cref="_occupants"/> node — see <see cref="AddOccupant"/>. Their
+/// per-frame logic, Y-sorting, panning, and input wiring are owned by
+/// the entities themselves, not by this socle.
+/// </para>
+///
+/// <para>
+/// <b>Layer-3 occupants (J3c-1).</b> The board can host entity nodes
+/// (a character pawn, a building sprite) on a dedicated
+/// <c>Occupants</c> child created lazily by <see cref="AddOccupant"/>.
+/// That child has <c>YSortEnabled</c> so an occupant lower on screen
+/// draws over one higher up — the standard iso depth sort, free, no
+/// per-cell draw loop. The desk (J3c-1) uses this to place its ~7
+/// Company pawns; the maquette will use it for POIs (J6). The socle does
+/// not own the occupants' state — it only parents their nodes.
 /// </para>
 ///
 /// <para>
@@ -70,11 +82,11 @@ namespace Wayfinders.Client.Scenes.Iso;
 /// lands, the board has nothing visible to pan or clip-test against. With
 /// <see cref="DrawPlaceholderGrid"/> enabled, <see cref="_Draw"/> strokes
 /// the iso diamond outline of every grid cell — a developer-only visual
-/// placeholder, off by default, on for the J3a maquette so the pan and
-/// the SubViewport clipping are observable. It is <i>not</i> a renderer
-/// and <i>not</i> the per-cell draw loop the hybrid forbids: it is one
-/// debug <see cref="_Draw"/> pass over the logical grid, dropped the
-/// moment a real floor bitmap exists.
+/// placeholder, off by default, on for the J3a maquette and the J3c-1
+/// desk so the pan, the clipping, and the desk grid are observable. It is
+/// <i>not</i> a renderer and <i>not</i> the per-cell draw loop the hybrid
+/// forbids: it is one debug <see cref="_Draw"/> pass over the logical
+/// grid, dropped the moment a real floor bitmap exists.
 /// </para>
 ///
 /// <para>
@@ -125,10 +137,11 @@ public partial class IsoBoard : Node2D
 
     /// <summary>
     /// When true, <see cref="_Draw"/> strokes the iso diamond of every
-    /// grid cell — a developer-only placeholder so the J3a maquette is
-    /// visible (pan + clip observable) before Mira's floor bitmap lands.
-    /// Off by default; the J3a <c>GameScreen.tscn</c> turns it on for its
-    /// <c>Maquette</c> instance. Drop it once a real floor bitmap exists.
+    /// grid cell — a developer-only placeholder so the J3a maquette and
+    /// J3c-1 desk are visible (pan + clip + desk grid observable) before
+    /// Mira's floor bitmap lands. Off by default; the J3a/J3c-1
+    /// <c>GameScreen.tscn</c> turns it on for its board instances. Drop
+    /// it once a real floor bitmap exists.
     /// </summary>
     [Export]
     public bool DrawPlaceholderGrid { get; set; }
@@ -149,6 +162,15 @@ public partial class IsoBoard : Node2D
     public IsoProjection? Projection { get; private set; }
 
     private Sprite2D _background = null!;
+
+    /// <summary>
+    /// Lazily-created Y-sorted parent for layer-3 occupant nodes (J3c-1
+    /// desk pawns, J6 maquette POIs). Created on the first
+    /// <see cref="AddOccupant"/> call so a board with no occupants does
+    /// not carry an empty node. Y-sort makes an occupant lower on screen
+    /// draw over one higher up — the standard iso depth sort.
+    /// </summary>
+    private Node2D? _occupants;
 
     // Placeholder-grid stroke colours — warm earth, Wayfinders visual DNA
     // (terracotta / parchment / umber). Developer placeholder only.
@@ -203,6 +225,37 @@ public partial class IsoBoard : Node2D
     {
         var coord = Projection!.WorldToCell(new SysVec2(pixel.X, pixel.Y));
         return new Vector2I(coord.Col, coord.Row);
+    }
+
+    /// <summary>
+    /// Attach a layer-3 entity node (a desk pawn, a POI sprite) to this
+    /// board. The occupant becomes a child of the lazily-created
+    /// Y-sorted <c>Occupants</c> node, so it depth-sorts against the
+    /// other occupants for free. The caller positions the occupant —
+    /// typically via <see cref="CellToPixel"/> for the target cell.
+    ///
+    /// <para>
+    /// The socle parents the node; it does <b>not</b> own the occupant's
+    /// state. Which Company member a desk pawn represents, or which
+    /// mission a POI belongs to, is authoritative <c>GameState</c> data
+    /// (NPC-autonomy lock 2026-05-09) — the occupant node is a view.
+    /// </para>
+    /// </summary>
+    /// <param name="occupant">The entity node to attach. Not null.</param>
+    public void AddOccupant(Node2D occupant)
+    {
+        System.ArgumentNullException.ThrowIfNull(occupant);
+
+        if (_occupants is null)
+        {
+            _occupants = new Node2D
+            {
+                Name = "Occupants",
+                YSortEnabled = true,
+            };
+            AddChild(_occupants);
+        }
+        _occupants.AddChild(occupant);
     }
 
     /// <summary>

@@ -526,4 +526,19 @@
     <Compile Include="..\scripts\screens\HudLayoutLogic.cs" Link="src\HudLayoutLogic.cs" />
   </ItemGroup>
 
+  <!-- J3c-1 static iso desk slot layout (Rune, 2026-05-21, roadmap
+       milestone J3c-1). DeskSlotLayoutLogic is the pure-C# formation
+       maths for the second iso space of the Game Screen Shell : the
+       ordered list of TileCoordinate cells the ~7 Company pawns sit on,
+       the leader slot, and the slot-block centroid the immobile
+       DeskCamera2D parks on. Godot-free by design (TileCoordinate, not
+       Godot.Vector2I) so it pins here without an engine, exactly like
+       IsoCell / AreaGridLogic. The Godot-bound desk wiring (the second
+       SubViewport, DeskCamera2D, the DeskCompanyPawn placeholder pawns,
+       IsoBoard.AddOccupant) lives in the client csproj only and is
+       validated via the GameScreen.tscn F6 smoke. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\DeskSlotLayoutLogic.cs" Link="src\DeskSlotLayoutLogic.cs" />
+  </ItemGroup>
+
 </Project>
