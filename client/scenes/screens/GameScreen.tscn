@@ -17,8 +17,11 @@ border_color = Color(0.36, 0.22, 0.13, 1)
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_deskclip"]
 shader = ExtResource("3_deskclip")
-shader_parameter/clip_line_point = Vector2(1, 0)
-shader_parameter/clip_line_normal = Vector2(0, 0)
+shader_parameter/clip_left_point = Vector2(0, 0)
+shader_parameter/clip_left_normal = Vector2(0, 0)
+shader_parameter/clip_right_point = Vector2(1, 0)
+shader_parameter/clip_right_normal = Vector2(0, 0)
+shader_parameter/clip_split_u = 0.5
 
 [node name="GameScreen" type="Control"]
 layout_mode = 3

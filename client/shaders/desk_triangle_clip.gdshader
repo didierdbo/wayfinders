@@ -1,35 +1,55 @@
-// desk_triangle_clip.gdshader -- J3c-1bis desk corner triangular clip.
+// desk_triangle_clip.gdshader -- J3c-1ter desk TWIN-corner triangular clip.
 //
 // PROBLEM. The cartographer's-desk is the second iso space of the Game
-// Screen Shell, parked bottom-left. Its content is rendered into its own
-// SubViewport (the locked "two SubViewports, two iso scales" decision is
-// untouched -- the desk keeps its private render world + camera). But a
-// SubViewport's texture is, like any texture, RECTANGULAR. Drawn flat to
-// the screen it reads as a brown rectangle in the corner. The mockup
-// wants the desk as a TRIANGLE in the bottom-left corner: the desk fills
-// exactly the wedge the central maquette diamond does NOT cover, and the
-// maquette/desk frontier is the diagonal edge of that iso diamond.
+// Screen Shell. Its content is rendered into its own SubViewport (the
+// locked "two SubViewports, two iso scales" decision is untouched -- the
+// desk keeps its private render world + camera, and there is STILL exactly
+// one desk SubViewport: the two visible desk corners are two windows onto
+// the SAME iso world, not two viewports). But a SubViewport's texture is,
+// like any texture, RECTANGULAR. Drawn flat to the screen it reads as a
+// brown rectangle.
+//
+// The mockup wants the desk as TWO mirrored brown triangles -- one in the
+// bottom-LEFT screen corner, one in the bottom-RIGHT -- in vis-a-vis,
+// separated by the lower point of the central maquette diamond. Each desk
+// triangle is bounded by a screen edge (left or right), the screen bottom,
+// and a HYPOTENUSE that is one lower edge of the iso maquette diamond. The
+// maquette therefore reads as a centred iso diamond whose lower point falls
+// on the screen's horizontal middle; the desk fills exactly the two lower
+// corners that diamond does not cover.
 //
 // SOLUTION. The desk SubViewport is shown via a plain TextureRect (no
 // SubViewportContainer -- a container is intrinsically rectangular). This
-// shader runs on that TextureRect and `discard;`s every fragment on the
-// MAQUETTE side of the frontier line, so the desk survives only inside
-// the bottom-left triangle.
+// shader runs on that TextureRect and `discard;`s every fragment that is
+// NOT inside one of the two corner triangles, so the desk survives only in
+// the bottom-left and bottom-right wedges.
 //
-// The frontier is one straight line. It is described by two uniforms in
-// the TextureRect's UV space ([0,1]x[0,1], origin top-left, +Y down):
-//   - `clip_line_point`  : any point ON the frontier line.
-//   - `clip_line_normal` : the line's normal, pointing INTO the desk
-//                          (the keep side). Need not be unit length --
-//                          only the sign of the dot product is used.
-// A fragment at UV `p` is kept when dot(p - point, normal) >= 0, i.e. it
-// is on the desk side of the line; otherwise it is discarded.
+// GEOMETRY. The two desk triangles are described by two hypotenuse lines
+// plus one vertical split, all in the TextureRect's UV space ([0,1]x[0,1],
+// origin top-left, +Y down):
+//   - left  hypotenuse : from the diamond's left  side apex (UV x=0) down
+//                        to the diamond's lower point (UV x = split_u).
+//   - right hypotenuse : from the diamond's lower point (UV x = split_u)
+//                        up to the diamond's right side apex (UV x=1).
+//   - split_u          : the UV x of the diamond's lower point (~0.5).
+// A fragment is KEPT when it is inside the LEFT corner triangle
+//   (uv.x <= split_u  AND  it is on the desk side of the left hypotenuse)
+// OR inside the RIGHT corner triangle
+//   (uv.x >= split_u  AND  it is on the desk side of the right hypotenuse).
+// The screen-edge sides of each triangle need no test: a fragment inside
+// UV [0,1]x[0,1] is already inside the screen by construction.
 //
-// Both uniforms are COMPUTED in C# (GameScreen.ConfigureDesk) from the
-// maquette diamond geometry and pushed in -- never hard-coded. The
-// frontier therefore tracks the real diamond edge, and a re-authored
-// maquette grid size only changes the C# maths, not this shader (the
-// "trap: computed values, not magic numbers" discipline).
+// Each hypotenuse is one straight line, described by a point ON the line
+// and a NORMAL pointing INTO the desk (the keep side). Need not be unit
+// length -- only the sign of the dot product is used. The `split_u`
+// guards each half-plane to its own corner so the unbounded half-plane
+// of one hypotenuse can never bleed into the other corner.
+//
+// All uniforms are COMPUTED in C# (GameScreen.ApplyDeskClipFrontier) from
+// the maquette diamond geometry and pushed in -- never hard-coded. The
+// frontier tracks the real diamond; a re-authored maquette only changes
+// the C# maths, not this shader (the "computed values, not magic numbers"
+// discipline).
 //
 // GLSL/Godot trap. `return;` is NOT valid to short-circuit a fragment()
 // in Godot 4 -- the compiler rejects it and the material silently becomes
@@ -39,27 +59,44 @@
 // canvas_item fragment contract. At function entry COLOR =
 // texture(TEXTURE, UV) * MODULATE. We keep the SubViewport texture as-is
 // (the desk world already drew its own brown floor + iso grid + pawns),
-// so on the keep side we simply leave COLOR untouched.
+// so on a kept fragment we simply leave COLOR untouched.
 
 shader_type canvas_item;
 
-// A point on the maquette/desk frontier line, in this TextureRect's UV
-// space. Set per-frame-once by GameScreen.ConfigureDesk.
-uniform vec2 clip_line_point = vec2(1.0, 0.0);
+// A point on the LEFT desk triangle's hypotenuse, UV space.
+uniform vec2 clip_left_point = vec2(0.0, 0.0);
 
-// The frontier line normal, pointing toward the desk (keep) side. Sign of
-// the dot product is all that matters; magnitude is irrelevant. Default
-// points up-right so that, absent a C# push, nothing is clipped away by
-// accident on a degenerate setup -- a visible rectangle is a louder bug
-// than a silently-empty desk.
-uniform vec2 clip_line_normal = vec2(0.0, 0.0);
+// The LEFT hypotenuse normal, pointing toward the desk (keep) side. Only
+// the sign of the dot product matters; magnitude is irrelevant.
+uniform vec2 clip_left_normal = vec2(0.0, 0.0);
+
+// A point on the RIGHT desk triangle's hypotenuse, UV space.
+uniform vec2 clip_right_point = vec2(1.0, 0.0);
+
+// The RIGHT hypotenuse normal, pointing toward the desk (keep) side.
+uniform vec2 clip_right_normal = vec2(0.0, 0.0);
+
+// UV x of the maquette diamond's lower point -- the vertical split that
+// separates the bottom-left corner triangle from the bottom-right one.
+// Default 0.5 so, absent a C# push, the split sits screen-centre.
+uniform float clip_split_u = 0.5;
 
 void fragment() {
-    // Signed position relative to the frontier line. Negative => the
-    // fragment is on the maquette side of the diagonal => not part of the
-    // desk triangle => drop it so the maquette behind shows through.
-    float side = dot(UV - clip_line_point, clip_line_normal);
-    if (side < 0.0) {
+    // Bottom-LEFT corner triangle: left of the split AND on the desk side
+    // of the left hypotenuse.
+    bool in_left =
+        UV.x <= clip_split_u
+        && dot(UV - clip_left_point, clip_left_normal) >= 0.0;
+
+    // Bottom-RIGHT corner triangle: right of the split AND on the desk
+    // side of the right hypotenuse.
+    bool in_right =
+        UV.x >= clip_split_u
+        && dot(UV - clip_right_point, clip_right_normal) >= 0.0;
+
+    // Drop every fragment that is in neither corner triangle -- that is the
+    // central maquette diamond, which shows through behind the desk.
+    if (!in_left && !in_right) {
         discard;
     }
     // Keep side: leave COLOR as the SubViewport texture * MODULATE. The

@@ -53,7 +53,10 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///   <item><b>Two SubViewports, not one</b> (roadmap §"Choix techniques
 ///     Godot"). Two iso scales + two camera behaviours (the maquette
 ///     pans, the desk is fixed) + two clippings = two render worlds.
-///     <b>This decision is unchanged by the J3c-1bis fixes below.</b></item>
+///     <b>This decision is unchanged by the J3c-1bis / J3c-1ter fixes
+///     below — there is still exactly ONE desk SubViewport; the two
+///     visible desk corners are two windows onto that one iso world,
+///     carved by the clip shader, not two viewports.</b></item>
 ///   <item><b>The desk camera is immobile.</b> <c>DeskCamera2D</c> is
 ///     parked once in <see cref="ConfigureDesk"/> so the Company formation
 ///     frames inside the bottom-left desk triangle, and never moved.</item>
@@ -67,65 +70,81 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// </para>
 ///
 /// <para>
-/// <b>J3c-1bis — the desk is a triangle, and the pawns ride inside it
-/// (2026-05-21, Rune, after a 4th-5th F6 round-trip).</b> The desk must
-/// read as a bottom-left <b>triangle</b>: it fills the wedge the central
-/// maquette diamond does not cover. A <see cref="SubViewport"/> texture is
-/// rectangular, so the desk <see cref="SubViewport"/> is shown via a plain
-/// <see cref="TextureRect"/> running <c>desk_triangle_clip.gdshader</c>,
-/// which <c>discard;</c>s every fragment on the maquette side of a diagonal
-/// frontier.
+/// <b>J3c-1ter — the desk is TWO mirrored corner triangles, the maquette
+/// is a centred diamond (2026-05-21, Rune, after the in-game capture
+/// clarified the shape).</b> The desk must read as two brown triangles,
+/// one in the bottom-left screen corner and one in the bottom-right, in
+/// vis-à-vis. Each desk triangle is bounded by a screen edge (left or
+/// right), the screen bottom, and a <b>hypotenuse</b> = one lower edge of
+/// the central maquette diamond. The maquette therefore reads as a centred
+/// iso <b>diamond</b> whose lower point falls on the screen's horizontal
+/// middle and whose top apex is cropped by the top HUD band.
 ///
 /// <para>
-/// <b>The structural fix — the pawns ride <i>inside</i> the desk
-/// SubViewport.</b> The desk pawns are plain layer-3 occupants of the
-/// <c>DeskBoard</c> (<see cref="IsoBoard.AddOccupant"/>): in the desk
-/// board's own local space, under the desk's own <c>DeskCamera2D</c> — the
-/// <b>same coordinate frame as the floor they stand on</b>. A pawn's
-/// position is simply <c>DeskBoard.CellToPixel(slotCell)</c> and nothing
-/// else. The clip shader still runs on the desk <c>TextureRect</c>, but
-/// the immobile desk camera is parked so the whole formation frames well
-/// <i>inside</i> the kept bottom-left triangle, far from the clip diagonal.
+/// A <see cref="SubViewport"/> texture is rectangular, so the desk
+/// <see cref="SubViewport"/> is shown via a plain <see cref="TextureRect"/>
+/// running <c>desk_triangle_clip.gdshader</c>, which <c>discard;</c>s every
+/// fragment that is in <i>neither</i> corner triangle — that is the central
+/// diamond, which shows the pannable maquette through behind. The shader
+/// takes two hypotenuse half-planes plus one vertical split (the diamond's
+/// lower point) so each unbounded half-plane is confined to its own corner.
+/// The clip geometry is computed by <see cref="DeskClipFrontierLogic"/>
+/// (Godot-free, xUnit-pinned) from the diamond apexes.
+/// </para>
+///
+/// <para>
+/// <b>What J3c-1ter changes from J3c-1bis.</b> J3c-1bis cut a single
+/// bottom-left half-screen triangle (clip diagonal corner to corner). That
+/// ate half the screen on one diagonal and had no mirror. J3c-1ter cuts
+/// two confined corner wedges instead. The desk pawns are unchanged: they
+/// still all sit grouped in the bottom-LEFT corner (J3c-1 scope); the
+/// bottom-right corner is, for now, brown floor + iso grid only.
+/// </para>
+///
+/// <para>
+/// <b>The structural fix (carried from J3c-1bis) — the pawns ride
+/// <i>inside</i> the desk SubViewport.</b> The desk pawns are plain
+/// layer-3 occupants of the <c>DeskBoard</c> (<see cref="IsoBoard.AddOccupant"/>):
+/// in the desk board's own local space, under the desk's own
+/// <c>DeskCamera2D</c> — the <b>same coordinate frame as the floor they
+/// stand on</b>. A pawn's position is simply
+/// <c>DeskBoard.CellToPixel(slotCell)</c> and nothing else. The clip shader
+/// runs on the desk <c>TextureRect</c>, but the immobile desk camera is
+/// parked so the whole formation frames well inside the kept bottom-left
+/// triangle, far from the clip hypotenuse.
 /// </para>
 ///
 /// <list type="bullet">
-///   <item><b>Full-screen desk rect — corner-to-corner triangle.</b> The
-///     desk <see cref="SubViewport"/> and the <c>DeskTextureRect</c> are
-///     both full screen.</item>
+///   <item><b>Full-screen desk rect.</b> The desk <see cref="SubViewport"/>
+///     and the <c>DeskTextureRect</c> are both full screen so the two
+///     corner triangles reach the real screen corners.</item>
 ///   <item><b>Floor AND grid both fill the whole viewport — homogeneous
-///     brown triangle (F6 fix, 2026-05-21, sixth round).</b> The desk must
-///     read as ONE uniform brown triangle with iso grid everywhere. Two
-///     earlier rounds corrected the <i>floor</i> (it fills the whole
-///     viewport rect) and changed nothing on screen — because the visible
-///     bug was the <i>grid</i>, not the floor. The desk floor and the
+///     brown.</b> The desk must read as uniform brown with iso grid
+///     everywhere inside both kept triangles. The desk floor and the
 ///     <c>DeskBackground</c> panel are authored the SAME brown, so a
-///     floor-coverage gap is invisible by construction; what was visible
-///     was a dark band <i>without grid</i> (bare floor between the 8×8
-///     grid rhombus and the clip diagonal). The board now stripes the iso
-///     grid over the <i>whole floor rect</i>, a purely visual superset of
-///     the 8×8 logical grid — see <c>IsoBoard.DrawGridOverRect</c>.</item>
+///     floor-coverage gap is invisible by construction; the board stripes
+///     the iso grid over the <i>whole floor rect</i> (a visual superset of
+///     the 8×8 logical grid — see <c>IsoBoard.DrawGridOverRect</c>).</item>
 ///   <item><b>NEAREST sampling.</b> The <c>DeskTextureRect</c> samples the
-///     desk SubViewport texture with NEAREST filtering so the clip diagonal
-///     is the shader's crisp discard line, no bilinear cross-edge blend.</item>
+///     desk SubViewport texture with NEAREST filtering so the clip
+///     hypotenuses are the shader's crisp discard lines.</item>
 ///   <item><b>Reliable screen size.</b> <see cref="_Ready"/> reads
 ///     <c>GetViewportRect().Size</c> — the real window rect, valid the
 ///     instant <c>_Ready</c> runs — never <c>DeskTextureRect.Size</c>.</item>
 ///   <item><b>Static-frontier scope (J3c-1).</b> The clip frontier and the
-///     floor rect are computed once in <see cref="ConfigureDesk"/>; the
-///     frontier is a fixed viewport diagonal.</item>
+///     floor rect are computed once in <see cref="ConfigureDesk"/>.</item>
 /// </list>
 /// </para>
 ///
 /// <para>
-/// <b>[DESK-DIAG] instrumentation (J3c-1bis F6 sixth round).</b>
-/// <see cref="ConfigureDesk"/> / <see cref="ApplyDeskClipFrontier"/> /
-/// <see cref="Preflight"/> print a <c>[DESK-DIAG]</c> block alongside the
-/// existing preflight: the desk viewport / TextureRect sizes, the desk
-/// camera park, the clip frontier's two diagonal endpoints in screen
-/// pixels and the normal pushed to the shader, and the desk floor fill
-/// rect's four corners. Read together with the board's own
-/// <c>[DESK-DIAG]</c> lines, the logs say without ambiguity which element
-/// produces a "dark band" and why a gap exists. Kept in the code on
+/// <b>[DESK-DIAG] instrumentation (kept and adapted to the twin-triangle
+/// geometry).</b> <see cref="ConfigureDesk"/> / <see cref="ApplyDeskClipFrontier"/>
+/// / <see cref="Preflight"/> print a <c>[DESK-DIAG]</c> block: the desk
+/// viewport / TextureRect sizes, the desk camera park, the maquette diamond
+/// apexes in screen pixels, the two clip hypotenuses + the split pushed to
+/// the shader, and the desk floor fill rect's four corners. Read together
+/// with the board's own <c>[DESK-DIAG]</c> lines, the logs say without
+/// ambiguity which element produces a coverage gap. Kept in the code on
 /// purpose — a regressed fix is then diagnosed from the next F6 Output
 /// rather than another blind round-trip.
 /// </para>
@@ -167,21 +186,25 @@ public partial class GameScreen : Control
     /// <summary>
     /// Where the centroid of the Company formation should land on screen,
     /// as a fraction of the desk viewport — used to park the immobile
-    /// <c>DeskCamera2D</c> (J3c-1bis). The desk is the bottom-left
+    /// <c>DeskCamera2D</c>. The Company pawns sit in the bottom-LEFT desk
     /// triangle, so the formation is framed in the lower-left quadrant.
-    /// Both fractions are well inside the kept triangle, so the whole
-    /// formation sits clear of the clip diagonal — no pawn is sliced.
+    /// Both fractions are well inside the kept left triangle, so the whole
+    /// formation sits clear of the clip hypotenuse — no pawn is sliced.
     /// </summary>
     private const float DeskFormationScreenFracX = 0.26f;
-    private const float DeskFormationScreenFracY = 0.72f;
+    private const float DeskFormationScreenFracY = 0.78f;
 
     /// <summary>
-    /// Shader uniform names on <c>desk_triangle_clip.gdshader</c>. Held as
-    /// constants so a rename surfaces at compile time on this one line
-    /// rather than as a silent no-op clip at runtime.
+    /// Shader uniform names on <c>desk_triangle_clip.gdshader</c> — the
+    /// J3c-1ter twin-corner clip. Held as constants so a rename surfaces at
+    /// compile time on this one line rather than as a silent no-op clip at
+    /// runtime.
     /// </summary>
-    private const string ClipPointUniform = "clip_line_point";
-    private const string ClipNormalUniform = "clip_line_normal";
+    private const string ClipLeftPointUniform = "clip_left_point";
+    private const string ClipLeftNormalUniform = "clip_left_normal";
+    private const string ClipRightPointUniform = "clip_right_point";
+    private const string ClipRightNormalUniform = "clip_right_normal";
+    private const string ClipSplitUniform = "clip_split_u";
 
     private SubViewportContainer _mapContainer = null!;
     private SubViewport _mapViewport = null!;
@@ -299,12 +322,12 @@ public partial class GameScreen : Control
     }
 
     /// <summary>
-    /// J3c-1 / J3c-1bis: stand up the static iso desk. Sizes the
+    /// J3c-1 / J3c-1ter: stand up the static iso desk. Sizes the
     /// <c>DeskViewport</c>'s render target, wires its texture onto the
     /// <c>DeskTextureRect</c>, parks the immobile desk camera, fills the
     /// desk floor to the viewport, places one placeholder pawn per Company
     /// slot as a layer-3 occupant of the desk board, and computes the
-    /// triangular clip frontier the desk shader consumes.
+    /// twin-corner triangular clip frontier the desk shader consumes.
     ///
     /// <para>
     /// All the arithmetic is pure-C# (Godot-free, xUnit-pinned); this
@@ -331,7 +354,7 @@ public partial class GameScreen : Control
         _deskTextureRect.Texture = _deskViewport.GetTexture();
 
         // The static desk takes no input in J3c-1. An Ignore filter means
-        // an MMB press over the desk corner still reaches the maquette pan.
+        // an MMB press over a desk corner still reaches the maquette pan.
         _deskTextureRect.MouseFilter = MouseFilterEnum.Ignore;
 
         // J3c-1bis: sample the desk SubViewport texture with NEAREST
@@ -355,9 +378,9 @@ public partial class GameScreen : Control
 
         // Park the immobile desk camera so the formation centroid lands in
         // the lower-left quadrant of the full-screen desk viewport — well
-        // inside the bottom-left clip triangle, clear of the clip diagonal.
-        // A Camera2D's Position is the world point shown at the screen
-        // centre. Computed off `screen` (the reliable window rect).
+        // inside the bottom-left clip triangle, clear of the clip
+        // hypotenuse. A Camera2D's Position is the world point shown at the
+        // screen centre. Computed off `screen` (the reliable window rect).
         var screenTarget = new Vector2(
             screen.X * DeskFormationScreenFracX,
             screen.Y * DeskFormationScreenFracY);
@@ -396,15 +419,20 @@ public partial class GameScreen : Control
     }
 
     /// <summary>
-    /// J3c-1bis: compute the maquette/desk triangular-clip frontier and
-    /// push it into the <c>DeskTextureRect</c>'s clip shader.
+    /// J3c-1ter: compute the maquette/desk <b>twin-corner</b> triangular
+    /// clip frontier and push it into the <c>DeskTextureRect</c>'s clip
+    /// shader.
     ///
     /// <para>
-    /// <b>The frontier is the desk viewport's fixed main diagonal.</b> For
-    /// the <i>static</i> J3c-1 desk the maquette/desk frontier is the desk
-    /// viewport's own main diagonal — top-left corner to bottom-right
-    /// corner — a geometric constant of the full-screen desk rect, so the
-    /// kept triangle is exactly the bottom-left half of the viewport.
+    /// <b>The frontier follows the centred maquette diamond.</b> The
+    /// maquette reads as a centred iso diamond whose left/right side apexes
+    /// touch the screen edges and whose lower point sits on the screen's
+    /// horizontal middle. The desk is the two bottom corners that diamond
+    /// does not cover; the two clip hypotenuses are the diamond's two LOWER
+    /// edges, and a vertical split at the diamond's lower point bounds each
+    /// corner triangle to its own side. All of it is derived in
+    /// <see cref="DeskClipFrontierLogic"/> (Godot-free, xUnit-pinned); this
+    /// method only feeds the screen size in and writes uniforms out.
     /// </para>
     /// </summary>
     /// <param name="screen">
@@ -418,34 +446,49 @@ public partial class GameScreen : Control
         var deskOrigin = SysVec2.Zero;
         var deskSize = new SysVec2(screen.X, screen.Y);
 
-        // The static frontier: the desk viewport's main diagonal, top-left
-        // corner to bottom-right corner. DeskClipFrontierLogic orients the
-        // normal so the bottom-left desk triangle is the keep side.
-        var edgeStart = deskOrigin;            // top-left corner
-        var edgeEnd = deskOrigin + deskSize;   // bottom-right corner
+        // The centred maquette diamond: side apexes on the screen edges,
+        // lower point on the horizontal middle, top apex cropped by the HUD.
+        var diamond = DeskClipFrontierLogic.MaquetteDiamond(
+            deskSize, HudBandHeight);
 
+        // The two corner-triangle half-planes + the vertical split.
         var frontier = DeskClipFrontierLogic.Compute(
-            edgeStart, edgeEnd, deskOrigin, deskSize);
+            diamond, deskOrigin, deskSize);
 
         var material = (ShaderMaterial)_deskTextureRect.Material;
         material.SetShaderParameter(
-            ClipPointUniform, new Vector2(frontier.PointUv.X, frontier.PointUv.Y));
+            ClipLeftPointUniform,
+            new Vector2(frontier.LeftPointUv.X, frontier.LeftPointUv.Y));
         material.SetShaderParameter(
-            ClipNormalUniform, new Vector2(frontier.NormalUv.X, frontier.NormalUv.Y));
+            ClipLeftNormalUniform,
+            new Vector2(frontier.LeftNormalUv.X, frontier.LeftNormalUv.Y));
+        material.SetShaderParameter(
+            ClipRightPointUniform,
+            new Vector2(frontier.RightPointUv.X, frontier.RightPointUv.Y));
+        material.SetShaderParameter(
+            ClipRightNormalUniform,
+            new Vector2(frontier.RightNormalUv.X, frontier.RightNormalUv.Y));
+        material.SetShaderParameter(ClipSplitUniform, frontier.SplitU);
 
-        // [DESK-DIAG] J3c-1bis F6 sixth round — the clip frontier in BOTH
-        // spaces. The shader works in UV [0,1]; this prints the screen-pixel
-        // diagonal endpoints AND the UV point/normal pushed, so a reader can
-        // see the kept side without re-deriving the dot-product sign.
-        GD.Print($"[DESK-DIAG] clip frontier: screen diagonal " +
-                 $"edgeStart=({edgeStart.X},{edgeStart.Y}) " +
-                 $"edgeEnd=({edgeEnd.X},{edgeEnd.Y}) " +
-                 $"deskRect origin=({deskOrigin.X},{deskOrigin.Y}) " +
-                 $"size=({deskSize.X},{deskSize.Y})");
-        GD.Print($"[DESK-DIAG] clip frontier (UV pushed to shader): " +
-                 $"pointUv=({frontier.PointUv.X},{frontier.PointUv.Y}) " +
-                 $"normalUv=({frontier.NormalUv.X},{frontier.NormalUv.Y}) " +
-                 $"-- fragment KEPT when dot(uv-point,normal)>=0 (bottom-left = desk)");
+        // [DESK-DIAG] J3c-1ter — the twin-corner clip in BOTH spaces. The
+        // shader works in UV [0,1]; this prints the screen-pixel diamond
+        // apexes (the maquette shape) AND the UV half-planes + split pushed,
+        // so a reader can see both kept corners without re-deriving signs.
+        GD.Print($"[DESK-DIAG] maquette diamond (screen px): " +
+                 $"topApex=({diamond.TopApex.X},{diamond.TopApex.Y}) " +
+                 $"leftApex=({diamond.LeftApex.X},{diamond.LeftApex.Y}) " +
+                 $"rightApex=({diamond.RightApex.X},{diamond.RightApex.Y}) " +
+                 $"lowerPoint=({diamond.LowerPoint.X},{diamond.LowerPoint.Y}) " +
+                 $"-- lower point on screen horizontal middle");
+        GD.Print($"[DESK-DIAG] twin clip (UV pushed to shader): " +
+                 $"leftPoint=({frontier.LeftPointUv.X},{frontier.LeftPointUv.Y}) " +
+                 $"leftNormal=({frontier.LeftNormalUv.X},{frontier.LeftNormalUv.Y}) " +
+                 $"rightPoint=({frontier.RightPointUv.X},{frontier.RightPointUv.Y}) " +
+                 $"rightNormal=({frontier.RightNormalUv.X},{frontier.RightNormalUv.Y}) " +
+                 $"splitU={frontier.SplitU}");
+        GD.Print($"[DESK-DIAG] twin clip: fragment KEPT when " +
+                 $"(uv.x<=split AND leftSide>=0) OR (uv.x>=split AND " +
+                 $"rightSide>=0) -- two bottom corners = desk, centre = maquette");
     }
 
     /// <summary>
@@ -506,10 +549,10 @@ public partial class GameScreen : Control
         }
 
         // ------------------------------------------------------------------
-        // [DESK-DIAG] J3c-1bis F6 sixth round — instrumented desk diagnostic.
-        // The next four blocks recense every element that draws into the desk
-        // zone, with its real runtime rect / size / position so the Output
-        // says without ambiguity what produces the "dark band".
+        // [DESK-DIAG] J3c-1ter — instrumented desk diagnostic, adapted to the
+        // twin-corner geometry. The next blocks recense every element that
+        // draws into the desk zone, with its real runtime rect / size /
+        // position so the Output says without ambiguity what produces a gap.
         // ------------------------------------------------------------------
         var slots = DeskSlotLayoutLogic.CompanySlotCells();
 
@@ -555,14 +598,34 @@ public partial class GameScreen : Control
                  $"{floorRect.TopLeft.Y + floorRect.Size.Y}) " +
                  $"edgeSlack={DeskFloorRectLogic.EdgeSlackPx}px");
 
+        // (5) The twin-corner clip frontier — the maquette diamond apexes and
+        // the two UV half-planes + split pushed to the shader. The two desk
+        // triangles are the bottom-left and bottom-right corners; the centre
+        // diamond is discarded so the maquette shows through.
+        var diamond = DeskClipFrontierLogic.MaquetteDiamond(
+            screenSize, HudBandHeight);
+        var frontier = DeskClipFrontierLogic.Compute(
+            diamond, SysVec2.Zero, screenSize);
+        GD.Print($"[DESK-DIAG] maquette diamond (screen px): " +
+                 $"topApex=({diamond.TopApex.X},{diamond.TopApex.Y}) " +
+                 $"leftApex=({diamond.LeftApex.X},{diamond.LeftApex.Y}) " +
+                 $"rightApex=({diamond.RightApex.X},{diamond.RightApex.Y}) " +
+                 $"lowerPoint=({diamond.LowerPoint.X},{diamond.LowerPoint.Y})");
+        GD.Print($"[DESK-DIAG] twin clip (UV): " +
+                 $"leftPoint=({frontier.LeftPointUv.X},{frontier.LeftPointUv.Y}) " +
+                 $"leftNormal=({frontier.LeftNormalUv.X},{frontier.LeftNormalUv.Y}) " +
+                 $"rightPoint=({frontier.RightPointUv.X},{frontier.RightPointUv.Y}) " +
+                 $"rightNormal=({frontier.RightNormalUv.X},{frontier.RightNormalUv.Y}) " +
+                 $"splitU={frontier.SplitU}");
+
         // The IsoBoard's own [DESK-DIAG] _Draw lines (grid cell count, grid
         // pixel bounds, GRID-COVERS-FLOOR verdict) print from IsoBoard.cs at
         // every desk-board _Draw pass. Read them together with the lines
-        // above: floor rect vs grid bounds tells the dark-band story.
+        // above: floor rect vs grid bounds tells the coverage story.
         GD.Print($"[DESK-DIAG] >> see also IsoBoard '{_deskBoard.Name}' " +
                  $"[DESK-DIAG] _Draw lines for grid coverage vs floor rect.");
 
-        // J3c-1 / bis desk diagnostics (the existing preflight block).
+        // J3c-1 / ter desk diagnostics (the existing preflight block).
         GD.Print($"[GameScreen] preflight: screen={screen} (GetViewportRect) " +
                  $"DeskViewport size={_deskViewport.Size} " +
                  $"DeskTextureRect rect={_deskTextureRect.Size} " +
@@ -587,7 +650,7 @@ public partial class GameScreen : Control
         // viewport rect the desk camera shows.
         GD.Print($"[GameScreen] preflight: desk pawns are layer-3 occupants " +
                  $"of DeskBoard (inside the desk SubViewport) -- no screen-space " +
-                 $"reprojection (J3c-1bis fix)");
+                 $"reprojection (J3c-1bis fix), all in the bottom-left corner");
         for (int i = 0; i < slots.Count; i++)
         {
             var cell = slots[i];
@@ -611,10 +674,13 @@ public partial class GameScreen : Control
                  $"-- viewport-covering, hard-edged DrawRect (J3c-1bis)");
 
         var clipMaterial = (ShaderMaterial)_deskTextureRect.Material!;
-        GD.Print($"[GameScreen] preflight: desk clip frontier " +
-                 $"point={clipMaterial.GetShaderParameter(ClipPointUniform)} " +
-                 $"normal={clipMaterial.GetShaderParameter(ClipNormalUniform)} " +
-                 $"-- fixed viewport diagonal, NEAREST sampled (J3c-1bis)");
+        GD.Print($"[GameScreen] preflight: desk twin clip " +
+                 $"leftPoint={clipMaterial.GetShaderParameter(ClipLeftPointUniform)} " +
+                 $"leftNormal={clipMaterial.GetShaderParameter(ClipLeftNormalUniform)} " +
+                 $"rightPoint={clipMaterial.GetShaderParameter(ClipRightPointUniform)} " +
+                 $"rightNormal={clipMaterial.GetShaderParameter(ClipRightNormalUniform)} " +
+                 $"splitU={clipMaterial.GetShaderParameter(ClipSplitUniform)} " +
+                 $"-- two corner triangles, NEAREST sampled (J3c-1ter)");
     }
 
     // --- engine seam: Godot.Vector2 <-> PanVec2 / System.Numerics --------

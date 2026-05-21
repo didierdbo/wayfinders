@@ -541,19 +541,22 @@
     <Compile Include="..\scripts\screens\DeskSlotLayoutLogic.cs" Link="src\DeskSlotLayoutLogic.cs" />
   </ItemGroup>
 
-  <!-- J3c-1bis desk triangular clip (Rune, 2026-05-21). DeskClipFrontierLogic
-       is the pure-C# geometry that turns the maquette/desk frontier into the
-       clip_line_point / clip_line_normal UV-space uniforms
-       desk_triangle_clip.gdshader consumes on the desk TextureRect. For the
-       static J3c-1 desk GameScreen feeds it the desk viewport's fixed main
-       diagonal (top-left to bottom-right corner); the helper orients the
-       normal toward the bottom-left desk keep side. Godot-free by design
-       (System.Numerics.Vector2, not Godot.Vector2) so it pins here without an
-       engine — a flipped normal, a bad UV scale, or a degenerate zero-length
-       frontier all surface red. The Godot-bound wiring
-       (GameScreen.ApplyDeskClipFrontier feeding the diagonal in and writing
-       the shader uniforms out) lives in the client csproj only and is
-       validated via the GameScreen.tscn F6 smoke. -->
+  <!-- J3c-1ter desk twin-corner triangular clip (Rune, 2026-05-21).
+       DeskClipFrontierLogic is the pure-C# geometry that turns the centred
+       maquette diamond into the five UV-space uniforms
+       desk_triangle_clip.gdshader consumes on the desk TextureRect: a left
+       hypotenuse half-plane, a right hypotenuse half-plane, and a vertical
+       split. The desk reads as two mirrored brown triangles in the two
+       bottom screen corners; the maquette is the centred diamond between
+       them, lower point on the screen horizontal middle. MaquetteDiamond
+       places the diamond; Compute derives the two corner half-planes + the
+       split. Godot-free by design (System.Numerics.Vector2, not
+       Godot.Vector2) so it pins here without an engine — a flipped normal,
+       a bad UV scale, a half-plane bleeding across the split, or a
+       degenerate zero-length hypotenuse all surface red. The Godot-bound
+       wiring (GameScreen.ApplyDeskClipFrontier feeding the screen size in
+       and writing the five shader uniforms out) lives in the client csproj
+       only and is validated via the GameScreen.tscn F6 smoke. -->
   <ItemGroup>
     <Compile Include="..\scripts\screens\DeskClipFrontierLogic.cs" Link="src\DeskClipFrontierLogic.cs" />
   </ItemGroup>
