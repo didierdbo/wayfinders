@@ -94,24 +94,41 @@ namespace Wayfinders.Client.Scenes.Iso;
 /// </para>
 ///
 /// <para>
-/// <b>Desk floor fill rect (J3c-1bis F6 fix, 2026-05-21).</b> The desk
-/// floor was originally drawn as the iso diamond that bounds the 8×8
-/// placeholder grid — a compact rhombus whose edges sit well inside the
-/// screen. Once the triangular clip shader had cut the maquette-side
-/// wedge, the kept desk triangle still showed those diamond edges as a
-/// <i>parasitic border</i>. The fix: <see cref="SetDeskFloorFillRect"/>
-/// lets <c>GameScreen</c> hand the board an explicit axis-aligned floor
-/// rect covering the whole desk viewport (<see cref="DeskFloorRectLogic"/>).
-/// When that rect is set, <see cref="_Draw"/> fills it instead of the
-/// diamond — so the only edge the player sees on the desk floor is the
-/// shader's clean diagonal hypotenuse; the other three borders are the
-/// screen edges themselves. The fill is a hard-edged <see cref="CanvasItem.DrawRect"/>,
-/// not a <c>DrawColoredPolygon</c>: the polygon triangulator feathers the
+/// <b>Desk floor fill — always the whole viewport (J3c-1bis F6 fix,
+/// 2026-05-21, second round).</b> The desk floor must be a <i>homogeneous</i>
+/// brown triangle: every pixel of the clipped desk viewport is floor, same
+/// colour, iso grid everywhere — no separate "viewport background" band.
+/// Earlier rounds drew the floor as the iso diamond bounding the 8×8 grid;
+/// that diamond is a compact rhombus whose edges sit well inside the screen,
+/// so the clipped desk triangle showed the dark <c>DeskBackground</c>
+/// (the desk SubViewport is <c>transparent_bg</c>) bleeding through the
+/// rhombus corners as a parasitic dark band.
+///
+/// <para>
+/// The fix is structural: when <see cref="DrawPlaceholderFloor"/> is on,
+/// <see cref="_Draw"/> <b>never</b> draws the grid-bounding diamond. It
+/// always fills an axis-aligned rect covering the <i>whole</i> board
+/// viewport. <c>GameScreen</c> may hand the board an explicit rect via
+/// <see cref="SetDeskFloorFillRect"/> (computed by
+/// <see cref="DeskFloorRectLogic"/> from the parked desk camera); if no
+/// rect has been pushed yet, the board falls back to its <i>own</i>
+/// viewport rect — <see cref="ViewportFloorFillRect"/> — never to the
+/// diamond. A missing push is then still a full-viewport floor, not the
+/// losange-shaped bug. The 8×8 placeholder grid stays the semantic game
+/// grid (the occupiable cells); the floor is the full visual surface
+/// underneath it, a superset.
+/// </para>
+///
+/// <para>
+/// The fill is a hard-edged <see cref="CanvasItem.DrawRect"/>, not a
+/// <c>DrawColoredPolygon</c>: the polygon triangulator feathers the
 /// rasterised boundary, and over the desk SubViewport's <c>transparent_bg</c>
-/// that feather left a half-alpha rim that read as an off-tint wedge in
-/// the kept clip triangle (the F6 "top-left point is a different brown"
-/// bug). <c>DrawRect</c> rasterises an opaque hard rectangle — one uniform
-/// brown across the whole triangle.
+/// that feather left a half-alpha rim that read as an off-tint wedge. The
+/// belt-and-braces companion is that <c>GameScreen</c>'s <c>DeskBackground</c>
+/// panel is authored the <i>same</i> brown as <see cref="FloorFillColor"/>,
+/// so even a sub-pixel gap between the floor rect and the screen edge can
+/// never read as a demarcation — there is simply no second colour to expose.
+/// </para>
 /// </para>
 ///
 /// <para>
@@ -178,11 +195,14 @@ public partial class IsoBoard : Node2D
     /// Mira's desk-floor bitmap is not wired.
     ///
     /// <para>
-    /// <b>Which rect is filled.</b> By default the fill is the iso diamond
-    /// bounding the placeholder grid. If <c>GameScreen</c> has called
-    /// <see cref="SetDeskFloorFillRect"/> (the J3c-1bis F6 fix), the fill
-    /// is instead that explicit viewport-covering rect — see the
-    /// "desk floor fill rect" paragraph on the class.
+    /// <b>Which rect is filled.</b> Always an axis-aligned rect covering
+    /// the <i>whole</i> board viewport — never the compact grid-bounding
+    /// diamond. If <c>GameScreen</c> has called
+    /// <see cref="SetDeskFloorFillRect"/> the fill uses that explicit
+    /// rect; otherwise the board derives its own viewport-covering rect
+    /// (<see cref="ViewportFloorFillRect"/>). The desk floor is therefore
+    /// a homogeneous full-viewport surface in both cases — see the
+    /// "desk floor fill" paragraph on the class.
     /// </para>
     ///
     /// <para>
@@ -231,9 +251,10 @@ public partial class IsoBoard : Node2D
     /// space, set by <c>GameScreen</c> via <see cref="SetDeskFloorFillRect"/>
     /// (J3c-1bis F6 fix). Null on the maquette board and before the desk
     /// is configured — in which case <see cref="_Draw"/> falls back to the
-    /// grid-bounding diamond. A struct-typed nullable so a missing rect is
-    /// an explicit "not set" rather than a zero-sized rect that would draw
-    /// nothing.
+    /// board's own viewport-covering rect (<see cref="ViewportFloorFillRect"/>),
+    /// never to a grid-bounding diamond. A struct-typed nullable so a
+    /// missing rect is an explicit "not pushed yet" rather than a
+    /// zero-sized rect that would draw nothing.
     /// </summary>
     private DeskFloorRectLogic.FloorRect? _deskFloorFillRect;
 
@@ -242,10 +263,24 @@ public partial class IsoBoard : Node2D
     private static readonly Color GridLineColor = new(0.62f, 0.40f, 0.27f, 0.85f);
     private static readonly Color GridFillColor = new(0.91f, 0.85f, 0.72f, 0.10f);
 
-    // Placeholder desk-floor fill — a flat warm umber-brown table surface,
-    // the same family as the old StyleBoxFlat_desk bg_color but drawn IN
-    // the iso world (below the grid) instead of as an opaque UI Panel.
-    private static readonly Color FloorFillColor = new(0.27f, 0.19f, 0.12f, 1f);
+    /// <summary>
+    /// Placeholder desk-floor fill — a flat warm umber-brown table surface,
+    /// drawn IN the iso world (below the grid) instead of as an opaque UI
+    /// Panel.
+    ///
+    /// <para>
+    /// <b>This must stay in sync with <c>GameScreen.tscn</c>'s
+    /// <c>DeskBackground</c> panel colour.</b> The desk SubViewport is
+    /// <c>transparent_bg</c>; the <c>DeskBackground</c> Panel sits behind
+    /// the <c>DeskTextureRect</c>. If the panel were a different brown,
+    /// any sub-pixel gap between this floor fill and the screen edge would
+    /// expose a second colour and read as a demarcation. Authored equal,
+    /// there is no second colour — the desk is one homogeneous brown
+    /// whatever the floor rect rounds to. The J3c-1bis "desk = one uniform
+    /// triangle" contract depends on these two values being identical.
+    /// </para>
+    /// </summary>
+    public static readonly Color FloorFillColor = new(0.27f, 0.19f, 0.12f, 1f);
 
     public override void _Ready()
     {
@@ -300,12 +335,21 @@ public partial class IsoBoard : Node2D
     /// <summary>
     /// J3c-1bis F6 fix: hand the board an explicit desk-floor fill rect, in
     /// this board's local pixel space, so <see cref="_Draw"/> fills the
-    /// whole desk viewport instead of the compact grid-bounding diamond.
-    /// <c>GameScreen.ConfigureDesk</c> computes the rect with
-    /// <see cref="DeskFloorRectLogic"/> from the immobile desk camera and
-    /// the viewport size, then calls this. Triggers a redraw so the new
-    /// fill is picked up even though <see cref="_Ready"/> already ran one
-    /// draw pass on the old diamond.
+    /// whole desk viewport from a camera-derived rect rather than from the
+    /// board's own viewport rect. <c>GameScreen.ConfigureDesk</c> computes
+    /// the rect with <see cref="DeskFloorRectLogic"/> from the immobile
+    /// desk camera and the viewport size, then calls this. Triggers a
+    /// redraw so the new fill is picked up even though <see cref="_Ready"/>
+    /// already ran one draw pass.
+    ///
+    /// <para>
+    /// This is an <i>optional refinement</i>, not a load-bearing wire: if
+    /// it is never called the board still fills the whole viewport via
+    /// <see cref="ViewportFloorFillRect"/>. The explicit rect only lets the
+    /// fill be derived from the parked camera (so the rect is exact even if
+    /// the camera is off-centre); the homogeneous-floor guarantee does not
+    /// depend on it.
+    /// </para>
     /// </summary>
     /// <param name="rect">
     /// The viewport-covering floor rect, from
@@ -381,6 +425,62 @@ public partial class IsoBoard : Node2D
         => _background.Texture?.GetSize() ?? Vector2.Zero;
 
     /// <summary>
+    /// The board's own viewport-covering floor rect, in this board's local
+    /// pixel space — the fallback the desk floor fills when
+    /// <c>GameScreen</c> has not pushed an explicit
+    /// <see cref="SetDeskFloorFillRect"/>.
+    ///
+    /// <para>
+    /// <b>Why this exists.</b> Earlier the fallback was the grid-bounding
+    /// iso diamond — a compact rhombus that left the viewport corners
+    /// unpainted, so the dark <c>DeskBackground</c> bled through and the
+    /// desk read as two brown zones. The floor must always cover the whole
+    /// clipped viewport; the fallback must therefore be a full-viewport
+    /// rect, not a diamond. This composes the same maths as
+    /// <see cref="DeskFloorRectLogic.Compute"/> — the visible world rect
+    /// is <c>cameraCentre ± viewportSize/2</c> grown by the safety slack —
+    /// from the board's <i>own</i> active camera and SubViewport, so it is
+    /// correct even before any external push.
+    /// </para>
+    ///
+    /// <para>
+    /// Returns null if the board is not inside the tree, has no viewport,
+    /// or has no active <see cref="Camera2D"/> — in which case the floor
+    /// is simply not drawn for that pass (it cannot place a rect without a
+    /// camera frame). Safe to call only after <see cref="_Ready"/>.
+    /// </para>
+    /// </summary>
+    public DeskFloorRectLogic.FloorRect? ViewportFloorFillRect()
+    {
+        if (!IsInsideTree())
+        {
+            return null;
+        }
+
+        var viewport = GetViewport();
+        var camera = viewport?.GetCamera2D();
+        if (viewport is null || camera is null)
+        {
+            return null;
+        }
+
+        // Visible size in world units = the SubViewport render size scaled
+        // by the camera zoom (Position is the world point at the viewport
+        // centre; the visible rect is cameraCentre ± visibleSize/2). Zoom
+        // is (1,1) for the static desk, but composing it keeps this correct
+        // if a zoom is ever authored.
+        var renderSize = viewport.GetVisibleRect().Size;
+        var zoom = camera.Zoom;
+        if (zoom.X <= 0f || zoom.Y <= 0f || renderSize.X <= 0f || renderSize.Y <= 0f)
+        {
+            return null;
+        }
+        var visibleSize = new SysVec2(renderSize.X / zoom.X, renderSize.Y / zoom.Y);
+        var cameraCentre = new SysVec2(camera.Position.X, camera.Position.Y);
+        return DeskFloorRectLogic.Compute(cameraCentre, visibleSize);
+    }
+
+    /// <summary>
     /// The four apexes (top, right, bottom, left) of the iso diamond that
     /// bounds the whole placeholder grid, in this board's local pixel
     /// space. Composed purely from <see cref="IsoProjection.CellToWorld"/>
@@ -388,9 +488,12 @@ public partial class IsoBoard : Node2D
     /// maths, just composition of the already-pinned projection.
     ///
     /// <para>
-    /// Used (as the fallback fill) by <see cref="_Draw"/> when no explicit
-    /// desk-floor rect has been set. Safe to call only after
-    /// <see cref="_Ready"/>.
+    /// <b>No longer used by the desk floor fill.</b> The desk floor now
+    /// always fills a full-viewport rect, never this diamond — the diamond
+    /// left the viewport corners unpainted (the F6 two-brown-zones bug).
+    /// Kept as a public geometry helper for callers that genuinely need the
+    /// grid's iso bounding rhombus (a future pan-clamp on a diamond-shaped
+    /// district). Safe to call only after <see cref="_Ready"/>.
     /// </para>
     /// </summary>
     public Vector2[] GridBoundingDiamond()
@@ -421,14 +524,14 @@ public partial class IsoBoard : Node2D
     /// <summary>
     /// Developer placeholder draw (see <see cref="DrawPlaceholderGrid"/>,
     /// <see cref="DrawPlaceholderFloor"/>). With the floor flag, first
-    /// fills the desk floor with the flat table-surface colour — the
-    /// explicit viewport-covering rect if <c>GameScreen</c> set one
-    /// (J3c-1bis), otherwise the grid-bounding diamond. With the grid flag,
-    /// then strokes the iso diamond outline of every cell using the
-    /// board's own <see cref="IsoProjection"/> — the projection is the
-    /// single source of truth, this draw does not re-derive any iso maths.
-    /// One pass at <see cref="_Ready"/> (plus one on
-    /// <see cref="SetDeskFloorFillRect"/>), not per-frame; the grid is
+    /// fills the desk floor with the flat table-surface colour over the
+    /// <i>whole</i> board viewport — the explicit camera-derived rect if
+    /// <c>GameScreen</c> set one, otherwise the board's own viewport rect.
+    /// With the grid flag, then strokes the iso diamond outline of every
+    /// cell using the board's own <see cref="IsoProjection"/> — the
+    /// projection is the single source of truth, this draw does not
+    /// re-derive any iso maths. One pass at <see cref="_Ready"/> (plus one
+    /// on <see cref="SetDeskFloorFillRect"/>), not per-frame; the grid is
     /// static.
     /// </summary>
     public override void _Draw()
@@ -443,32 +546,36 @@ public partial class IsoBoard : Node2D
         // replacement for the old opaque UI Panel that hid the desk
         // SubViewport content.
         //
-        // J3c-1bis F6 fix (2026-05-21, Rune): when an explicit desk-floor
-        // rect is set, the fill is a hard-edged DrawRect of that axis-
-        // aligned rect, NOT a DrawColoredPolygon of four corners.
+        // J3c-1bis F6 fix (2026-05-21, Rune, second round): the floor is
+        // ALWAYS a full-viewport axis-aligned rect — never the grid-bounding
+        // diamond. The diamond is a compact rhombus that left the viewport
+        // corners unpainted; over the desk SubViewport's transparent_bg
+        // those corners exposed the dark DeskBackground, so the desk read
+        // as two distinct brown zones (the F6 "dark band between the
+        // frontier and the floor" bug). The rect comes from GameScreen's
+        // explicit camera-derived push if present, otherwise from the
+        // board's own viewport (ViewportFloorFillRect) — both cover the
+        // whole clipped viewport, so the desk is one homogeneous brown
+        // triangle either way.
+        //
+        // The fill is a hard-edged DrawRect, not a DrawColoredPolygon:
         // DrawColoredPolygon feeds the canvas-item triangulator, which
-        // applies a sub-pixel coverage feather on the rasterised boundary;
-        // over the desk SubViewport's transparent_bg that feather left a
-        // half-alpha rim, so the dark DeskBackground showed through as an
-        // off-tint wedge in the kept clip triangle (the F6 "top-left point
-        // is a different brown" bug). DrawRect rasterises a hard-edged
-        // opaque rectangle — no feather, one uniform brown across the whole
-        // kept triangle. The grid-bounding-diamond fallback stays a polygon
-        // (it is a genuine rhombus, not axis-aligned).
+        // applies a sub-pixel coverage feather on the rasterised boundary,
+        // and over transparent_bg that feather left a half-alpha rim. The
+        // belt-and-braces companion is GameScreen.tscn's DeskBackground
+        // panel, authored the same brown as FloorFillColor — so even a
+        // rounded edge has no second colour to expose.
         if (DrawPlaceholderFloor)
         {
-            if (_deskFloorFillRect is { } floorRect)
+            var floorRect = _deskFloorFillRect ?? ViewportFloorFillRect();
+            if (floorRect is { } rect)
             {
                 DrawRect(
                     new Rect2(
-                        floorRect.TopLeft.X, floorRect.TopLeft.Y,
-                        floorRect.Size.X, floorRect.Size.Y),
+                        rect.TopLeft.X, rect.TopLeft.Y,
+                        rect.Size.X, rect.Size.Y),
                     FloorFillColor,
                     filled: true);
-            }
-            else
-            {
-                DrawColoredPolygon(GridBoundingDiamond(), FloorFillColor);
             }
         }
 

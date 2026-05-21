@@ -126,13 +126,21 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///     both full screen. The shader clips a triangle inside its container
 ///     rect; a small container would bound the triangle with hard
 ///     horizontal / vertical edges (the "truncated triangle" bug).</item>
-///   <item><b>Floor fills the viewport, not the diamond.</b>
-///     <see cref="DeskFloorRectLogic"/> computes a viewport-covering
-///     axis-aligned rect, fed to the board via
-///     <c>IsoBoard.SetDeskFloorFillRect</c>. The floor reaches the screen
-///     edges; the only edge the player sees is the shader's diagonal
-///     hypotenuse. The board fills it with a hard-edged <c>DrawRect</c>,
-///     not a feathered <c>DrawColoredPolygon</c> — see the next item.</item>
+///   <item><b>Floor always fills the whole viewport — homogeneous brown
+///     triangle (F6 fix, 2026-05-21, second round).</b> The desk must read
+///     as ONE uniform brown triangle: every pixel of the clipped viewport
+///     is floor, iso grid everywhere, no separate dark "viewport background"
+///     band. The board fills an axis-aligned rect covering the whole
+///     viewport — <i>never</i> the compact grid-bounding iso diamond, whose
+///     rhombus corners left the viewport corners unpainted and let the dark
+///     <c>DeskBackground</c> bleed through as a parasitic band. This screen
+///     hands the board an explicit camera-derived rect via
+///     <see cref="DeskFloorRectLogic"/> + <c>IsoBoard.SetDeskFloorFillRect</c>;
+///     if that push were ever skipped the board still fills its own
+///     viewport rect (<c>IsoBoard.ViewportFloorFillRect</c>) — the
+///     homogeneous-floor guarantee does not depend on the wire. The board
+///     fills it with a hard-edged <c>DrawRect</c>, not a feathered
+///     <c>DrawColoredPolygon</c> — see the next item.</item>
 ///   <item><b>Uniform floor tint — the F6 "off-colour top-left point" fix
 ///     (2026-05-21).</b> The kept clip triangle showed a darker, more
 ///     saturated wedge near its top-left point. Two compounding causes,
@@ -140,7 +148,10 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///     <c>DrawColoredPolygon</c>, whose triangulator feathers the
 ///     rasterised edge; over the desk <c>transparent_bg</c> that feather
 ///     left a half-alpha rim and the dark <c>DeskBackground</c> showed
-///     through — the board now fills with a hard-edged <c>DrawRect</c>.
+///     through — the board now fills with a hard-edged <c>DrawRect</c>, and
+///     the <c>DeskBackground</c> panel is authored the SAME brown as
+///     <c>IsoBoard.FloorFillColor</c> so a sub-pixel edge can never expose
+///     a second colour.
 ///     (2) The clip frontier was derived from the maquette diamond's
 ///     <i>projected</i> edge, which depends on the maquette camera park;
 ///     a sub-pixel mismatch put a thin sliver of the desk's own top-left
