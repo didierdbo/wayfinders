@@ -637,4 +637,19 @@
     <Compile Include="..\scripts\screens\DeskPlacementLogic.cs" Link="src\DeskPlacementLogic.cs" />
   </ItemGroup>
 
+  <!-- J5 world referential (Rune, 2026-05-22, roadmap J5/J6 eM map).
+       Two pure-C# pieces of the J5 boundary: WorldReferentialDtos (the
+       GET /api/world wire records, mirror of Coda Pydantic; required here
+       because ApiJsonContext above now source-gens WorldReferentialResponse
+       and would not compile without the record types) and WorldMapCalage
+       (the world-metre -> render-pixel transform from Mira calage sidecars,
+       Godot-free System.Numerics so it pins without an engine). The
+       Godot-bound wiring (ApiClient.GetWorldAsync, WorldMapService autoload,
+       HalfgateMarkerLayer node) lives in the client csproj only and is
+       validated via the GameScreen.tscn F6 smoke. -->
+  <ItemGroup>
+    <Compile Include="..\services\Dtos\WorldReferentialDtos.cs" Link="src\WorldReferentialDtos.cs" />
+    <Compile Include="..\scripts\screens\WorldMapCalage.cs" Link="src\WorldMapCalage.cs" />
+  </ItemGroup>
+
 </Project>
