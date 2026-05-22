@@ -10,13 +10,21 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// <b>The bug this solves (F6, 2026-05-21).</b> The desk floor was drawn
 /// as the iso diamond that bounds the 8x8 placeholder grid
 /// (<c>IsoBoard.GridBoundingDiamond</c>). That diamond is a compact
-/// rhombus: its left and top apexes sit well inside the screen, so once
-/// the triangular clip shader had cut the maquette-side wedge, the kept
-/// desk triangle showed a <i>parasitic edge</i> — the diamond's own
-/// upper-left side, not reaching the screen's left border. The floor must
-/// instead fill the <b>whole desk viewport</b> so the only edge the player
-/// sees is the shader's clean diagonal hypotenuse; the screen-aligned
-/// borders are the screen edges themselves.
+/// rhombus: its left and top apexes sit well inside the screen, so it
+/// left an unpainted sliver between the floor and the screen edge. The
+/// floor must instead fill the <b>whole desk viewport</b> so the desk
+/// zone is solidly covered out to the screen edges.
+/// </para>
+///
+/// <para>
+/// <b>Note (4-layer rework, 2026-05-22).</b> This helper predates the
+/// four-layer model. It used to feed a triangular clip shader that
+/// carved the desk floor into two corner triangles; that shader is
+/// removed — the shipped Blender front decor (layer D) carries the
+/// shape now. The helper still earns its keep: layer C's desk floor
+/// is a live <c>IsoBoard</c> and still needs a viewport-covering fill
+/// rect under the immobile desk camera. Only the downstream consumer
+/// changed.
 /// </para>
 ///
 /// <para>
@@ -25,9 +33,8 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// entire desk viewport rect under the immobile <c>DeskCamera2D</c>. A
 /// <see cref="Camera2D"/>'s <c>Position</c> is the world point shown at
 /// the viewport centre; the visible world rect is therefore
-/// <c>cameraCentre ± viewportSize/2</c>. The board fills exactly that —
-/// the triangular clip shader then carves the bottom-left triangle out of
-/// it, hypotenuse on the maquette diamond edge, no parasitic border.
+/// <c>cameraCentre ± viewportSize/2</c>. The board fills exactly that,
+/// so the desk zone is solidly covered with no unpainted sliver.
 /// </para>
 ///
 /// <para>
@@ -43,7 +50,7 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// <see cref="System.Numerics.Vector2"/> — never <c>Godot.Vector2</c> — so
 /// this helper is cherry-pickable into the xUnit host with no GodotSharp.
 /// <c>IsoBoard</c> converts at the engine seam. Same logic-vs-node split
-/// as <see cref="DeskClipFrontierLogic"/> and <see cref="DeskSlotLayoutLogic"/>.
+/// as <see cref="DeskSlotLayoutLogic"/>.
 /// </para>
 /// </summary>
 public static class DeskFloorRectLogic

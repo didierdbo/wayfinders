@@ -55,7 +55,7 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// <see cref="System.Numerics.Vector2"/> — never <c>Godot.Vector2</c> — so
 /// this helper is cherry-pickable into the xUnit host with no GodotSharp.
 /// <c>GameScreen</c> converts at the engine seam. Same logic-vs-node split
-/// as <see cref="DeskClipFrontierLogic"/> and <see cref="DeskFloorRectLogic"/>.
+/// as <see cref="DeskFloorRectLogic"/>.
 /// </para>
 /// </summary>
 public static class MaquetteContentLogic

@@ -1,11 +1,7 @@
-[gd_scene load_steps=9 format=3 uid="uid://dgamescreenj3a0"]
+[gd_scene load_steps=6 format=3 uid="uid://dgamescreenj3a0"]
 
 [ext_resource type="Script" path="res://scenes/screens/GameScreen.cs" id="1_gamescreen"]
 [ext_resource type="PackedScene" uid="uid://b3iso0boardj3i" path="res://scenes/iso/IsoBoard.tscn" id="2_isoboard"]
-[ext_resource type="Shader" path="res://shaders/desk_triangle_clip.gdshader" id="3_deskclip"]
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_deskbg"]
-bg_color = Color(0.27, 0.19, 0.12, 1)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hudband"]
 bg_color = Color(0.83, 0.74, 0.56, 1)
@@ -14,14 +10,6 @@ border_width_top = 3
 border_width_right = 0
 border_width_bottom = 3
 border_color = Color(0.36, 0.22, 0.13, 1)
-
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_deskclip"]
-shader = ExtResource("3_deskclip")
-shader_parameter/clip_left_point = Vector2(0, 0)
-shader_parameter/clip_left_normal = Vector2(0, 0)
-shader_parameter/clip_right_point = Vector2(1, 0)
-shader_parameter/clip_right_normal = Vector2(0, 0)
-shader_parameter/clip_split_u = 0.5
 
 [node name="GameScreen" type="Control"]
 layout_mode = 3
@@ -34,7 +22,7 @@ mouse_filter = 2
 script = ExtResource("1_gamescreen")
 metadata/skip_opening_bootstrap = true
 
-[node name="DeskBackground" type="Panel" parent="."]
+[node name="LayerABackDecor" type="TextureRect" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -42,7 +30,6 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-theme_override_styles/panel = SubResource("StyleBoxFlat_deskbg")
 
 [node name="MapViewportContainer" type="SubViewportContainer" parent="."]
 layout_mode = 1
@@ -95,7 +82,6 @@ PlaceholderGridWidth = 8
 PlaceholderGridHeight = 8
 
 [node name="DeskFloorTextureRect" type="TextureRect" parent="."]
-material = SubResource("ShaderMaterial_deskclip")
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -105,6 +91,15 @@ grow_vertical = 2
 mouse_filter = 2
 
 [node name="DeskEntitiesTextureRect" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="LayerDFrontDecor" type="TextureRect" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0

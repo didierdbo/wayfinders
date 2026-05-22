@@ -541,26 +541,15 @@
     <Compile Include="..\scripts\screens\DeskSlotLayoutLogic.cs" Link="src\DeskSlotLayoutLogic.cs" />
   </ItemGroup>
 
-  <!-- J3c-1ter desk twin-corner triangular clip (Rune, 2026-05-21).
-       DeskClipFrontierLogic is the pure-C# geometry that turns the centred
-       maquette diamond into the five UV-space uniforms
-       desk_triangle_clip.gdshader consumes on the desk TextureRect: a left
-       hypotenuse half-plane, a right hypotenuse half-plane, and a vertical
-       split. The desk reads as two mirrored brown triangles in the two
-       bottom screen corners; the maquette is the centred diamond between
-       them, lower point on the screen horizontal middle. MaquetteDiamond
-       places the diamond; Compute derives the two corner half-planes + the
-       split. Godot-free by design (System.Numerics.Vector2, not
-       Godot.Vector2) so it pins here without an engine — a flipped normal,
-       a bad UV scale, a half-plane bleeding across the split, or a
-       degenerate zero-length hypotenuse all surface red. The Godot-bound
-       wiring (GameScreen.ApplyDeskClipFrontier feeding the screen size in
-       and writing the five shader uniforms out) lives in the client csproj
-       only and is validated via the GameScreen.tscn F6 smoke. -->
-  <ItemGroup>
-    <Compile Include="..\scripts\screens\DeskClipFrontierLogic.cs" Link="src\DeskClipFrontierLogic.cs" />
-  </ItemGroup>
-
+  <!-- J3c-1ter desk twin-corner triangular clip REMOVED (Rune, 2026-05-22,
+       Game Screen Shell 4-layer rework). DeskClipFrontierLogic and the
+       desk_triangle_clip.gdshader it fed are gone: the 4-layer model
+       (rune-game-screen-3d-decor-design-2026-05-22.md, validated by Didier)
+       replaces the procedural triangular clip with a Blender front-decor
+       layer (layer D) that carries its own alpha-cut shape. The scaffolding
+       — clipping the desk SubViewport into triangles without an asset — is
+       retired now the painted decor owns the shape. DeskClipFrontierLogicTests
+       removed with it. -->
 
   <!-- J3c-1bis desk floor fill rect (Rune, 2026-05-21).
        DeskFloorRectLogic is the pure-C# geometry that turns the immobile
@@ -601,8 +590,12 @@
        TileWidthPx and DeskBoardOffsetX and the two desk cameras share
        Position/Zoom, so cell-to-pixel agrees and there is NO reprojection.
        That node wiring lives in the client csproj only; the pure-C#
-       geometry it consumes (DeskClipFrontierLogic, DeskFloorRectLogic,
-       DeskSlotLayoutLogic, MaquetteContentLogic) is all pinned above. -->
+       geometry it consumes (DeskFloorRectLogic, DeskSlotLayoutLogic,
+       MaquetteContentLogic) is all pinned above. NOTE superseded by the
+       2026-05-22 4-layer rework: the desk_triangle_clip shader is gone
+       (layer D Blender front decor carries the shape); the FLOOR viewport
+       is no longer clipped. The two-board / shared-camera invariant and
+       the J3c-2 routing it underpins are unchanged. -->
 
   <!-- J3c-2 interactive desk logic (Rune, 2026-05-22, roadmap milestone
        J3c-2). Three pure-C# pieces of the interactive desk:

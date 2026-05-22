@@ -9,98 +9,101 @@ using SysVec2 = System.Numerics.Vector2;
 namespace Wayfinders.Client.Scenes.Screens;
 
 // =============================================================================
-//  CARTOGRAPHER'S-DESK DIORAMA — THE LOCKED VIEWPORT ARCHITECTURE
-//  (J3c-1septies, Rune, 2026-05-21 — THIS section is the single source of
-//   truth; stop re-deriving the layout from the F6 capture.)
+//  GAME SCREEN SHELL — THE FOUR-LAYER DIORAMA
+//  (Rune, 2026-05-22 — supersedes the J3c-1septies "three-SubViewport +
+//   twin-corner clip shader" architecture. Read this box before touching
+//   the screen; do NOT re-derive the layout from an F6 capture.)
 // =============================================================================
 //
-//  THE PROBLEM THAT KEPT REGRESSING. The desk must read as two brown corner
-//  triangles; the central maquette diamond shows the pannable district behind
-//  them. The desk FLOOR therefore HAS to be clipped to a triangle (else the
-//  brown rectangle hides the maquette). But the PAWNS standing on that floor
-//  must NOT be clipped: a pawn near the floor's edge has its body and head
-//  sticking UP above the triangle of floor, into the maquette zone, and that
-//  is correct — a piece on a board is taller than the board.
+//  WHAT CHANGED, AND WHY. Up to J3c-2 the cartographer's-desk read as two
+//  brown corner triangles carved out of a rectangular SubViewport texture by
+//  the desk_triangle_clip.gdshader. That shader, and the pure-C#
+//  DeskClipFrontierLogic that fed its five UV uniforms, were ALWAYS a
+//  scaffold: a way to cut a rectangular render into triangles WITHOUT a
+//  painted asset. Didier validated the four-layer model on 2026-05-22
+//  (design doc rune-game-screen-3d-decor-design-2026-05-22.md): the desk
+//  is no longer cut by a shader — it is FRAMED by a Blender decor that
+//  carries its own shape in two passes. The scaffold is removed: the
+//  decor IS its own shape.
 //
-//  => Floor and entities CANNOT share one clipped render. They are split.
+//  THE FOUR LAYERS — draw order, back to front: A -> B -> C -> D -> HUD.
 //
-//  THE ARCHITECTURE — THREE SubViewports (NOT two — see "viewport count"
-//  below). All three are direct children of this Control; never under
-//  HudLayer.
+//   A. BACK DECOR  (LayerABackDecor)
+//        A full-screen TextureRect. In the shipped game this carries the
+//        Blender "back" render pass — the cartographer's desk-furniture, the
+//        recess floor, everything painted BEHIND the map. FROZEN — never
+//        moves. RIGHT NOW it is a GREY PLACEHOLDER (a flat ColorRect-style
+//        texture stamped "LAYER A — back decor placeholder") so the layout
+//        can be locked before Mira's costly Blender render lands.
 //
-//   1. MapViewportContainer / MapViewport  -- the pannable district maquette.
-//        * SubViewportContainer clips it to the residual rect between the HUD
-//          bands. Camera = MapCamera2D, pannable (MMB drag). One IsoBoard
-//          (Maquette), small iso scale.
+//   B. MAQUETTE  (MapViewportContainer / MapViewport / Maquette)
+//        The pannable district maquette — UNCHANGED from J3a/J3b. A
+//        SubViewportContainer clips the maquette to the residual rect
+//        between the HUD bands; MapCamera2D pans on MMB drag. The container
+//        is nudged DOWN by MapRecessDepthPx (default 8) — a purely cosmetic
+//        "the map sits slightly in a recess" offset (see MapRecessDepthPx).
 //
-//   2. DeskFloorViewport                   -- the desk FLOOR + iso grid only.
-//        * transparent_bg. One IsoBoard (DeskFloorBoard), large iso scale,
-//          DrawPlaceholderFloor + DrawPlaceholderGrid on. NO pawns.
-//        * Camera = DeskFloorCamera2D, immobile.
-//        * Shown via DeskFloorTextureRect, which CARRIES desk_triangle_clip
-//          .gdshader. The shader discard;s every fragment outside the two
-//          bottom corner triangles. So the FLOOR is clipped to a triangle.
-//          Correct — the desk floor must not hide the maquette.
+//   C. DESK BOARD  (DeskFloorViewport + DeskEntitiesViewport)
+//        The interactive desk: the iso floor board + the 7 Company pawns +
+//        the J3c-2 click selection / placement. DECIDED BY DIDIER (brief
+//        rune-game-screen-decor-production-brief-2026-05-22.md, option Beta):
+//        the desk floor STAYS a live Godot IsoBoard — it is NOT painted into
+//        the frozen decor. The shipped Blender decor (A + D) FRAMES the desk
+//        zone; the two triangles keep their live iso grid + interactive
+//        pawns. The two-board / one-shared-camera-frame split is preserved
+//        verbatim (it is what makes the pawns sit on the floor and the
+//        J3c-2 routing a single affine map) — only the clip shader is gone.
+//        The floor TextureRect now carries NO material.
 //
-//   3. DeskEntitiesViewport                -- the desk PAWNS only.
-//        * transparent_bg. One IsoBoard (DeskEntitiesBoard), SAME large iso
-//          scale as the floor board, grid + floor draw OFF. Carries the
-//          DeskCompanyPawn occupants.
-//        * Camera = DeskEntitiesCamera2D, immobile.
-//        * Shown via DeskEntitiesTextureRect, which has NO shader — it is
-//          NOT clipped. Drawn AFTER DeskFloorTextureRect in the tree, so the
-//          pawns paint OVER the clipped floor. A pawn that overflows above
-//          the floor triangle survives — that is the whole point.
+//   D. FRONT DECOR  (LayerDFrontDecor)
+//        A full-screen TextureRect with alpha. In the shipped game this
+//        carries the Blender "front" pass — the recess lip, the carved
+//        furniture edges that must paint OVER the map and the desk floor to
+//        sell the "the map is inset" illusion. FROZEN. Drawn AFTER C and
+//        BEFORE the HUD. RIGHT NOW it is a SEMI-TRANSPARENT GREY GRID
+//        PLACEHOLDER — semi-transparent on purpose, so the F6 smoke can
+//        VERIFY layer D really does paint over both B (the maquette) and C
+//        (the desk + pawns). MouseFilter = Ignore: it is purely visual and
+//        must never eat a click.
 //
-//  WHY THE PAWN PLACEMENT NEVER DRIFTS (the bit that broke twice before).
-//  Tentative A moved the pawns onto a screen-space node and hand-wrote a
-//  desk-local -> screen reprojection that broke on every knob change. The
-//  reprojection is GONE. DeskFloorBoard and DeskEntitiesBoard are the SAME
-//  IsoBoard scene at the SAME TileWidthPx. DeskFloorCamera2D and
-//  DeskEntitiesCamera2D are parked at the IDENTICAL Position and Zoom —
-//  computed ONCE, in pure-C#, and applied to both. A Camera2D cannot live in
-//  two viewports, so there are two camera NODES; they are kept mirror-
-//  identical by construction, not by a sync signal. Result: cell (col,row)
-//  projects to the SAME screen pixel in both viewports. A pawn's position is
-//  DeskEntitiesBoard.CellToPixel(cell) and nothing else.
+//  HUD. The CanvasLayer HUD (layer 10) is unchanged — two 32 px bands,
+//  always above everything including layer D.
 //
-//  WHY THE SHARED CAMERA FRAME ALSO MAKES INPUT ROUTING TRIVIAL (J3c-2,
-//  Rune, 2026-05-22). The desk's "three SubViewports" looked like it would
-//  force three screen->world conversions for a click. It does not — for the
-//  same reason the pawn placement never drifts. The FLOOR camera and the
-//  ENTITIES camera share ONE Position/Zoom; the desk SubViewports and their
-//  TextureRects are full-screen at the screen origin. So a screen pixel maps
-//  to ONE desk-world point, by ONE affine map (DeskInputRoutingLogic). From
-//  the desk-world point, one WorldToCell on the shared projection gives the
-//  cell; the click is hit-tested against the cell's occupant. The maquette
-//  viewport is a separate iso scale / pannable camera, but a desk click is
-//  never a maquette click (the desk TextureRects sit on top) — desk vs
-//  maquette routing is the J6 concern. J3c-2 owns only the desk side, and
-//  it is one conversion, not three.
+//  WHY THE DESK STILL HAS TWO SUBVIEWPORTS (the part that must NOT regress).
+//  The floor and the pawns are split into two co-located SubViewports —
+//  DeskFloorViewport and DeskEntitiesViewport — sharing ONE camera frame.
+//  This is NOT about the (now-removed) clip: a pawn standing near the
+//  shipped decor's recess edge has its body and head extending UP, above
+//  the desk zone, into the maquette zone — a figurine is taller than the
+//  table it stands on. The pawns therefore ride their own UNCLIPPED
+//  viewport, drawn after the floor, so an overflowing pawn is never sliced.
+//  DeskFloorCamera2D and DeskEntitiesCamera2D are parked at the IDENTICAL
+//  Position and Zoom — computed ONCE in pure-C# and applied to both — so
+//  cell (col,row) projects to the SAME pixel in both viewports and a pawn's
+//  position is DeskEntitiesBoard.CellToPixel(cell) and nothing else. The
+//  [DESK-DIAG] preflight asserts AGREE=true; do not remove it.
 //
-//  WHY THE DESK BOARDS ARE NO LONGER NUDGED (J3c-1octies, Rune, 2026-05-21).
-//  DeskBoardOffsetX is 0; a non-zero leftover made the bottom desk wedges
-//  asymmetric. Kept as a named constant so a future deliberate nudge has one
-//  obvious, version-controlled home — applied to BOTH boards identically.
+//  WHY J3c-2 SURVIVES UNTOUCHED. The click pipeline — _UnhandledInput ->
+//  DeskInputRoutingLogic.ScreenToDeskWorld (the shared desk camera frame)
+//  -> DeskEntitiesBoard.PixelToCell -> DeskSelectionLogic -> GameState
+//  authority — depends only on the shared desk camera frame and the desk
+//  board's projection. None of that involved the clip shader. The desk
+//  SubViewports and their TextureRects are still full-screen at the screen
+//  origin, so a screen pixel still maps to ONE desk-world point by ONE
+//  affine map. J3c-2 is preserved verbatim.
 //
-//  WHY THREE VIEWPORTS IS ACCEPTED (the locked decision was "two SubViewports
-//  = maquette + desk"). One clipped render cannot satisfy both clipped-floor
-//  and unclipped-entities, so the desk's single render world is split into
-//  two co-located render worlds sharing one camera frame. The count goes
-//  2 -> 3 and that is correct.
-//
-//  COORDINATE FLOW.
+//  COORDINATE FLOW (unchanged from J3c-1septies).
 //    slot cell (TileCoordinate)
 //      -> DeskEntitiesBoard.CellToPixel(cell)   [board-local pixels]
 //      -> pawn.Position                          [board-local]
 //      -> rendered under DeskEntitiesCamera2D    [-> DeskEntitiesViewport
 //                                                 texture, transparent bg]
-//      -> DeskEntitiesTextureRect, full screen, NO shader  [-> screen]
+//      -> DeskEntitiesTextureRect, full screen, NO material  [-> screen]
 //  The floor flows the identical path through DeskFloorBoard /
-//  DeskFloorCamera2D / DeskFloorViewport / DeskFloorTextureRect, the only
-//  difference being the clip shader on the floor TextureRect.
+//  DeskFloorCamera2D / DeskFloorViewport / DeskFloorTextureRect — the floor
+//  TextureRect now carries NO material (the clip shader is gone).
 //
-//  INPUT FLOW (J3c-2, the inverse direction).
+//  INPUT FLOW (J3c-2, the inverse direction — unchanged).
 //    screen pixel (left-click in _UnhandledInput)
 //      -> DeskInputRoutingLogic.ScreenToDeskWorld    [desk-world pixels]
 //      -> DeskEntitiesBoard.PixelToCell(world)        [desk cell]
@@ -115,107 +118,73 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// <summary>
 /// Root of the Game Screen Shell — the cartographer's-desk diorama in which
 /// eM and eT are shown (roadmap <c>wayfinders-mvp-roadmap-eM-eT</c>). The
-/// authoritative viewport architecture is the boxed comment above this class
-/// — read it before touching the desk.
+/// authoritative <b>four-layer</b> architecture is the boxed comment above
+/// this class — read it before touching the screen.
 ///
 /// <para>
-/// <b>What this slice delivers (J3c-1 + J3c-2).</b> J3c-1 stood up the
-/// three-layer diorama: the clipped pannable maquette (J3a), the fixed HUD
-/// frame (J3b), and the static iso desk (J3c-1). <b>J3c-2 makes the desk
-/// interactive</b>: a left-click on a Company pawn selects it (the pawn
-/// shows a discreet pion-sur-plateau selection cue); a left-click on a
-/// free, occupiable desk cell while a pawn is selected emits a tactical
-/// placement intent — <c>GameState</c> validates it and, only on accept,
-/// the pawn animates to the new cell. Free pawn dragging is deferred
-/// post-MVP (see the input section below).
-/// </para>
-///
-/// <para>
-/// <b>J3a — the pannable maquette.</b> A <see cref="SubViewportContainer"/>
-/// hosting a <see cref="SubViewport"/> renders the maquette into an isolated
-/// world, clipped to the container rect. A <see cref="Camera2D"/> inside the
-/// SubViewport pans (MMB drag) — the camera moves, never the content.
-/// </para>
-///
-/// <para>
-/// <b>J3b — the fixed HUD frame.</b> A <see cref="CanvasLayer"/>
-/// (<c>HudLayer</c>) carries two full-width <see cref="Panel"/> bands welded
-/// to the screen top and bottom. Both bands are
-/// <see cref="HudBandHeight"/> = 32 px.
-/// </para>
-///
-/// <para>
-/// <b>J3c-1 — the static iso desk, the THREE-viewport split.</b> The desk is
-/// a SECOND iso space at a larger iso scale, rendered through TWO co-located
-/// SubViewports: <c>DeskFloorViewport</c> (clipped floor) and
-/// <c>DeskEntitiesViewport</c> (unclipped pawns). See the boxed architecture
-/// comment for the full rationale.
-/// </para>
-///
-/// <para>
-/// <b>J3c-2 — the interactive desk (Rune, 2026-05-22).</b> The desk takes
-/// left-click input. The state authority is <c>GameState</c> — the desk
-/// grid occupancy, the selection, and the placement decision all live
-/// there (NPC-autonomy lock 2026-05-09). <see cref="ConfigureDesk"/> hands
-/// the desk board's <c>IsoGrid</c> to <c>GameState.AdoptDeskGrid</c> and
-/// seeds the Company formation onto it. A click is routed in
-/// <see cref="_UnhandledInput"/>:
-/// <list type="number">
-///   <item><see cref="DeskInputRoutingLogic"/> maps the screen pixel to a
-///     desk-world point using the shared desk camera frame.</item>
-///   <item>The desk board's <c>IsoProjection</c> turns the world point into
-///     a cell.</item>
-///   <item><see cref="DeskSelectionLogic"/> resolves the click to a member
-///     id (or null), and computes the next selection.</item>
-///   <item>If a pawn is already selected and the click hit a different free
-///     cell, <c>GameState.RequestCompanyMemberPlacement</c> is called — the
-///     tactical placement intent.</item>
+/// <b>The four layers (draw order back-to-front: A → B → C → D → HUD).</b>
+/// <list type="bullet">
+///   <item><b>A — back decor.</b> A full-screen <see cref="TextureRect"/>
+///     (<c>LayerABackDecor</c>). Frozen. Carries the Blender back-pass in
+///     the shipped game; a <b>grey placeholder</b> for now.</item>
+///   <item><b>B — maquette.</b> The pannable district maquette
+///     (<c>MapViewportContainer</c>) — unchanged from J3a/J3b, nudged down
+///     by <see cref="MapRecessDepthPx"/>.</item>
+///   <item><b>C — desk board.</b> The interactive iso desk + the 7 Company
+///     pawns + J3c-2 click selection/placement — preserved functionally.
+///     The desk floor stays a live <see cref="IsoBoard"/> (Didier's option
+///     Beta), framed by — not painted into — the decor.</item>
+///   <item><b>D — front decor.</b> A full-screen alpha
+///     <see cref="TextureRect"/> (<c>LayerDFrontDecor</c>). Frozen. Carries
+///     the Blender front-pass (recess lip) in the shipped game; a
+///     <b>semi-transparent grey grid placeholder</b> for now, so the F6
+///     smoke can verify it paints over B and C.</item>
 /// </list>
+/// </para>
+///
+/// <para>
+/// <b>What the 4-layer rework removed (Rune, 2026-05-22).</b> The
+/// <c>desk_triangle_clip.gdshader</c> and its pure-C#
+/// <c>DeskClipFrontierLogic</c> are gone. They were a scaffold — a way to
+/// cut a rectangular SubViewport render into two corner triangles without a
+/// painted asset. The four-layer model replaces that with a Blender front
+/// decor (layer D) that carries its own alpha-cut shape: the decor IS its
+/// own shape, so the procedural clip has nothing left to do. The desk
+/// floor <see cref="TextureRect"/> now carries no material.
+/// </para>
+///
+/// <para>
+/// <b>What survives untouched.</b> The pannable maquette (J3a), the fixed
+/// HUD frame (J3b), the desk's two-SubViewport / one-shared-camera split,
+/// and the whole J3c-2 click pipeline (<see cref="DeskInputRoutingLogic"/>
+/// → <c>PixelToCell</c> → <see cref="DeskSelectionLogic"/> →
+/// <c>GameState</c>). The two desk SubViewports are kept because a pawn is
+/// taller than the desk floor and must be able to overflow above it without
+/// being sliced — that reason is independent of the (now-removed) clip.
 /// </para>
 ///
 /// <para>
 /// <b>Input routing — _Input vs _UnhandledInput (trap #9).</b> The MMB
 /// drag-pan stays in <see cref="_Input"/>: the pan wants the middle button
 /// before anything else can claim it. The desk LEFT-click is handled in
-/// <see cref="_UnhandledInput"/> — it is the lowest-priority interaction on
-/// this screen, so it must fire only when no higher-priority node (a HUD
-/// button, a future modal) has already consumed the event. This is the
-/// PoI-router cascade discipline (memo project_wayfinders_poi_integration)
-/// applied to the desk: gesture-priority code in <c>_Input</c>,
-/// entity-selection fallthrough in <c>_UnhandledInput</c>.
+/// <see cref="_UnhandledInput"/> — the lowest-priority interaction on this
+/// screen, fired only when no higher-priority node has consumed the event.
 /// </para>
 ///
 /// <para>
-/// <b>No drag gesture — trap #5 is not triggered (J3c-2 scope).</b> J3c-2
-/// placement is by destination-CLICK, not by drag. A left press-and-release
-/// in place is not a gesture and cannot conflict with the MMB drag-pan, so
-/// no mutual-exclusion arbitration is needed. Free pawn dragging — which
-/// WOULD add a left-drag gesture next to the MMB pan and so WOULD need
-/// trap-#5 mutual exclusion — is deliberately deferred post-MVP: the PoC
-/// chain (J8) needs only "a recruit appears in a slot", not free pawn
-/// movement (roadmap J3c-2 scope note).
-/// </para>
-///
-/// <para>
-/// <b>The desk camera is immobile.</b> Both desk cameras are parked once in
-/// <see cref="ConfigureDesk"/> and never moved.
-/// </para>
-///
-/// <para>
-/// <b>CanvasLayer discipline (trap #1).</b> The maquette container, both
-/// desk <see cref="SubViewport"/>s, and both desk <see cref="TextureRect"/>s
-/// are direct children of this <see cref="Control"/> — never under
-/// <c>HudLayer</c>.
+/// <b>CanvasLayer discipline (trap #1).</b> The two decor
+/// <see cref="TextureRect"/>s, the maquette container, and both desk
+/// <see cref="SubViewport"/>s / <see cref="TextureRect"/>s are direct
+/// children of this <see cref="Control"/> — never under <c>HudLayer</c>.
 /// </para>
 /// </summary>
 public partial class GameScreen : Control
 {
     /// <summary>
     /// Autoload-injected opening flow must not draw its CanvasLayer over
-    /// this scene when launched standalone for the J3a/J3b/J3c smoke
-    /// (trap #1bis). The <c>.tscn</c> root carries
-    /// <c>metadata/skip_opening_bootstrap</c>; this constant documents the
-    /// contract for readers of the code.
+    /// this scene when launched standalone for the F6 smoke (trap #1bis).
+    /// The <c>.tscn</c> root carries <c>metadata/skip_opening_bootstrap</c>;
+    /// this constant documents the contract for readers of the code.
     /// </summary>
     private const string SkipBootstrapMeta = "skip_opening_bootstrap";
 
@@ -225,71 +194,88 @@ public partial class GameScreen : Control
     /// band height: it must match the <c>HudTop</c> panel's
     /// <c>offset_bottom</c> and the <c>HudBottom</c> panel's
     /// <c>-offset_top</c> in <c>GameScreen.tscn</c>.
-    ///
-    /// <para>
-    /// J3c-1octies: this value is also fed to
-    /// <c>DeskClipFrontierLogic.MaquetteDiamond</c> as the bottom HUD band
-    /// height, so the maquette diamond's lower point lands flush on the
-    /// bottom HUD band's top edge.
-    /// </para>
     /// </summary>
     private const float HudBandHeight = 32f;
 
     /// <summary>
+    /// <b>The recess-depth knob — the cosmetic vertical offset of layer B
+    /// (the maquette), in pixels. Default 8.</b>
+    ///
+    /// <para>
+    /// The four-layer model sells "the map sits slightly in a recess of the
+    /// cartographer's desk". Part of that illusion is that the maquette is
+    /// painted a few pixels LOWER than where a flush layout would put it —
+    /// just enough that the shipped front decor's recess lip (layer D) reads
+    /// as being above the map surface.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>This is 100% cosmetic.</b> It shifts the
+    /// <see cref="SubViewportContainer"/> rect down by this many pixels; it
+    /// does NOT touch <see cref="IsoCell"/>, the iso projection, or any game
+    /// logic. The game world stays flat — there is no elevation in the
+    /// simulation. Raise it for a deeper-looking recess, set it to 0 for a
+    /// flush map. Kept as a named constant so the value has one obvious,
+    /// version-controlled home and the F6 smoke can be re-run at different
+    /// depths without hunting through the scene.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Bounds.</b> It is clamped into the residual map rect by
+    /// <see cref="HudLayoutLogic"/> indirectly — the container is simply
+    /// offset, the SubViewport size follows — so a large value just makes
+    /// the maquette window shorter; it never produces a negative rect while
+    /// the value stays well below the residual height.
+    /// </para>
+    /// </summary>
+    private const float MapRecessDepthPx = 8f;
+
+    /// <summary>
     /// <b>Desk-camera framing — knob A: the desk camera zoom.</b> A Godot
     /// <see cref="Camera2D"/> <c>Zoom</c> below 1.0 zooms OUT. 0.85 frames
-    /// the 7-pawn block comfortably inside the thin bottom-left desk
-    /// triangle. Applied to BOTH desk cameras (they share one frame).
+    /// the 7-pawn block comfortably inside the desk zone. Applied to BOTH
+    /// desk cameras (they share one frame).
     /// </summary>
     private const float DeskCameraZoom = 0.85f;
 
     /// <summary>
     /// <b>Desk-camera framing — knob B/C: where the Company formation's
     /// centroid lands on screen, as a fraction of the screen.</b> The
-    /// formation sits in the bottom-LEFT desk triangle, parked low and
-    /// close to the corner so the whole block stays clear of the clip
-    /// hypotenuse.
+    /// formation sits in the lower-LEFT of the screen, parked low and close
+    /// to the corner.
     /// </summary>
     private const float DeskFormationScreenFracX = 0.20f;
     private const float DeskFormationScreenFracY = 0.85f;
 
     /// <summary>
     /// <b>Desk-board cosmetic nudge — the desk boards' local-X offset,
-    /// pixels. Default 0 (J3c-1octies).</b> Applied to BOTH desk boards in
+    /// pixels. Default 0.</b> Applied to BOTH desk boards in
     /// <see cref="ConfigureDesk"/>. Kept as a named constant so a future
     /// deliberate nudge has one obvious, version-controlled home.
     ///
     /// <para>
     /// <b>J3c-2 — load-bearing for input routing.</b> The screen → desk-cell
-    /// conversion (<see cref="DeskInputRoutingLogic"/> +
-    /// <c>PixelToCell</c>) assumes the board-local space and the desk world
-    /// coincide, which holds only while this nudge is 0. If a future nudge
-    /// is dialled in, the routing must subtract it before
-    /// <c>PixelToCell</c>; the [DESK-DIAG] block prints the live board
-    /// positions so a non-zero nudge is visible.
+    /// conversion (<see cref="DeskInputRoutingLogic"/> + <c>PixelToCell</c>)
+    /// assumes the board-local space and the desk world coincide, which
+    /// holds only while this nudge is 0. If a future nudge is dialled in,
+    /// the routing must subtract it before <c>PixelToCell</c>.
     /// </para>
     /// </summary>
     private const float DeskBoardOffsetX = 0f;
 
-    /// <summary>
-    /// Shader uniform names on <c>desk_triangle_clip.gdshader</c> — the
-    /// twin-corner clip on the FLOOR TextureRect. Held as constants so a
-    /// rename surfaces at compile time.
-    /// </summary>
-    private const string ClipLeftPointUniform = "clip_left_point";
-    private const string ClipLeftNormalUniform = "clip_left_normal";
-    private const string ClipRightPointUniform = "clip_right_point";
-    private const string ClipRightNormalUniform = "clip_right_normal";
-    private const string ClipSplitUniform = "clip_split_u";
+    // --- Layer A: back decor ------------------------------------------------
+    private TextureRect _layerABackDecor = null!;
 
+    // --- Layer B: the pannable maquette ------------------------------------
     private SubViewportContainer _mapContainer = null!;
     private SubViewport _mapViewport = null!;
     private Camera2D _mapCamera = null!;
     private IsoBoard _maquette = null!;
-    private CanvasLayer _hudLayer = null!;
 
-    // The desk's THREE-viewport split (see the boxed architecture comment):
-    // the FLOOR viewport (clipped) and the ENTITIES viewport (not clipped).
+    // --- Layer C: the interactive desk -------------------------------------
+    // The floor and the pawns are split into two co-located SubViewports
+    // sharing one camera frame so a pawn that overflows above the desk floor
+    // is never sliced (see the boxed architecture comment).
     private SubViewport _deskFloorViewport = null!;
     private Camera2D _deskFloorCamera = null!;
     private IsoBoard _deskFloorBoard = null!;
@@ -300,31 +286,35 @@ public partial class GameScreen : Control
     private IsoBoard _deskEntitiesBoard = null!;
     private TextureRect _deskEntitiesTextureRect = null!;
 
+    // --- Layer D: front decor ----------------------------------------------
+    private TextureRect _layerDFrontDecor = null!;
+
+    // --- HUD ----------------------------------------------------------------
+    private CanvasLayer _hudLayer = null!;
+
     private readonly MapViewportPanLogic _pan = new();
 
     /// <summary>
     /// The <c>GameState</c> autoload — the desk's selection / placement
-    /// authority (J3c-2). Resolved in <see cref="_Ready"/>. The desk input
-    /// in <see cref="_UnhandledInput"/> calls into it; it does not own the
-    /// state.
+    /// authority (J3c-2). Resolved in <see cref="_Ready"/>.
     /// </summary>
     private GameState _gameState = null!;
 
     /// <summary>
     /// The desk screen size cached at <see cref="_Ready"/>, reused by the
     /// J3c-2 input routing so a click does not re-query
-    /// <c>GetViewportRect</c> on every event. The desk SubViewports are
-    /// full-screen so this is also the desk viewport size.
+    /// <c>GetViewportRect</c> on every event.
     /// </summary>
     private Vector2 _screenSize;
 
     public override void _Ready()
     {
+        _layerABackDecor = GetNode<TextureRect>("LayerABackDecor");
+
         _mapContainer = GetNode<SubViewportContainer>("MapViewportContainer");
         _mapViewport = GetNode<SubViewport>("MapViewportContainer/MapViewport");
         _mapCamera = GetNode<Camera2D>("MapViewportContainer/MapViewport/MapCamera2D");
         _maquette = GetNode<IsoBoard>("MapViewportContainer/MapViewport/Maquette");
-        _hudLayer = GetNode<CanvasLayer>("HudLayer");
 
         _deskFloorViewport = GetNode<SubViewport>("DeskFloorViewport");
         _deskFloorCamera = GetNode<Camera2D>("DeskFloorViewport/DeskFloorCamera2D");
@@ -338,13 +328,18 @@ public partial class GameScreen : Control
             GetNode<IsoBoard>("DeskEntitiesViewport/DeskEntitiesBoard");
         _deskEntitiesTextureRect = GetNode<TextureRect>("DeskEntitiesTextureRect");
 
+        _layerDFrontDecor = GetNode<TextureRect>("LayerDFrontDecor");
+
+        _hudLayer = GetNode<CanvasLayer>("HudLayer");
+
         // J3c-2: the desk selection / placement authority. An autoload, so
         // it is up before any GameScreen exists.
         _gameState = GetNode<GameState>("/root/GameState");
 
         // J3b: size the map viewport to the residual central rectangle —
-        // the screen minus the two fixed HUD bands. The screen size is read
-        // from GetViewportRect (the real window rect, valid at _Ready).
+        // the screen minus the two fixed HUD bands — then nudge it DOWN by
+        // the cosmetic recess depth. The screen size is read from
+        // GetViewportRect (the real window rect, valid at _Ready).
         var screen = GetViewportRect().Size;
         _screenSize = screen;
         var residual = HudLayoutLogic.ResidualMapRect(
@@ -352,8 +347,11 @@ public partial class GameScreen : Control
         ApplyResidualRect(residual);
         _mapViewport.Size = (Vector2I)_mapContainer.Size;
 
+        // Layer A / D placeholders fill the whole screen.
+        ConfigureDecorPlaceholders(screen);
+
         // Park the maquette camera on the content's GEOMETRIC CENTRE so the
-        // maquette is centred on screen (J3c-1sexies left-lean fix).
+        // maquette is centred on screen.
         var viewport = ViewportSize();
         var contentCentre = MaquetteContentCentre();
         var clampedStart = MapViewportPanLogic.ClampToContent(
@@ -408,17 +406,11 @@ public partial class GameScreen : Control
     /// Input seam — ENTITY-SELECTION fallthrough (trap #9, J3c-2). The desk
     /// LEFT-click is handled here, not in <see cref="_Input"/>: it is the
     /// lowest-priority interaction on this screen, so it must fire only
-    /// when no higher-priority node (a HUD button, a future modal) has
-    /// already consumed the event — that is exactly what
-    /// <c>_UnhandledInput</c> guarantees. Same cascade discipline as the
-    /// PoI router (memo project_wayfinders_poi_integration).
+    /// when no higher-priority node has already consumed the event.
     ///
     /// <para>
-    /// A left-click is acted on at the RELEASE edge (a press that is part
-    /// of a future drag would be cancelled before release; J3c-2 has no
-    /// drag, but releasing-edge is the correct selection convention and
-    /// keeps the contract right for the day drag lands). The whole routing
-    /// + selection + placement decision is pure-C#
+    /// A left-click is acted on at the RELEASE edge. The whole routing +
+    /// selection + placement decision is pure-C#
     /// (<see cref="DeskInputRoutingLogic"/>, <see cref="DeskSelectionLogic"/>,
     /// <see cref="DeskPlacementLogic"/>); this method only converts engine
     /// types and calls the <c>GameState</c> authority.
@@ -441,20 +433,6 @@ public partial class GameScreen : Control
     /// <summary>
     /// Route one desk left-click through the J3c-2 pipeline: screen pixel
     /// → desk-world → desk cell → member id → <c>GameState</c> authority.
-    ///
-    /// <para>
-    /// The decision tree, all of it pure-C#:
-    /// <list type="bullet">
-    ///   <item>Click hit a pawn → that becomes (or toggles off) the
-    ///     selection: <c>GameState.SetSelectedCompanyMember</c>.</item>
-    ///   <item>Click hit a free cell AND a pawn is currently selected →
-    ///     a placement intent for the selected pawn:
-    ///     <c>GameState.RequestCompanyMemberPlacement</c>. The pawn moves
-    ///     only if the authority accepts.</item>
-    ///   <item>Click hit bare floor with nothing selected → deselect
-    ///     (a harmless no-op if nothing was selected).</item>
-    /// </list>
-    /// </para>
     /// </summary>
     /// <param name="screenPos">
     /// The left-click position in screen pixels, from
@@ -463,8 +441,7 @@ public partial class GameScreen : Control
     private void HandleDeskLeftClick(Vector2 screenPos)
     {
         // 1. Screen pixel -> desk-world point, using the shared desk camera
-        //    frame (the floor and entities cameras are mirror-identical, so
-        //    either serves — see the boxed architecture comment).
+        //    frame (the floor and entities cameras are mirror-identical).
         var deskWorld = DeskInputRoutingLogic.ScreenToDeskWorld(
             ToSys(screenPos),
             ToSys(_screenSize),
@@ -503,10 +480,6 @@ public partial class GameScreen : Control
             GD.Print($"[GameScreen] desk click: cell={clickedCell} is a " +
                      $"placement intent for '{currentSelection}' -> verdict " +
                      $"{verdict}.");
-            // On an accepted move the pawn is now on the target cell and
-            // the gesture is done — clear the selection so the next click
-            // starts fresh. A rejected / off-grid intent keeps the
-            // selection so the player can retry.
             if (verdict == DeskPlacementLogic.PlacementVerdict.Accepted
                 || verdict == DeskPlacementLogic.PlacementVerdict.NoOp)
             {
@@ -515,8 +488,6 @@ public partial class GameScreen : Control
         }
         else
         {
-            // Nothing selected, clicked bare floor — explicit deselect
-            // (idempotent no-op if nothing was selected).
             _gameState.SetSelectedCompanyMember(null);
         }
     }
@@ -530,38 +501,112 @@ public partial class GameScreen : Control
 
     /// <summary>
     /// Apply a <see cref="HudRect"/> (from <see cref="HudLayoutLogic"/>) onto
-    /// the <see cref="SubViewportContainer"/>'s offsets.
+    /// the layer-B <see cref="SubViewportContainer"/>'s offsets, shifting it
+    /// DOWN by the cosmetic <see cref="MapRecessDepthPx"/>.
+    ///
+    /// <para>
+    /// The residual rect is the screen minus the two HUD bands. The recess
+    /// nudge moves the maquette window down by a few pixels (purely
+    /// cosmetic) and trims an equal amount off its bottom so the container
+    /// never overlaps the bottom HUD band.
+    /// </para>
     /// </summary>
     private void ApplyResidualRect(HudRect rect)
     {
         _mapContainer.OffsetLeft = rect.X;
-        _mapContainer.OffsetTop = rect.Y;
+        _mapContainer.OffsetTop = rect.Y + MapRecessDepthPx;
         _mapContainer.OffsetRight = rect.X + rect.Width;
+        // Keep the bottom edge where it was: the window is shorter by the
+        // recess depth, it does not push into the bottom HUD band.
         _mapContainer.OffsetBottom = rect.Y + rect.Height;
     }
 
     /// <summary>
-    /// J3c-1 / J3c-1septies / J3c-2: stand up the iso desk across its three
-    /// SubViewports and hand its grid to the <c>GameState</c> authority.
-    /// See the boxed architecture comment for the full rationale.
+    /// Stand up the layer-A and layer-D <b>grey placeholders</b>. Both are
+    /// full-screen <see cref="TextureRect"/>s; the textures themselves are
+    /// generated procedurally here so the scene needs no asset on disk
+    /// while Mira's Blender decor is not yet produced.
     ///
     /// <para>
-    /// Applies the cosmetic local-X nudge to BOTH desk boards (0 by default),
-    /// sizes both desk SubViewports, wires the floor SubViewport's texture
-    /// (with the clip shader) and the entities SubViewport's texture (no
-    /// shader) onto their TextureRects, computes ONE desk camera
-    /// Position/Zoom and parks BOTH desk cameras at it, fills the floor,
-    /// places one placeholder pawn per Company slot as a layer-3 occupant
-    /// of the ENTITIES board, and computes the twin-corner clip.
+    /// Layer A is an opaque flat grey, layer D is a semi-transparent grey
+    /// grid — the grid lets the F6 smoke confirm layer D really paints OVER
+    /// layers B and C. When Mira delivers the real decor, this method is
+    /// replaced by loading the two Blender passes; the rest of the scene is
+    /// unaffected.
     /// </para>
+    /// </summary>
+    /// <param name="screen">The real screen size in pixels.</param>
+    private void ConfigureDecorPlaceholders(Vector2 screen)
+    {
+        var size = (Vector2I)screen;
+
+        // Layer A — opaque flat grey, "back decor" stand-in.
+        _layerABackDecor.Texture = MakeFlatPlaceholder(
+            size, new Color(0.32f, 0.32f, 0.34f, 1f));
+        _layerABackDecor.MouseFilter = MouseFilterEnum.Ignore;
+
+        // Layer D — semi-transparent grey grid, "front decor" stand-in.
+        // Semi-transparent on purpose: the F6 smoke must SEE it over B + C.
+        _layerDFrontDecor.Texture = MakeGridPlaceholder(
+            size,
+            new Color(0.55f, 0.55f, 0.58f, 0.28f),
+            new Color(0.78f, 0.78f, 0.82f, 0.45f));
+        // Purely visual — never eats a click (trap: a decor TextureRect must
+        // not block the desk's _UnhandledInput routing).
+        _layerDFrontDecor.MouseFilter = MouseFilterEnum.Ignore;
+    }
+
+    /// <summary>
+    /// Build a flat single-colour <see cref="ImageTexture"/> at the given
+    /// size — the layer-A placeholder fill.
+    /// </summary>
+    private static ImageTexture MakeFlatPlaceholder(Vector2I size, Color fill)
+    {
+        var image = Image.CreateEmpty(size.X, size.Y, false, Image.Format.Rgba8);
+        image.Fill(fill);
+        return ImageTexture.CreateFromImage(image);
+    }
+
+    /// <summary>
+    /// Build a semi-transparent grid <see cref="ImageTexture"/> — the
+    /// layer-D placeholder. The grid lines (every 64 px) make it obvious in
+    /// the F6 smoke that layer D is painting over the maquette and the desk.
+    /// </summary>
+    private static ImageTexture MakeGridPlaceholder(
+        Vector2I size, Color cellColor, Color lineColor)
+    {
+        const int step = 64;
+        var image = Image.CreateEmpty(size.X, size.Y, false, Image.Format.Rgba8);
+        image.Fill(cellColor);
+        for (int x = 0; x < size.X; x += step)
+        {
+            for (int y = 0; y < size.Y; y++)
+            {
+                image.SetPixel(x, y, lineColor);
+            }
+        }
+        for (int y = 0; y < size.Y; y += step)
+        {
+            for (int x = 0; x < size.X; x++)
+            {
+                image.SetPixel(x, y, lineColor);
+            }
+        }
+        return ImageTexture.CreateFromImage(image);
+    }
+
+    /// <summary>
+    /// Layer C — stand up the iso desk across its two SubViewports and hand
+    /// its grid to the <c>GameState</c> authority. See the boxed
+    /// architecture comment for the rationale.
     ///
     /// <para>
-    /// <b>J3c-2 addition.</b> Once the desk boards are ready, the desk
-    /// board's <c>IsoGrid</c> is handed to <c>GameState.AdoptDeskGrid</c>,
-    /// which seeds the Company formation onto it as authoritative occupancy
-    /// — the desk grid becomes <c>GameState</c>-owned. Each pawn is
-    /// <c>Configure</c>d with its member id and a reference to the entities
-    /// board so it can resolve a placement confirmation to a target pixel.
+    /// Preserved verbatim from J3c-1septies / J3c-2 except: the floor
+    /// TextureRect no longer carries the (removed) clip shader material, and
+    /// <c>ApplyDeskClipFrontier</c> is gone. Everything else — the cosmetic
+    /// board nudge, the shared camera frame, the floor fill rect, the
+    /// <c>GameState.AdoptDeskGrid</c> seeding, the pawn placement — is
+    /// unchanged.
     /// </para>
     /// </summary>
     /// <param name="screen">
@@ -571,7 +616,7 @@ public partial class GameScreen : Control
     {
         // The cosmetic local-X nudge, applied to BOTH desk boards IDENTICALLY
         // so the floor board and the entities board keep agreeing on
-        // cell-to-pixel — see DeskBoardOffsetX (0 since J3c-1octies).
+        // cell-to-pixel — see DeskBoardOffsetX (0 by default).
         var boardNudge = new Vector2(DeskBoardOffsetX, 0f);
         _deskFloorBoard.Position = boardNudge;
         _deskEntitiesBoard.Position = boardNudge;
@@ -584,17 +629,15 @@ public partial class GameScreen : Control
         _deskEntitiesTextureRect.Size = screen;
 
         // Show each desk SubViewport's render target through its TextureRect.
-        // The FLOOR TextureRect carries the clip shader; the ENTITIES
-        // TextureRect has NO shader and is drawn after the floor rect.
+        // NEITHER TextureRect carries a material now — the clip shader is
+        // gone. The entities rect is drawn after the floor rect so the
+        // pawns paint over the floor.
         _deskFloorTextureRect.Texture = _deskFloorViewport.GetTexture();
         _deskEntitiesTextureRect.Texture = _deskEntitiesViewport.GetTexture();
 
         // Both desk rects keep MouseFilter = Ignore: the desk click is
-        // routed in _UnhandledInput from the raw InputEvent (the desk-world
-        // conversion needs the screen pixel, not a Control-local one), and
-        // Ignore means an MMB press over a desk corner still reaches the
-        // maquette pan. The desk does NOT consume input through these
-        // TextureRects — it consumes it through _UnhandledInput.
+        // routed in _UnhandledInput from the raw InputEvent, and Ignore
+        // means an MMB press over the desk still reaches the maquette pan.
         _deskFloorTextureRect.MouseFilter = MouseFilterEnum.Ignore;
         _deskEntitiesTextureRect.MouseFilter = MouseFilterEnum.Ignore;
 
@@ -603,7 +646,7 @@ public partial class GameScreen : Control
         _deskEntitiesTextureRect.TextureFilter = TextureFilterEnum.Nearest;
 
         // A modest camera zoom-out so the Company block frames comfortably
-        // inside the bottom-left desk triangle.
+        // in the lower-left of the screen.
         var deskZoom = new Vector2(DeskCameraZoom, DeskCameraZoom);
         _deskFloorCamera.Zoom = deskZoom;
         _deskEntitiesCamera.Zoom = deskZoom;
@@ -641,9 +684,7 @@ public partial class GameScreen : Control
         _deskFloorBoard.SetDeskFloorFillRect(floorRect);
 
         // J3c-2: hand the desk board's logical grid to the GameState
-        // authority and seed the Company formation onto it. After this the
-        // desk occupancy is GameState-owned; the click pipeline in
-        // _UnhandledInput reads GameState.DeskCellOccupants.
+        // authority and seed the Company formation onto it.
         if (_deskEntitiesBoard.Grid is { } deskGrid)
         {
             _gameState.AdoptDeskGrid(deskGrid, slots);
@@ -655,14 +696,7 @@ public partial class GameScreen : Control
         }
 
         // Place one placeholder pawn per slot as a layer-3 occupant of the
-        // ENTITIES board (NOT the floor board). The pawn lives inside the
-        // unclipped DeskEntitiesViewport, in the entities board's own local
-        // space — the SAME coordinate frame as the floor.
-        //
-        // J3c-2: each pawn is Configure'd with its authoritative member id
-        // (GameState.DeskMemberIdForSlot) and the entities board, so it can
-        // (a) tell whether a selection / placement signal is about itself
-        // and (b) resolve a placement confirmation cell to a pixel.
+        // ENTITIES board (NOT the floor board).
         for (int i = 0; i < slots.Count; i++)
         {
             var cell = slots[i];
@@ -680,75 +714,6 @@ public partial class GameScreen : Control
                 board: _deskEntitiesBoard);
             _deskEntitiesBoard.AddOccupant(pawn);
         }
-
-        ApplyDeskClipFrontier(screen);
-    }
-
-    /// <summary>
-    /// Compute the maquette/desk <b>twin-corner</b> triangular clip frontier
-    /// and push it into the <c>DeskFloorTextureRect</c>'s clip shader. The
-    /// clip runs on the FLOOR TextureRect only — the desk pawns ride the
-    /// separate unclipped <c>DeskEntitiesViewport</c>. All geometry is
-    /// derived in <see cref="DeskClipFrontierLogic"/> (Godot-free,
-    /// xUnit-pinned).
-    /// </summary>
-    /// <param name="screen">
-    /// The real screen size in pixels, from <c>GetViewportRect().Size</c>.
-    /// </param>
-    private void ApplyDeskClipFrontier(Vector2 screen)
-    {
-        var deskOrigin = SysVec2.Zero;
-        var deskSize = new SysVec2(screen.X, screen.Y);
-
-        var diamond = DeskClipFrontierLogic.MaquetteDiamond(
-            deskSize, HudBandHeight, HudBandHeight);
-
-        var frontier = DeskClipFrontierLogic.Compute(
-            diamond, deskOrigin, deskSize);
-
-        var material = (ShaderMaterial)_deskFloorTextureRect.Material;
-        material.SetShaderParameter(
-            ClipLeftPointUniform,
-            new Vector2(frontier.LeftPointUv.X, frontier.LeftPointUv.Y));
-        material.SetShaderParameter(
-            ClipLeftNormalUniform,
-            new Vector2(frontier.LeftNormalUv.X, frontier.LeftNormalUv.Y));
-        material.SetShaderParameter(
-            ClipRightPointUniform,
-            new Vector2(frontier.RightPointUv.X, frontier.RightPointUv.Y));
-        material.SetShaderParameter(
-            ClipRightNormalUniform,
-            new Vector2(frontier.RightNormalUv.X, frontier.RightNormalUv.Y));
-        material.SetShaderParameter(ClipSplitUniform, frontier.SplitU);
-
-        // [DESK-DIAG] — the twin-corner clip.
-        GD.Print($"[DESK-DIAG] proportion knob: " +
-                 $"MaquetteHalfWidthScreenFracX=" +
-                 $"{DeskClipFrontierLogic.MaquetteHalfWidthScreenFracX} " +
-                 $"IsoEdgeSlope={DeskClipFrontierLogic.IsoEdgeSlope} " +
-                 $"-- iso slope is LOCKED, not a knob; the lower point is " +
-                 $"DERIVED from the bottom HUD band ({HudBandHeight}px)");
-        GD.Print($"[DESK-DIAG] maquette diamond (screen px): " +
-                 $"topApex=({diamond.TopApex.X},{diamond.TopApex.Y}) " +
-                 $"leftApex=({diamond.LeftApex.X},{diamond.LeftApex.Y}) " +
-                 $"rightApex=({diamond.RightApex.X},{diamond.RightApex.Y}) " +
-                 $"lowerPoint=({diamond.LowerPoint.X},{diamond.LowerPoint.Y}) " +
-                 $"-- lowerPoint.Y should equal screenH-{HudBandHeight}=" +
-                 $"{screen.Y - HudBandHeight} (flush on the bottom HUD band)");
-        GD.Print($"[DESK-DIAG] diamond edge slopes (must all be iso 0.5): " +
-                 $"topLeft={DeskClipFrontierLogic.EdgeSlope(diamond.TopApex, diamond.LeftApex)} " +
-                 $"topRight={DeskClipFrontierLogic.EdgeSlope(diamond.TopApex, diamond.RightApex)} " +
-                 $"bottomLeft={DeskClipFrontierLogic.EdgeSlope(diamond.LeftApex, diamond.LowerPoint)} " +
-                 $"bottomRight={DeskClipFrontierLogic.EdgeSlope(diamond.LowerPoint, diamond.RightApex)}");
-        GD.Print($"[DESK-DIAG] twin clip (UV pushed to FLOOR shader): " +
-                 $"leftPoint=({frontier.LeftPointUv.X},{frontier.LeftPointUv.Y}) " +
-                 $"leftNormal=({frontier.LeftNormalUv.X},{frontier.LeftNormalUv.Y}) " +
-                 $"rightPoint=({frontier.RightPointUv.X},{frontier.RightPointUv.Y}) " +
-                 $"rightNormal=({frontier.RightNormalUv.X},{frontier.RightNormalUv.Y}) " +
-                 $"splitU={frontier.SplitU}");
-        GD.Print($"[DESK-DIAG] clip applies to the FLOOR viewport ONLY -- " +
-                 $"the DeskEntitiesViewport (pawns) carries NO shader, so a " +
-                 $"pawn overflowing above the floor triangle is NOT clipped");
     }
 
     /// <summary>
@@ -799,8 +764,33 @@ public partial class GameScreen : Control
     {
         GD.Print($"[GameScreen] preflight: skip_bootstrap=" +
                  $"{HasMeta(SkipBootstrapMeta)}");
+
+        // ------------------------------------------------------------------
+        // [4-LAYER] — the four-layer diorama, draw order A -> B -> C -> D.
+        // ------------------------------------------------------------------
+        GD.Print($"[4-LAYER] draw order A->B->C->D->HUD | " +
+                 $"A back decor (placeholder)='{_layerABackDecor.Name}' " +
+                 $"index={_layerABackDecor.GetIndex()} | " +
+                 $"D front decor (placeholder)='{_layerDFrontDecor.Name}' " +
+                 $"index={_layerDFrontDecor.GetIndex()}");
+        GD.Print($"[4-LAYER] layer A texture={_layerABackDecor.Texture?.GetSize()} " +
+                 $"opaque grey placeholder | layer D texture=" +
+                 $"{_layerDFrontDecor.Texture?.GetSize()} semi-transparent grid " +
+                 $"placeholder (verify it paints OVER B and C in F6)");
+        if (_layerABackDecor.GetIndex() >= _mapContainer.GetIndex()
+            || _layerDFrontDecor.GetIndex() <= _deskEntitiesTextureRect.GetIndex())
+        {
+            GD.PushWarning("[GameScreen] 4-layer draw order is wrong — A must " +
+                           "be before B and D must be after the desk layers.");
+        }
+
+        GD.Print($"[4-LAYER] recess knob: MapRecessDepthPx={MapRecessDepthPx} " +
+                 $"(cosmetic vertical nudge of layer B; game logic stays flat)");
+
         GD.Print($"[GameScreen] preflight: SubViewport size={_mapViewport.Size} " +
-                 $"container rect={_mapContainer.Size}");
+                 $"container rect={_mapContainer.Size} " +
+                 $"container offsetTop={_mapContainer.OffsetTop} " +
+                 $"(= residual top + recess {MapRecessDepthPx})");
         GD.Print($"[GameScreen] preflight: maquette content extent={content} " +
                  $"(from {( _maquette.GetBackgroundTextureSizeOrZero() != Vector2.Zero ? "bitmap" : "placeholder grid")})");
 
@@ -830,14 +820,11 @@ public partial class GameScreen : Control
         }
 
         // ------------------------------------------------------------------
-        // [DESK-DIAG] — the THREE-viewport desk.
+        // [DESK-DIAG] — layer C, the two-SubViewport desk.
         // ------------------------------------------------------------------
         var slots = DeskSlotLayoutLogic.CompanySlotCells();
 
-        GD.Print($"[DESK-DIAG] proportion knob: " +
-                 $"MaquetteHalfWidthScreenFracX=" +
-                 $"{DeskClipFrontierLogic.MaquetteHalfWidthScreenFracX} " +
-                 $"DeskCameraZoom={DeskCameraZoom} " +
+        GD.Print($"[DESK-DIAG] desk framing: DeskCameraZoom={DeskCameraZoom} " +
                  $"formationFrac=({DeskFormationScreenFracX}," +
                  $"{DeskFormationScreenFracY})");
 
@@ -846,11 +833,11 @@ public partial class GameScreen : Control
                  $"{_deskFloorBoard.Position} DeskEntitiesBoard.Position=" +
                  $"{_deskEntitiesBoard.Position}");
 
-        GD.Print($"[DESK-DIAG] DeskFloorViewport (CLIPPED): " +
-                 $"size={_deskFloorViewport.Size} " +
-                 $"transparent_bg={_deskFloorViewport.TransparentBg}");
-        GD.Print($"[DESK-DIAG] DeskEntitiesViewport (NOT clipped): " +
-                 $"size={_deskEntitiesViewport.Size} " +
+        GD.Print($"[DESK-DIAG] DeskFloorViewport: size={_deskFloorViewport.Size} " +
+                 $"transparent_bg={_deskFloorViewport.TransparentBg} " +
+                 $"floor TextureRect material=" +
+                 $"{(_deskFloorTextureRect.Material is null ? "NONE (clip shader removed)" : "PRESENT")}");
+        GD.Print($"[DESK-DIAG] DeskEntitiesViewport: size={_deskEntitiesViewport.Size} " +
                  $"transparent_bg={_deskEntitiesViewport.TransparentBg}");
 
         var camPos = _deskFloorCamera.Position;
@@ -877,14 +864,11 @@ public partial class GameScreen : Control
                  $"selection='{_gameState.SelectedCompanyMemberId ?? "(none)"}'");
 
         // J3c-2 — round-trip the screen->cell routing on each slot's screen
-        // pixel, so a routing regression is visible in the Output: the slot
-        // cell projected to a screen pixel must route back to the same cell.
+        // pixel, so a routing regression is visible in the Output.
         for (int i = 0; i < slots.Count; i++)
         {
             var cell = slots[i];
             var cellV = new Vector2I(cell.Col, cell.Row);
-            // desk-world pixel of the slot -> screen pixel (inverse of the
-            // routing): screenPos = (worldOffset * zoom) + screenCentre.
             var worldLocal = _deskEntitiesBoard.CellToPixel(cellV);
             var worldOffset = worldLocal - camPos;
             var screenPx = new Vector2(
@@ -914,6 +898,19 @@ public partial class GameScreen : Control
         GD.Print($"[DESK-DIAG] desk floor fill rect: " +
                  $"topLeft=({floorRect.TopLeft.X},{floorRect.TopLeft.Y}) " +
                  $"size=({floorRect.Size.X},{floorRect.Size.Y})");
+
+        // ------------------------------------------------------------------
+        // [MIRA-LAYOUT] — the frozen desk-floor rect Mira needs to size the
+        // wf_e1_desk_wood_floor.png texture against (production brief §5.1 /
+        // §7.2 desk_floor_rect). This is THE number the layout-lock hands
+        // to Mira: the exact rect the IsoBoard floor texture must cover.
+        // ------------------------------------------------------------------
+        GD.Print($"[MIRA-LAYOUT] desk_floor_rect (FROZEN, layer C IsoBoard " +
+                 $"floor texture size for wf_e1_desk_wood_floor.png): " +
+                 $"top_left_px=[{floorRect.TopLeft.X:0},{floorRect.TopLeft.Y:0}] " +
+                 $"size_px=[{floorRect.Size.X:0},{floorRect.Size.Y:0}] " +
+                 $"(desk board local pixels, immobile DeskCamera2D, " +
+                 $"DeskCameraZoom={DeskCameraZoom}, screen={screen.X:0}x{screen.Y:0})");
 
         GD.Print($"[GameScreen] preflight: Company slots count={slots.Count} " +
                  $"leader=slot{DeskSlotLayoutLogic.LeaderSlotIndex} " +
@@ -947,12 +944,6 @@ public partial class GameScreen : Control
                                "outside the desk viewport — it will not render.");
             }
         }
-
-        var clipMaterial = (ShaderMaterial)_deskFloorTextureRect.Material!;
-        GD.Print($"[GameScreen] preflight: desk twin clip (FLOOR shader) " +
-                 $"leftPoint={clipMaterial.GetShaderParameter(ClipLeftPointUniform)} " +
-                 $"rightPoint={clipMaterial.GetShaderParameter(ClipRightPointUniform)} " +
-                 $"splitU={clipMaterial.GetShaderParameter(ClipSplitUniform)}");
     }
 
     // --- engine seam: Godot.Vector2 <-> PanVec2 / System.Numerics --------
