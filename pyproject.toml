@@ -73,7 +73,7 @@ torch = { index = "pytorch-cu124" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers --strict-config"
+addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not integration"]
 xfail_strict = true
 markers = [
     "integration: requires model download / network / slow I/O (run with -m integration)",

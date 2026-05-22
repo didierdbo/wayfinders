@@ -141,6 +141,7 @@ class TestMissionsActiveAfterSpawn:
             "outcome",
             "seed",
             "recruit_target_npc_id",  # §A.8.D3 Varn-lock 2026-05-17
+            "position",  # Varn-locked field (spec 2026-05-20 §6) — added in J1
         }
         assert set(mission.keys()) == expected_fields
 
