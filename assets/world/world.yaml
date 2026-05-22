@@ -33,6 +33,13 @@ cities:
     # guild_heart, north_faubourg, old_gate
 
 districts:
+  # J2 (2026-05-22, Mira): the two M1 districts are non-rectangular L-shapes
+  # that interlock as puzzle pieces inside the block [91900,92300]x[37700,38200]
+  # (Varn spec §5.2 — no overlap, no gap along the shared L-shaped seam).
+  # anchors/sizes adjusted from the J1 stub values so the silhouettes share a
+  # real boundary instead of a 100 m dead seam. Bitmaps + polygon sidecars
+  # produced by tools/asset_generators/generate_district_masks.py and
+  # tools/extract_district_polygon.py.
   - id: lower_quays
     name: Lower Quays
     parent_city: halfgate
@@ -43,13 +50,14 @@ districts:
     footprint_bitmap: cities/halfgate/lower_quays_mask.png
     cell_size_m: 2
     # Derived polygon sidecar — produced by tools/extract_district_polygon.py.
-    # For J1 (pre-Mira bitmaps): stub rectangle hand-written. Replace at J2.
     footprint_polygon: cities/halfgate/lower_quays_mask.polygon.json
 
   - id: high_wall
     name: High Wall
     parent_city: halfgate
-    anchor: {x: 92100, y: 38100}
+    # SW corner of the 150x250 px mask (300m x 500m) — the bitmap frame overlaps
+    # lower_quays' frame; the white silhouettes do not (puzzle interlock).
+    anchor: {x: 92000, y: 37700}
     footprint_bitmap: cities/halfgate/high_wall_mask.png
     cell_size_m: 2
     footprint_polygon: cities/halfgate/high_wall_mask.polygon.json

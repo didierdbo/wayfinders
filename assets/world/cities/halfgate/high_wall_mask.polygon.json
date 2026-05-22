@@ -1,12 +1,41 @@
 {
-  "_comment": "STUB for J1 — hand-written rectangle. Replace at J2 when Mira produces high_wall_mask.png and runs tools/extract_district_polygon.py.",
-  "_anchor": {"x": 92100, "y": 38100},
+  "_comment": "Derived by tools/extract_district_polygon.py from high_wall_mask.png. Marching-squares outer contour, snapped to the 2 m world grid. Regeneratable -- do not hand-edit.",
+  "_district_id": "high_wall",
+  "_anchor": {
+    "x": 92000,
+    "y": 37700
+  },
   "_cell_size_m": 2,
-  "_stub": true,
+  "_bitmap": "high_wall_mask.png",
+  "_bitmap_size_px": {
+    "w": 150,
+    "h": 250
+  },
+  "_generator": "tools/extract_district_polygon.py",
   "vertices": [
-    {"x": 92100, "y": 38100},
-    {"x": 92300, "y": 38100},
-    {"x": 92300, "y": 38300},
-    {"x": 92100, "y": 38300}
+    {
+      "x": 92000,
+      "y": 38200
+    },
+    {
+      "x": 92000,
+      "y": 37960
+    },
+    {
+      "x": 92120,
+      "y": 37960
+    },
+    {
+      "x": 92120,
+      "y": 37820
+    },
+    {
+      "x": 92300,
+      "y": 37820
+    },
+    {
+      "x": 92300,
+      "y": 38200
+    }
   ]
 }

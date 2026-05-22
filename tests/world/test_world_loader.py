@@ -1,7 +1,7 @@
 """Tests for world.yaml loader (wayfinders.world.loader).
 
 Covers:
-  - Happy-path load from the real assets/world/world.yaml + stub sidecars.
+  - Happy-path load from the real assets/world/world.yaml + sidecars.
   - Schema version rejection.
   - Missing required fields.
   - Out-of-bounds positions.
@@ -120,10 +120,20 @@ class TestLoaderHappyPath:
         d = ref.districts["lower_quays"]
         assert d.anchor == Position(91900, 37700)
 
-    def test_lower_quays_footprint_has_4_vertices(self) -> None:
+    def test_lower_quays_footprint_is_valid_polygon(self) -> None:
+        """The committed sidecar is a valid closed polygon.
+
+        J2 (2026-05-22) replaced the J1 stub rectangle (4 vertices) with the
+        real bitmap-derived L-shape footprint produced by
+        tools/extract_district_polygon.py.  An L-shape has 6 corners, so this
+        test asserts the *contract* (>= 3 vertices, all in world bounds) rather
+        than a vertex count frozen on the obsolete stub.
+        """
         ref = load_world_referential()
         d = ref.districts["lower_quays"]
-        assert len(d.footprint) == 4
+        assert len(d.footprint) >= 3
+        for v in d.footprint:
+            assert ref.world.contains(v.x, v.y)
 
     def test_district_parent_city(self) -> None:
         ref = load_world_referential()
