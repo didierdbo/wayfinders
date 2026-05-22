@@ -1,0 +1,53 @@
+{
+  "_comment": "Calage sidecar for the Wayfinders 'meshes' jalon. Tells Rune how this iso-render PNG registers onto a Godot IsoBoard at J5. Produced by Mira 2026-05-22. Regeneratable -- do not hand-edit.",
+  "_generator": "Owner's Inbox/Media/wayfinders/meshes_jalon_runner.py",
+  "target": "lower_quays",
+  "layer": "eT",
+  "render_png": "wf_e3_district_lower_quays_mesh_iso_1600x800.png",
+  "render_size_px": {
+    "w": 1600,
+    "h": 800
+  },
+  "background_transparent": true,
+  "iso_projection": {
+    "ratio": "2:1",
+    "camera": "orthographic, rot_x=60deg, rot_z=45deg",
+    "note": "Render canvas is 2:1 (w = 2*h). The PNG is an iso view of a flat extruded slab -- the silhouette IS the land/district outline."
+  },
+  "world_frame_m": {
+    "size_x_m": 400,
+    "size_y_m": 500,
+    "frame_sw_anchor_m": {
+      "x": 91900,
+      "y": 37700
+    },
+    "anchor_note": "SW corner of the rendered world frame, in world meters (world.yaml convention: origin SW, X east, Y north)."
+  },
+  "ground_scale": {
+    "meters_per_src_px_x": 2.0,
+    "meters_per_src_px_y": 2.0,
+    "src_bitmap_size_px": {
+      "w": 200,
+      "h": 250
+    }
+  },
+  "render_scale": {
+    "render_px_per_world_m_x": 4.0,
+    "render_px_per_world_m_y": 1.6,
+    "note": "Pixels of the RENDERED PNG per world meter. Use this to size the Sprite2D against the eT/eM camera."
+  },
+  "godot_placement": {
+    "sprite_centered": false,
+    "background_texture_path_target": "IsoBoard.BackgroundTexturePath",
+    "note": "eT district. BOTH district PNGs share this identical common world frame, camera and scale -- pose BOTH Sprite2D nodes at the SAME top-left and they overlay pixel-exact and interlock as the puzzle (zero-overlap verified at composite time). Background is transparent so stacking them does not mask either silhouette. Each district's own anchor and outline polygon live in assets/world/cities/halfgate/<id>_mask.polygon.json."
+  },
+  "puzzle_interlock": {
+    "common_frame": true,
+    "districts_in_frame": [
+      "lower_quays",
+      "high_wall"
+    ],
+    "shared_block_m": "[91900,92300] x [37700,38200]",
+    "verified": "composite_district_frame.py reports 0 px overlap between the two silhouettes in the common frame."
+  }
+}
