@@ -30,6 +30,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+mouse_filter = 2
 script = ExtResource("1_gamescreen")
 metadata/skip_opening_bootstrap = true
 
@@ -40,6 +41,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_deskbg")
 
 [node name="MapViewportContainer" type="SubViewportContainer" parent="."]
@@ -47,6 +49,7 @@ layout_mode = 1
 offset_top = 32.0
 offset_right = 1920.0
 offset_bottom = 1048.0
+mouse_filter = 2
 stretch = true
 
 [node name="MapViewport" type="SubViewport" parent="MapViewportContainer"]

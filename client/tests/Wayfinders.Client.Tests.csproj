@@ -604,4 +604,26 @@
        geometry it consumes (DeskClipFrontierLogic, DeskFloorRectLogic,
        DeskSlotLayoutLogic, MaquetteContentLogic) is all pinned above. -->
 
+  <!-- J3c-2 interactive desk logic (Rune, 2026-05-22, roadmap milestone
+       J3c-2). Three pure-C# pieces of the interactive desk:
+       DeskInputRoutingLogic (screen pixel -> desk-world point via the
+       shared desk camera frame: the multi-SubViewport routing collapsed
+       to one affine map), DeskSelectionLogic (cell hit-test by occupant +
+       the select / toggle-off transition, Varn decision #4 type-priority
+       seam), and DeskPlacementLogic (the placement-intent verdict:
+       Accepted / NoOp / OffGrid / NotOccupiable / Occupied). All three
+       speak only TileCoordinate / System.Numerics.Vector2 / the Godot-free
+       IsoGrid+IsoCell, so they pin here without a GodotSharp runtime,
+       same seam discipline as MapViewportPanLogic and DeskFloorRectLogic.
+       The Godot-bound wiring (GameScreen._UnhandledInput routing a click,
+       GameState.AdoptDeskGrid / SetSelectedCompanyMember /
+       RequestCompanyMemberPlacement, the DeskCompanyPawn signal reactions)
+       lives in the client csproj only and is validated via the
+       GameScreen.tscn F6 smoke. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\DeskInputRoutingLogic.cs" Link="src\DeskInputRoutingLogic.cs" />
+    <Compile Include="..\scripts\screens\DeskSelectionLogic.cs" Link="src\DeskSelectionLogic.cs" />
+    <Compile Include="..\scripts\screens\DeskPlacementLogic.cs" Link="src\DeskPlacementLogic.cs" />
+  </ItemGroup>
+
 </Project>

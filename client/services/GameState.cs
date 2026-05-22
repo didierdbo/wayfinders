@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Godot;
 using Wayfinders.Client.Scripts.Screens;
 using Wayfinders.Client.Services.Dtos;
+using Wayfinders.Client.Services.Iso;
 
 namespace Wayfinders.Client.Services;
 
@@ -61,6 +62,14 @@ namespace Wayfinders.Client.Services;
 /// <see cref="ActiveMissionDto"/> — it is a pure client construct.
 /// See <c>MissionDurationLogic.cs</c> for the decision contracts
 /// over this slot.
+/// </para>
+///
+/// <para>
+/// <b>J3c-2 addition (2026-05-22).</b> The interactive desk authority —
+/// <see cref="DeskGrid"/>, <see cref="SelectedCompanyMemberId"/>, the
+/// desk occupancy index, and the <see cref="CompanyMemberSelected"/> /
+/// <see cref="CompanyMemberPlacementConfirmed"/> signals. See the boxed
+/// "DESK AUTHORITY" comment further down.
 /// </para>
 ///
 /// <para>
@@ -129,17 +138,6 @@ public partial class GameState : Node
     /// casts of <see cref="TileRevealState"/> values. The consumer
     /// casts back at the receiver edge ; see
     /// <c>TileRevealRenderController</c> for the canonical receiver.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Why on GameState (not on a dedicated store).</b> The reveal
-    /// substrate is a session-wide GameState authority per Varn
-    /// reconciliation 2026-05-16 §3.2 : it lives alongside
-    /// <see cref="PendingMissions"/> and
-    /// <see cref="ActiveMissions"/> in the client-side authoritative
-    /// snapshot. Promoting to a sub-Node store is reserved for the
-    /// day the dictionary grows past O(thousands) of cells and the
-    /// cost of holding it as a plain dict starts to matter.
     /// </para>
     /// </summary>
     [Signal]
@@ -552,6 +550,267 @@ public partial class GameState : Node
             TileRevealStates[cell] = newState;
         }
         EmitSignal(SignalName.TileRevealStateChanged, cell, (int)current, (int)newState);
+    }
+
+    // =========================================================================
+    //  DESK AUTHORITY — J3c-2 interactive desk (Rune, 2026-05-22)
+    // =========================================================================
+    //
+    //  The interactive desk (roadmap J3c-2) needs an authority for two facts:
+    //  which Company member is SELECTED, and which member stands on which desk
+    //  CELL. NPC-autonomy lock 2026-05-09 puts that authority here, on the
+    //  client GameState — not on the DeskCompanyPawn nodes. The pawns are
+    //  views: they react to the signals below, they never decide their own
+    //  selected state and they never relocate themselves.
+    //
+    //  THE TACTICAL-INTENT FLOW. A desk click that targets a destination cell
+    //  is an INTENT, not a relocation:
+    //    1. GameScreen resolves the click to a cell and calls
+    //       RequestCompanyMemberPlacement(memberId, targetCell) — the intent.
+    //    2. GameState (here) evaluates the intent against DeskGrid via
+    //       DeskPlacementLogic, and if accepted mutates the grid through
+    //       IsoGrid.SetOccupant (which re-gates validity — the authority does
+    //       not trust an intent it did not re-check).
+    //    3. GameState emits CompanyMemberPlacementConfirmed.
+    //    4. The DeskCompanyPawn view animates toward the new cell IN REACTION
+    //       to the confirmation — never to the click.
+    //  Selection is the same shape: GameScreen calls SetSelectedCompanyMember,
+    //  GameState emits CompanyMemberSelected, the pawn renders the highlight.
+    //
+    //  Why on the autoload and not on a desk-scoped Node. The desk grid and
+    //  the slot bindings outlive the GameScreen scene instance (a recruit
+    //  joining a slot in J8 is persisted Company state). They sit alongside
+    //  CompanyPersonas here. The DeskGrid REFERENCE is adopted from the desk
+    //  board's IsoBoard at scene-ready (IsoBoard's own doc: "the authoritative
+    //  owner is GameState, which adopts this reference once the district
+    //  loads").
+    // =========================================================================
+
+    /// <summary>
+    /// Fired after the desk selection changes via
+    /// <see cref="SetSelectedCompanyMember"/>. The desk pawn views
+    /// subscribe once and render the discreet selection feedback (a
+    /// light lift + terracotta rim — the pion-sur-plateau grammar, no
+    /// pop-colour outline). Idempotent: a no-op selection write fires
+    /// nothing. Disconnection discipline is the consumer's (Rune-coaching
+    /// Risk #1, signal-leak trap) — the pawn disconnects on
+    /// <c>_ExitTree</c>.
+    ///
+    /// <para>
+    /// <b>Wire format.</b> <paramref name="memberId"/> is the newly
+    /// selected member id, or the empty string when the selection is
+    /// cleared (a click on bare desk floor, or a toggle-off). The C#
+    /// <c>string -&gt; Variant</c> operator refuses a <c>null</c> at
+    /// compile time, so the emit site converts a <c>null</c> selection
+    /// to <see cref="string.Empty"/>; consumers compare against
+    /// <see cref="string.IsNullOrEmpty(string)"/>.
+    /// </para>
+    /// </summary>
+    [Signal]
+    public delegate void CompanyMemberSelectedEventHandler(string memberId);
+
+    /// <summary>
+    /// Fired after a placement intent has been accepted by the authority
+    /// and the desk grid has been mutated — <see cref="RequestCompanyMemberPlacement"/>
+    /// emits this only on a <see cref="DeskPlacementLogic.PlacementVerdict.Accepted"/>
+    /// verdict. The desk pawn view for <paramref name="memberId"/>
+    /// reacts by animating its position toward the new cell; a rejected
+    /// or no-op intent fires nothing, so the pawn never twitches for a
+    /// move that did not happen.
+    ///
+    /// <para>
+    /// <b>Wire format.</b> The cell is passed as two <c>int</c>s
+    /// (<paramref name="targetCol"/>, <paramref name="targetRow"/>)
+    /// rather than a <c>Vector2I</c> so the signal stays trivially
+    /// marshallable and the consumer rebuilds the coord at the receiver
+    /// edge — same shape discipline as the desk's Godot-free logic
+    /// layer.
+    /// </para>
+    /// </summary>
+    [Signal]
+    public delegate void CompanyMemberPlacementConfirmedEventHandler(
+        string memberId, int targetCol, int targetRow);
+
+    /// <summary>
+    /// The desk's layer-2 logical grid — the authoritative occupancy of
+    /// the cartographer's-desk iso board. <c>null</c> until
+    /// <see cref="AdoptDeskGrid"/> is called by <c>GameScreen</c> at
+    /// scene-ready (the autoload boots before any GameScreen exists, so
+    /// it cannot be eagerly built here). The desk pawn placement, the
+    /// J3c-2 selection / placement flow, and the J8 recruit-into-a-slot
+    /// path all read and mutate occupancy through this reference.
+    /// </summary>
+    public IsoGrid? DeskGrid { get; private set; }
+
+    /// <summary>
+    /// The currently selected Company member on the desk, or <c>null</c>
+    /// if nothing is selected. Authoritative — the desk pawn views
+    /// render their highlight off this, they do not own it. Mutate via
+    /// <see cref="SetSelectedCompanyMember"/> only.
+    /// </summary>
+    public string? SelectedCompanyMemberId { get; private set; }
+
+    /// <summary>
+    /// Desk cell → occupying member id. The slot binding J3c-1 left as a
+    /// pure layout fact (<c>DeskSlotLayoutLogic</c>) becomes authoritative
+    /// state here at J3c-2: which member stands on which cell. Keyed by
+    /// the cell's <see cref="TileCoordinate"/>. Populated by
+    /// <see cref="AdoptDeskGrid"/> from the initial formation and mutated
+    /// by <see cref="RequestCompanyMemberPlacement"/> on an accepted
+    /// move. The reverse index of the grid's <c>OccupantId</c> — kept so
+    /// "where is member X" is O(1) without scanning every cell.
+    /// </summary>
+    private readonly Dictionary<TileCoordinate, string> _deskCellOccupants = new();
+
+    /// <summary>
+    /// Read-only snapshot of the desk occupancy: cell → member id. The
+    /// J3c-2 click-resolution (<c>DeskSelectionLogic.ResolveClickedMember</c>)
+    /// reads this to answer "which pawn occupies the clicked cell".
+    /// </summary>
+    public IReadOnlyDictionary<TileCoordinate, string> DeskCellOccupants
+        => _deskCellOccupants;
+
+    /// <summary>
+    /// Adopt the desk board's logical grid as the authoritative desk
+    /// occupancy, and seed the initial Company formation onto it.
+    /// Called once by <c>GameScreen.ConfigureDesk</c> after the desk
+    /// boards are ready. Idempotent re-adoption is allowed (a scene
+    /// reload re-seeds cleanly): it clears the prior occupancy first.
+    ///
+    /// <para>
+    /// Each slot cell is stamped with its member id on the grid
+    /// (<see cref="IsoGrid.SetOccupant"/>) and indexed in
+    /// <see cref="_deskCellOccupants"/>. The member id is the synthetic
+    /// J3c-2 slot id <c>"company-slot-N"</c> — J8 replaces these with
+    /// real recruited-persona ids; the desk flow does not care about the
+    /// id shape, only that it is a stable opaque string.
+    /// </para>
+    /// </summary>
+    /// <param name="grid">The desk board's <c>IsoGrid</c>.</param>
+    /// <param name="slotCells">
+    /// The Company formation cells in slot order
+    /// (<c>DeskSlotLayoutLogic.CompanySlotCells</c>).
+    /// </param>
+    public void AdoptDeskGrid(
+        IsoGrid grid, IReadOnlyList<TileCoordinate> slotCells)
+    {
+        System.ArgumentNullException.ThrowIfNull(grid);
+        System.ArgumentNullException.ThrowIfNull(slotCells);
+
+        // Clear any prior occupancy (idempotent re-adoption on a scene
+        // reload) before seeding the formation onto the fresh grid.
+        foreach (var cell in _deskCellOccupants.Keys)
+        {
+            if (grid.HasCell(cell))
+            {
+                grid.SetOccupant(cell, null);
+            }
+        }
+        _deskCellOccupants.Clear();
+        SelectedCompanyMemberId = null;
+
+        DeskGrid = grid;
+        for (int i = 0; i < slotCells.Count; i++)
+        {
+            var cell = slotCells[i];
+            var memberId = DeskMemberIdForSlot(i);
+            grid.SetOccupant(cell, memberId);
+            _deskCellOccupants[cell] = memberId;
+        }
+        GD.Print($"[GameState] desk grid adopted: {slotCells.Count} slots " +
+                 $"seeded, grid has {grid.Count} cells.");
+    }
+
+    /// <summary>
+    /// The synthetic member id for desk slot <paramref name="slotIndex"/>
+    /// in J3c-2 — <c>"company-slot-N"</c>. A stable opaque string; J8
+    /// swaps these for real recruited-persona ids without the desk flow
+    /// changing.
+    /// </summary>
+    public static string DeskMemberIdForSlot(int slotIndex)
+        => $"company-slot-{slotIndex}";
+
+    /// <summary>
+    /// Set the authoritative desk selection and emit
+    /// <see cref="CompanyMemberSelected"/> if it actually changed. Pass
+    /// <c>null</c> to clear the selection. Idempotent — selecting the
+    /// already-selected member is a silent no-op (no signal, no
+    /// allocation), the same discipline as
+    /// <see cref="SetSelectedNpcId"/>.
+    /// </summary>
+    public void SetSelectedCompanyMember(string? memberId)
+    {
+        if (SelectedCompanyMemberId == memberId)
+        {
+            return;
+        }
+        SelectedCompanyMemberId = memberId;
+        EmitSignal(
+            SignalName.CompanyMemberSelected,
+            memberId ?? string.Empty);
+    }
+
+    /// <summary>
+    /// Receive a desk placement intent (NPC-autonomy tactical-intent
+    /// flow, step 2). Evaluates it against <see cref="DeskGrid"/> via
+    /// <see cref="DeskPlacementLogic.Evaluate"/>; on an
+    /// <see cref="DeskPlacementLogic.PlacementVerdict.Accepted"/>
+    /// verdict it mutates the grid (vacates the source cell, occupies
+    /// the target), updates the occupancy index, and emits
+    /// <see cref="CompanyMemberPlacementConfirmed"/>. Any other verdict
+    /// is a silent no-op — the pawn view never moves for a rejected or
+    /// degenerate intent.
+    /// </summary>
+    /// <param name="memberId">The member the intent wants to move.</param>
+    /// <param name="targetCell">The destination cell.</param>
+    /// <returns>
+    /// The verdict, so the caller can surface a UI nudge on a rejected
+    /// intent if it wants. The grid mutation and the signal are this
+    /// method's responsibility, not the caller's.
+    /// </returns>
+    public DeskPlacementLogic.PlacementVerdict RequestCompanyMemberPlacement(
+        string memberId, TileCoordinate targetCell)
+    {
+        System.ArgumentException.ThrowIfNullOrEmpty(memberId);
+
+        if (DeskGrid is null)
+        {
+            GD.PushWarning("[GameState] placement intent before the desk " +
+                           "grid was adopted — ignored.");
+            return DeskPlacementLogic.PlacementVerdict.OffGrid;
+        }
+
+        var verdict = DeskPlacementLogic.Evaluate(DeskGrid, memberId, targetCell);
+        if (verdict != DeskPlacementLogic.PlacementVerdict.Accepted)
+        {
+            return verdict;
+        }
+
+        // Accepted — find the member's current cell, vacate it, occupy
+        // the target. The grid's SetOccupant re-gates validity, so an
+        // intent that slipped through is still rejected at the mutation.
+        TileCoordinate? sourceCell = null;
+        foreach (var pair in _deskCellOccupants)
+        {
+            if (pair.Value == memberId)
+            {
+                sourceCell = pair.Key;
+                break;
+            }
+        }
+
+        if (sourceCell is { } src)
+        {
+            DeskGrid.SetOccupant(src, null);
+            _deskCellOccupants.Remove(src);
+        }
+        DeskGrid.SetOccupant(targetCell, memberId);
+        _deskCellOccupants[targetCell] = memberId;
+
+        EmitSignal(
+            SignalName.CompanyMemberPlacementConfirmed,
+            memberId, targetCell.Col, targetCell.Row);
+        return verdict;
     }
 
     public override void _Ready()
