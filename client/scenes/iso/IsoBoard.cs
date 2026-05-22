@@ -71,11 +71,14 @@ namespace Wayfinders.Client.Scenes.Iso;
 ///
 /// <para>
 /// <b>Sprite anchoring (trap #8).</b> The background sprite is set to
-/// <c>Centered = false</c> in code so its top-left sits at the node
-/// origin. The projection's <c>AnchorPixel</c> is then a single documented
-/// value, never an implicit "where did the inspector leave it". A future
-/// district sidecar supplies the real <c>AnchorPixel</c>; the MVP
-/// placeholder centres cell (0,0) at a known offset.
+/// <c>Centered = false</c> in code so its top-left sits at the sprite's
+/// own <c>Position</c>. The MVP maquette leaves that position at the node
+/// origin (cell-0 anchored from there); the J3c desk instead snaps the
+/// sprite's top-left onto the desk floor rect's top-left — see
+/// <see cref="AlignBackgroundToFloorRect"/> — so Mira's wood-floor bitmap
+/// registers pixel-exact on the same rect the flat aplat used to fill.
+/// Either way the placement is one documented value, never an implicit
+/// "where did the inspector leave it".
 /// </para>
 ///
 /// <para>
@@ -94,35 +97,34 @@ namespace Wayfinders.Client.Scenes.Iso;
 /// </para>
 ///
 /// <para>
-/// <b>Desk floor + grid both fill the whole viewport (J3c-1bis F6 fix,
-/// 2026-05-21, sixth round — the instrumented diagnostic round).</b> The
-/// desk must read as ONE homogeneous brown triangle with iso grid
-/// everywhere. Two earlier rounds corrected the <i>floor</i> (it fills the
-/// whole viewport rect) and changed nothing on screen — because the
-/// visible bug was the <i>grid</i>, not the floor. The desk floor and the
-/// <c>GameScreen.tscn</c> <c>DeskBackground</c> panel are authored the
-/// SAME brown, so a floor-coverage gap is invisible by construction. What
-/// was visible was a dark band <i>without grid</i> and a lighter triangle
-/// <i>with grid</i>: the grid only striped the 8×8 logical
-/// <see cref="Grid"/> (a compact iso rhombus well inside the viewport),
-/// while the floor filled the whole viewport — so the wedge between the
-/// grid rhombus edge and the clip diagonal was bare floor, no grid, and it
-/// read darker (the grid's faint fill + lines lighten the rhombus). The
-/// fix: when <see cref="DrawPlaceholderFloor"/> is on, <see cref="_Draw"/>
-/// stripes the grid over <i>every</i> cell whose diamond touches the floor
-/// rect (<see cref="DrawGridOverRect"/>), a purely visual superset of the
-/// 8×8 logical grid — exactly as the floor rect is a visual superset of
-/// the grid diamond. The logical <see cref="Grid"/> stays 8×8 (the
-/// occupiable cells, J3c-1 scope).
+/// <b>Desk floor — flat aplat OR Mira's wood bitmap (J3c-3 wire-in,
+/// 2026-05-22).</b> The placeholder aplat (<see cref="DrawPlaceholderFloor"/>'s
+/// <see cref="CanvasItem.DrawRect"/> in <see cref="FloorFillColor"/>) was a
+/// stand-in until Mira's desk-floor texture landed. It has now landed
+/// (<c>wf_e1_desk_wood_floor.png</c>, authored at the exact desk floor-rect
+/// size). When a <see cref="BackgroundTexturePath"/> is set on a
+/// placeholder-floor board, <see cref="LoadBackground"/> loads it into the
+/// layer-1 <see cref="_background"/> sprite, <see cref="AlignBackgroundToFloorRect"/>
+/// snaps that sprite's top-left onto the floor rect's top-left, and
+/// <see cref="_Draw"/> then SKIPS the flat aplat — the wood bitmap is the
+/// floor, the aplat would only hide it. The aplat path stays in the code
+/// as the tolerated no-texture placeholder state (an empty path) — exactly
+/// the Mira ↔ Rune placeholder discipline: the day the asset arrives, the
+/// code serves it with no structural change.
 /// </para>
 ///
 /// <para>
-/// The fill is a hard-edged <see cref="CanvasItem.DrawRect"/>, not a
-/// <c>DrawColoredPolygon</c>: the polygon triangulator feathers the
-/// rasterised boundary, and over the desk SubViewport's <c>transparent_bg</c>
-/// that feather left a half-alpha rim. The belt-and-braces companion is
-/// that <c>GameScreen</c>'s <c>DeskBackground</c> panel is authored the
-/// <i>same</i> brown as <see cref="FloorFillColor"/>.
+/// <b>Desk floor + grid both fill the whole viewport (J3c-1bis F6 fix,
+/// 2026-05-21, sixth round — the instrumented diagnostic round).</b> The
+/// desk must read as ONE homogeneous surface with iso grid everywhere. Two
+/// earlier rounds corrected the <i>floor</i> (it fills the whole viewport
+/// rect) and changed nothing on screen — because the visible bug was the
+/// <i>grid</i>, not the floor. The fix: when <see cref="DrawPlaceholderGrid"/>
+/// is on together with <see cref="DrawPlaceholderFloor"/>, <see cref="_Draw"/>
+/// stripes the grid over <i>every</i> cell whose diamond touches the floor
+/// rect (<see cref="DrawGridOverRect"/>), a purely visual superset of the
+/// 8×8 logical grid. The logical <see cref="Grid"/> stays 8×8 (the
+/// occupiable cells, J3c-1 scope).
 /// </para>
 ///
 /// <para>
@@ -130,10 +132,10 @@ namespace Wayfinders.Client.Scenes.Iso;
 /// is on, every <see cref="_Draw"/> pass prints a <c>[DESK-DIAG]</c> block:
 /// viewport render size, camera position, the floor rect (corners + source),
 /// the striped grid cell count and pixel bounds, a <c>GRID-COVERS-FLOOR</c>
-/// verdict, and the real RGBA of the floor / grid colours. The point: the
-/// logs say without ambiguity which element produces a "dark band" and
-/// where coverage stops. Kept in the code on purpose — if a fix regresses,
-/// the next F6 Output answers it rather than another blind round-trip.
+/// verdict, whether the floor is the wood bitmap or the placeholder aplat,
+/// and the real RGBA of the floor / grid colours. The point: the logs say
+/// without ambiguity which element produces a "dark band" and where
+/// coverage stops. Kept in the code on purpose.
 /// </para>
 ///
 /// <para>
@@ -147,12 +149,14 @@ namespace Wayfinders.Client.Scenes.Iso;
 public partial class IsoBoard : Node2D
 {
     /// <summary>
-    /// res:// path of the district floor bitmap. Exported so the maquette
-    /// and the desk can each point this same scene at a different image.
-    /// Loaded through <see cref="AssetLoader.LoadTextureWithUserOverride"/>
-    /// — never <c>ResourceLoader.Load</c> directly (trap #13). Empty until
-    /// Mira's district asset lands (build brief item #2): an empty path is
-    /// a tolerated placeholder state, logged, not a crash.
+    /// res:// path of the floor bitmap. Exported so the maquette and the
+    /// desk can each point this same scene at a different image. Loaded
+    /// through <see cref="AssetLoader.LoadTextureWithUserOverride"/> —
+    /// never <c>ResourceLoader.Load</c> directly (trap #13). Empty is a
+    /// tolerated placeholder state, logged, not a crash: the maquette runs
+    /// without it until the district bitmap lands, and a placeholder-floor
+    /// board falls back to the flat <see cref="FloorFillColor"/> aplat.
+    /// On the J3c desk this points at Mira's <c>wf_e1_desk_wood_floor.png</c>.
     /// </summary>
     [Export]
     public string BackgroundTexturePath { get; set; } = string.Empty;
@@ -185,40 +189,42 @@ public partial class IsoBoard : Node2D
     /// <summary>
     /// When true, <see cref="_Draw"/> strokes the iso diamond of every
     /// grid cell — a developer-only placeholder so the J3a maquette and
-    /// J3c-1 desk are visible (pan + clip + desk grid observable) before
-    /// Mira's floor bitmap lands. Off by default; the J3a/J3c-1
-    /// <c>GameScreen.tscn</c> turns it on for its board instances. Drop
-    /// it once a real floor bitmap exists.
+    /// J3c-1 desk are visible (pan + clip + desk grid observable). Off by
+    /// default; the J3a/J3c <c>GameScreen.tscn</c> turns it on. Since the
+    /// J3c-3 wood-floor wire-in the grid is ATTENUATED to a faint hairline
+    /// (see <see cref="GridLineColor"/>) so it reads as a developer overlay
+    /// on the wood, not a paint layer over it — J3c-2 click placement still
+    /// wants the cell lattice readable. Drop it once cell placement is
+    /// self-evident from the wood and the pawns.
     /// </summary>
     [Export]
     public bool DrawPlaceholderGrid { get; set; }
 
     /// <summary>
-    /// When true, <see cref="_Draw"/> fills the desk floor with a flat
-    /// warm-earth "table surface" colour <i>before</i> the per-cell grid
-    /// strokes, and (J3c-1bis F6 sixth round) stripes the grid over the
-    /// whole floor rect rather than only the 8×8 logical grid.
+    /// When true, the board treats itself as the desk floor: <see cref="_Draw"/>
+    /// either fills the whole desk floor rect with the flat warm-earth
+    /// <see cref="FloorFillColor"/> aplat (the no-texture placeholder
+    /// state) OR — once a <see cref="BackgroundTexturePath"/> is wired —
+    /// SKIPS that aplat because the layer-1 wood bitmap already covers the
+    /// rect (J3c-3). With <see cref="DrawPlaceholderGrid"/> also on, the
+    /// grid is then striped over the whole floor rect, not only the 8×8
+    /// logical grid.
     ///
     /// <para>
-    /// <b>Which rect is filled.</b> Always an axis-aligned rect covering
-    /// the <i>whole</i> board viewport — never the compact grid-bounding
+    /// <b>Which rect.</b> Always an axis-aligned rect covering the
+    /// <i>whole</i> board viewport — never the compact grid-bounding
     /// diamond. If <c>GameScreen</c> has called
-    /// <see cref="SetDeskFloorFillRect"/> the fill uses that explicit
-    /// rect; otherwise the board derives its own viewport-covering rect
-    /// (<see cref="ViewportFloorFillRect"/>). The desk floor is therefore
-    /// a homogeneous full-viewport surface in both cases.
+    /// <see cref="SetDeskFloorFillRect"/> the fill / texture-alignment uses
+    /// that explicit rect; otherwise the board derives its own
+    /// viewport-covering rect (<see cref="ViewportFloorFillRect"/>).
     /// </para>
     ///
     /// <para>
-    /// <b>Why this is a board <see cref="_Draw"/> and not a UI Panel.</b>
-    /// The J3c-1 desk originally carried its brown surface as a
-    /// <c>Panel</c> child of the desk's <c>SubViewportContainer</c> — an
-    /// <i>opaque UI overlay</i> that sat ON TOP of the SubViewport texture
-    /// and hid the iso grid. The desk surface belongs <i>in the iso world</i>,
-    /// drawn below the grid in the same render pass, not as a screen-space
-    /// Panel. Off by default; the desk board turns it on. Dropped once a
-    /// real desk-floor bitmap exists, exactly like
-    /// <see cref="DrawPlaceholderGrid"/>.
+    /// <b>Why a board <see cref="_Draw"/> and not a UI Panel.</b> The desk
+    /// surface belongs <i>in the iso world</i>, drawn / textured below the
+    /// grid in the same render pass, not as a screen-space Panel that would
+    /// sit ON TOP of the SubViewport texture and hide the iso grid. Off by
+    /// default; the desk floor board turns it on.
     /// </para>
     /// </summary>
     [Export]
@@ -256,32 +262,54 @@ public partial class IsoBoard : Node2D
     /// (J3c-1bis F6 fix). Null on the maquette board and before the desk
     /// is configured — in which case <see cref="_Draw"/> falls back to the
     /// board's own viewport-covering rect (<see cref="ViewportFloorFillRect"/>),
-    /// never to a grid-bounding diamond. A struct-typed nullable so a
-    /// missing rect is an explicit "not pushed yet" rather than a
-    /// zero-sized rect that would draw nothing.
+    /// never to a grid-bounding diamond.
     /// </summary>
     private DeskFloorRectLogic.FloorRect? _deskFloorFillRect;
 
+    /// <summary>
+    /// True once a real floor bitmap is loaded into <see cref="_background"/>
+    /// (<see cref="BackgroundTexturePath"/> was set and resolved). On a
+    /// placeholder-floor board this flips the floor from the flat
+    /// <see cref="FloorFillColor"/> aplat to Mira's wood bitmap: when true,
+    /// <see cref="_Draw"/> skips the aplat <see cref="CanvasItem.DrawRect"/>
+    /// because the layer-1 sprite already covers the rect (J3c-3).
+    /// </summary>
+    private bool _hasFloorBitmap;
+
     // Placeholder-grid stroke colours — warm earth, Wayfinders visual DNA
     // (terracotta / parchment / umber). Developer placeholder only.
-    private static readonly Color GridLineColor = new(0.62f, 0.40f, 0.27f, 0.85f);
-    private static readonly Color GridFillColor = new(0.91f, 0.85f, 0.72f, 0.10f);
+    //
+    // J3c-3 (Mira wood-floor wire-in, 2026-05-22): the desk floor is no
+    // longer a flat brown aplat — it carries Mira's wf_e1_desk_wood_floor
+    // bitmap. The debug grid is KEPT (J3c-2 click placement still needs the
+    // cell lattice readable for development) but ATTENUATED, so it reads as
+    // a faint developer overlay on the wood rather than a paint layer
+    // competing with it. The fill alpha drops to 0 (the diamonds no longer
+    // tint the wood) and the line alpha drops to a thin dark hairline. The
+    // aplat-era values (0.85 / 0.10 alpha) were sized for a flat surface
+    // with nothing else on it; over a real texture they muddy the wood.
+    // Drop the whole grid (set DrawPlaceholderGrid = false on the desk
+    // board) once J3c-2 cell placement is self-evident from the wood +
+    // pawns and no longer needs the debug lattice.
+    private static readonly Color GridLineColor = new(0.20f, 0.13f, 0.08f, 0.30f);
+    private static readonly Color GridFillColor = new(0.91f, 0.85f, 0.72f, 0.0f);
 
     /// <summary>
     /// Placeholder desk-floor fill — a flat warm umber-brown table surface,
     /// drawn IN the iso world (below the grid) instead of as an opaque UI
-    /// Panel.
+    /// Panel. <b>This is now a fallback only</b>: it is drawn only on a
+    /// placeholder-floor board that has no <see cref="BackgroundTexturePath"/>
+    /// (the tolerated no-texture state). The J3c desk has Mira's wood
+    /// bitmap, so this aplat is skipped there (J3c-3).
     ///
     /// <para>
-    /// <b>This must stay in sync with <c>GameScreen.tscn</c>'s
-    /// <c>DeskBackground</c> panel colour.</b> The desk SubViewport is
-    /// <c>transparent_bg</c>; the <c>DeskBackground</c> Panel sits behind
-    /// the <c>DeskTextureRect</c>. If the panel were a different brown,
-    /// any sub-pixel gap between this floor fill and the screen edge would
-    /// expose a second colour and read as a demarcation. Authored equal,
-    /// there is no second colour — the desk is one homogeneous brown
-    /// whatever the floor rect rounds to. The J3c-1bis "desk = one uniform
-    /// triangle" contract depends on these two values being identical.
+    /// <b>Still kept in sync with <c>GameScreen.tscn</c>'s
+    /// <c>DeskBackground</c> panel colour.</b> When the aplat is the
+    /// fallback floor, any sub-pixel gap between it and the screen edge
+    /// must not expose a second brown. Authored equal, there is no second
+    /// colour. With the wood bitmap in place the bitmap covers the rect, so
+    /// <c>DeskBackground</c> stops mattering for the floor — but it remains
+    /// the correct neutral backstop the same colour family.
     /// </para>
     /// </summary>
     public static readonly Color FloorFillColor = new(0.27f, 0.19f, 0.12f, 1f);
@@ -289,8 +317,8 @@ public partial class IsoBoard : Node2D
     public override void _Ready()
     {
         _background = GetNode<Sprite2D>("Background");
-        // Trap #8: anchor the floor sprite top-left at the node origin so
-        // the projection AnchorPixel is one documented value.
+        // Trap #8: anchor the floor sprite top-left at the sprite's own
+        // Position so the placement is one documented value.
         _background.Centered = false;
 
         LoadBackground();
@@ -301,6 +329,19 @@ public partial class IsoBoard : Node2D
         // not change.
         Grid = IsoGrid.BuildRectangle(PlaceholderGridWidth, PlaceholderGridHeight);
         Projection = IsoProjection.Iso2To1(TileWidthPx, ComputeAnchorPixel());
+
+        // J3c-3: on a placeholder-floor board carrying the wood bitmap,
+        // register the sprite onto the floor rect. SetDeskFloorFillRect has
+        // not necessarily run yet (GameScreen calls it after _Ready), so
+        // align against the board's own viewport-derived rect now; the
+        // later explicit push re-aligns it exactly.
+        if (_hasFloorBitmap && DrawPlaceholderFloor)
+        {
+            if (ViewportFloorFillRect() is { } rect)
+            {
+                AlignBackgroundToFloorRect(rect);
+            }
+        }
 
         if (DrawPlaceholderGrid || DrawPlaceholderFloor)
         {
@@ -342,17 +383,20 @@ public partial class IsoBoard : Node2D
     /// whole desk viewport from a camera-derived rect rather than from the
     /// board's own viewport rect. <c>GameScreen.ConfigureDesk</c> computes
     /// the rect with <see cref="DeskFloorRectLogic"/> from the immobile
-    /// desk camera and the viewport size, then calls this. Triggers a
-    /// redraw so the new fill is picked up even though <see cref="_Ready"/>
-    /// already ran one draw pass.
+    /// desk camera and the viewport size, then calls this.
+    ///
+    /// <para>
+    /// J3c-3: when a floor bitmap is loaded this also re-registers the
+    /// layer-1 wood sprite onto the new rect (<see cref="AlignBackgroundToFloorRect"/>),
+    /// so the wood texture stays pixel-exact on the floor rect even though
+    /// <see cref="_Ready"/> already aligned it once against the board's own
+    /// viewport-derived rect.
+    /// </para>
     ///
     /// <para>
     /// This is an <i>optional refinement</i>, not a load-bearing wire: if
     /// it is never called the board still fills the whole viewport via
-    /// <see cref="ViewportFloorFillRect"/>. The explicit rect only lets the
-    /// fill be derived from the parked camera (so the rect is exact even if
-    /// the camera is off-centre); the homogeneous-floor guarantee does not
-    /// depend on it.
+    /// <see cref="ViewportFloorFillRect"/> and aligns the sprite there.
     /// </para>
     /// </summary>
     /// <param name="rect">
@@ -362,6 +406,10 @@ public partial class IsoBoard : Node2D
     public void SetDeskFloorFillRect(DeskFloorRectLogic.FloorRect rect)
     {
         _deskFloorFillRect = rect;
+        if (_hasFloorBitmap && DrawPlaceholderFloor)
+        {
+            AlignBackgroundToFloorRect(rect);
+        }
         if (IsInsideTree() && DrawPlaceholderFloor)
         {
             QueueRedraw();
@@ -380,23 +428,6 @@ public partial class IsoBoard : Node2D
     /// state. Which mission a POI belongs to, which Company member a desk
     /// pawn is — that is authoritative <c>GameState</c> data (NPC-autonomy
     /// lock 2026-05-09) — the occupant node is a view.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Desk pawns ride inside the desk SubViewport (J3c-1bis,
-    /// 2026-05-21, Rune).</b> An earlier J3c-1bis attempt moved the desk
-    /// pawns OUT of the desk's render world onto a separate screen-space
-    /// <c>Node2D</c>, to dodge the triangular clip shader slicing them.
-    /// That forced a hand-written desk-local → screen reprojection that
-    /// broke on every iteration. The reprojection is now gone: the desk
-    /// pawns are plain occupants on this node, in the desk board's own
-    /// space, under the desk's own <c>Camera2D</c> — the same coordinate
-    /// frame as the floor they stand on, so their placement is the
-    /// <see cref="CellToPixel"/> of their slot cell and nothing else. The
-    /// clip shader still runs on the desk <c>TextureRect</c>, but it cuts
-    /// the maquette-side wedge only; the parked desk camera frames the
-    /// formation well inside the kept triangle, so no pawn is near the
-    /// clip diagonal and none is sliced.
     /// </para>
     /// </summary>
     /// <param name="occupant">The entity node to attach. Not null.</param>
@@ -418,40 +449,34 @@ public partial class IsoBoard : Node2D
 
     /// <summary>
     /// The layer-1 floor bitmap size in pixels, or <see cref="Vector2.Zero"/>
-    /// when no background texture is set (the tolerated placeholder state
-    /// before Mira's district asset lands). The board owns its texture, so
-    /// the board exposes its size — callers that need the maquette content
-    /// extent (e.g. <c>GameScreen</c>'s pan clamp) ask the board rather
-    /// than reaching into the <see cref="Sprite2D"/> child. Safe to call
-    /// only after <see cref="_Ready"/>.
+    /// when no background texture is set (the tolerated placeholder state).
+    /// The board owns its texture, so the board exposes its size — callers
+    /// that need the maquette content extent (e.g. <c>GameScreen</c>'s pan
+    /// clamp) ask the board rather than reaching into the
+    /// <see cref="Sprite2D"/> child. Safe to call only after
+    /// <see cref="_Ready"/>.
     /// </summary>
     public Vector2 GetBackgroundTextureSizeOrZero()
         => _background.Texture?.GetSize() ?? Vector2.Zero;
 
     /// <summary>
     /// The board's own viewport-covering floor rect, in this board's local
-    /// pixel space — the fallback the desk floor fills when
-    /// <c>GameScreen</c> has not pushed an explicit
-    /// <see cref="SetDeskFloorFillRect"/>.
+    /// pixel space — the fallback the desk floor uses when <c>GameScreen</c>
+    /// has not pushed an explicit <see cref="SetDeskFloorFillRect"/>.
     ///
     /// <para>
-    /// <b>Why this exists.</b> Earlier the fallback was the grid-bounding
-    /// iso diamond — a compact rhombus that left the viewport corners
-    /// unpainted, so the dark <c>DeskBackground</c> bled through and the
-    /// desk read as two brown zones. The floor must always cover the whole
-    /// clipped viewport; the fallback must therefore be a full-viewport
-    /// rect, not a diamond. This composes the same maths as
-    /// <see cref="DeskFloorRectLogic.Compute"/> — the visible world rect
-    /// is <c>cameraCentre ± viewportSize/2</c> grown by the safety slack —
-    /// from the board's <i>own</i> active camera and SubViewport, so it is
-    /// correct even before any external push.
+    /// Composes the same maths as <see cref="DeskFloorRectLogic.Compute"/>
+    /// — the visible world rect is <c>cameraCentre ± viewportSize/2</c>
+    /// grown by the safety slack — from the board's <i>own</i> active
+    /// camera and SubViewport, so it is correct even before any external
+    /// push. The wood bitmap is authored at exactly this rect's size, so
+    /// the same rect both placed the old aplat and now places the bitmap.
     /// </para>
     ///
     /// <para>
     /// Returns null if the board is not inside the tree, has no viewport,
-    /// or has no active <see cref="Camera2D"/> — in which case the floor
-    /// is simply not drawn for that pass (it cannot place a rect without a
-    /// camera frame). Safe to call only after <see cref="_Ready"/>.
+    /// or has no active <see cref="Camera2D"/>. Safe to call only after
+    /// <see cref="_Ready"/>.
     /// </para>
     /// </summary>
     public DeskFloorRectLogic.FloorRect? ViewportFloorFillRect()
@@ -470,9 +495,7 @@ public partial class IsoBoard : Node2D
 
         // Visible size in world units = the SubViewport render size scaled
         // by the camera zoom (Position is the world point at the viewport
-        // centre; the visible rect is cameraCentre ± visibleSize/2). Zoom
-        // is (1,1) for the static desk, but composing it keeps this correct
-        // if a zoom is ever authored.
+        // centre; the visible rect is cameraCentre ± visibleSize/2).
         var renderSize = viewport.GetVisibleRect().Size;
         var zoom = camera.Zoom;
         if (zoom.X <= 0f || zoom.Y <= 0f || renderSize.X <= 0f || renderSize.Y <= 0f)
@@ -488,16 +511,13 @@ public partial class IsoBoard : Node2D
     /// The four apexes (top, right, bottom, left) of the iso diamond that
     /// bounds the whole placeholder grid, in this board's local pixel
     /// space. Composed purely from <see cref="IsoProjection.CellToWorld"/>
-    /// of the four corner cells offset by a half-diamond — no new iso
-    /// maths, just composition of the already-pinned projection.
+    /// of the four corner cells offset by a half-diamond.
     ///
     /// <para>
-    /// <b>No longer used by the desk floor fill.</b> The desk floor now
-    /// always fills a full-viewport rect, never this diamond — the diamond
-    /// left the viewport corners unpainted (the F6 two-brown-zones bug).
-    /// Kept as a public geometry helper for callers that genuinely need the
-    /// grid's iso bounding rhombus (a future pan-clamp on a diamond-shaped
-    /// district). Safe to call only after <see cref="_Ready"/>.
+    /// <b>Not used by the desk floor.</b> The desk floor fills a
+    /// full-viewport rect, never this diamond. Kept as a public geometry
+    /// helper for callers that genuinely need the grid's iso bounding
+    /// rhombus. Safe to call only after <see cref="_Ready"/>.
     /// </para>
     /// </summary>
     public Vector2[] GridBoundingDiamond()
@@ -508,9 +528,6 @@ public partial class IsoBoard : Node2D
         int w = PlaceholderGridWidth;
         int h = PlaceholderGridHeight;
 
-        // Corner cell CENTRES. The grid is the rectangle (0,0)..(w-1,h-1);
-        // its iso projection is a diamond whose four apexes sit a half-
-        // diamond beyond the four corner-cell centres.
         var topCellCentre = CellToPixel(new Vector2I(0, 0));
         var rightCellCentre = CellToPixel(new Vector2I(w - 1, 0));
         var bottomCellCentre = CellToPixel(new Vector2I(w - 1, h - 1));
@@ -527,17 +544,27 @@ public partial class IsoBoard : Node2D
 
     /// <summary>
     /// Developer placeholder draw (see <see cref="DrawPlaceholderGrid"/>,
-    /// <see cref="DrawPlaceholderFloor"/>). With the floor flag, first
-    /// fills the desk floor with the flat table-surface colour over the
-    /// <i>whole</i> board viewport — the explicit camera-derived rect if
-    /// <c>GameScreen</c> set one, otherwise the board's own viewport rect.
-    /// With the grid flag, then strokes the iso diamond outline of every
-    /// cell. On a placeholder-floor board (the desk) the grid is striped
-    /// over the <i>whole floor rect</i> (<see cref="DrawGridOverRect"/>),
-    /// not only the 8×8 logical grid — the J3c-1bis F6 sixth-round fix for
-    /// the "dark band" (bare floor with no grid between the grid rhombus
-    /// and the clip diagonal). One pass at <see cref="_Ready"/> (plus one
-    /// on <see cref="SetDeskFloorFillRect"/>), not per-frame.
+    /// <see cref="DrawPlaceholderFloor"/>).
+    ///
+    /// <para>
+    /// <b>Floor.</b> On a placeholder-floor board: if Mira's wood bitmap is
+    /// loaded (<see cref="_hasFloorBitmap"/>) the flat <see cref="FloorFillColor"/>
+    /// aplat is SKIPPED — the layer-1 <see cref="_background"/> sprite,
+    /// snapped onto the floor rect by <see cref="AlignBackgroundToFloorRect"/>,
+    /// IS the floor (J3c-3). Only when no bitmap is wired is the aplat
+    /// <see cref="CanvasItem.DrawRect"/> drawn, as the tolerated no-texture
+    /// fallback. The floor rect itself (used either way for the grid
+    /// superset) is still resolved from the explicit push or the board's
+    /// own viewport.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Grid.</b> With the grid flag, strokes the iso diamond outline of
+    /// every cell; on a placeholder-floor board the grid is striped over
+    /// the whole floor rect (<see cref="DrawGridOverRect"/>), not only the
+    /// 8×8 logical grid. The grid is attenuated (see <see cref="GridLineColor"/>)
+    /// so it reads as a faint developer overlay on the wood.
+    /// </para>
     /// </summary>
     public override void _Draw()
     {
@@ -546,22 +573,17 @@ public partial class IsoBoard : Node2D
             return;
         }
 
-        // Placeholder desk floor — the warm table surface, drawn FIRST so
-        // the grid strokes sit on top of it. This is the in-world
-        // replacement for the old opaque UI Panel that hid the desk
-        // SubViewport content.
-        //
-        // J3c-1bis F6 fix (2026-05-21, Rune, second round): the floor is
-        // ALWAYS a full-viewport axis-aligned rect — never the grid-bounding
-        // diamond. The rect comes from GameScreen's explicit camera-derived
-        // push if present, otherwise from the board's own viewport
-        // (ViewportFloorFillRect). The fill is a hard-edged DrawRect.
+        // Resolve the desk floor rect. Used to PLACE the aplat (no-texture
+        // fallback) and, either way, to size the grid superset. The wood
+        // bitmap is drawn by the layer-1 Sprite2D, not here — when it is
+        // loaded the aplat DrawRect below is skipped so it cannot hide it.
         DeskFloorRectLogic.FloorRect? floorRect = null;
         if (DrawPlaceholderFloor)
         {
             floorRect = _deskFloorFillRect ?? ViewportFloorFillRect();
-            if (floorRect is { } rect)
+            if (floorRect is { } rect && !_hasFloorBitmap)
             {
+                // No-texture placeholder state: the flat aplat is the floor.
                 DrawRect(
                     new Rect2(
                         rect.TopLeft.X, rect.TopLeft.Y,
@@ -577,28 +599,6 @@ public partial class IsoBoard : Node2D
             return;
         }
 
-        // J3c-1bis F6 DIAGNOSTIC FIX (2026-05-21, Rune, sixth round).
-        //
-        // The previous two fixes corrected the FLOOR (it now fills the whole
-        // viewport rect). They changed nothing on screen because the visible
-        // bug is the GRID, not the floor. The desk floor and the desk
-        // DeskBackground panel are authored the SAME brown (FloorFillColor ==
-        // DeskBackground bg_color = 0.27,0.19,0.12) — so a floor-coverage gap
-        // is by construction invisible. What Didier sees is:
-        //   - a "dark brown band WITHOUT grid"  : floor painted, grid absent
-        //   - a "lighter brown triangle WITH grid" : floor + iso grid stacked
-        // The grid only striped the 8x8 LOGICAL Grid (a compact iso rhombus
-        // well inside the viewport). The floor fills the whole viewport. The
-        // wedge between the grid rhombus edge and the clip diagonal is bare
-        // floor with no grid on it — THE DARK BAND. The grid's faint
-        // 0.10-alpha fill plus its 0.85-alpha lines is what makes the rhombus
-        // read as a "lighter" triangle; bare floor reads darker.
-        //
-        // The fix: when DrawPlaceholderFloor is on (the desk), stripe the
-        // grid over EVERY cell whose diamond touches the floor rect, not
-        // just the 8x8 logical Grid. The logical Grid stays 8x8 (the
-        // occupiable cells, J3c-1 scope) — this is a purely visual superset,
-        // exactly as the floor rect is a visual superset of the grid diamond.
         float halfW = Projection.TileWidth * 0.5f;
         float halfH = Projection.TileHeight * 0.5f;
 
@@ -629,16 +629,13 @@ public partial class IsoBoard : Node2D
     /// intersects <paramref name="rect"/> — the desk's visual grid superset
     /// (J3c-1bis F6 sixth-round fix). The logical <see cref="Grid"/> stays
     /// 8×8; this fills the whole floor rect so no painted-floor wedge is
-    /// left without a grid (the "dark band" bug). Returns the cell count
-    /// drawn and, via out params, the pixel-space bounds of the striped grid.
+    /// left without a grid. Returns the cell count drawn and, via out
+    /// params, the pixel-space bounds of the striped grid.
     /// </summary>
     private int DrawGridOverRect(
         DeskFloorRectLogic.FloorRect rect, float halfW, float halfH,
         out Vector2 gridMin, out Vector2 gridMax)
     {
-        // The four rect corners map to four cells; the covering cell range
-        // is their integer bounding box, grown one ring so edge diamonds
-        // that only partially overlap the rect are still included.
         var c0 = PixelToCell(new Vector2(rect.TopLeft.X, rect.TopLeft.Y));
         var c1 = PixelToCell(new Vector2(
             rect.TopLeft.X + rect.Size.X, rect.TopLeft.Y));
@@ -666,7 +663,6 @@ public partial class IsoBoard : Node2D
             for (int row = minRow; row <= maxRow; row++)
             {
                 var centre = CellToPixel(new Vector2I(col, row));
-                // Cull cells whose diamond cannot touch the rect at all.
                 if (centre.X + halfW < left || centre.X - halfW > right
                     || centre.Y + halfH < top || centre.Y - halfH > bottom)
                 {
@@ -690,7 +686,15 @@ public partial class IsoBoard : Node2D
             centre + new Vector2(0f, halfH),      // bottom
             centre + new Vector2(-halfW, 0f),     // left
         };
-        DrawColoredPolygon(diamond, GridFillColor);
+        // J3c-3: GridFillColor alpha is 0 — over the wood bitmap the
+        // diamonds no longer tint the floor; only the hairline outline is
+        // visible. The DrawColoredPolygon call is kept (cost negligible,
+        // and a future debug build can re-raise the fill alpha) but it
+        // paints nothing while the alpha stays 0.
+        if (GridFillColor.A > 0f)
+        {
+            DrawColoredPolygon(diamond, GridFillColor);
+        }
         DrawPolyline(
             new[] { diamond[0], diamond[1], diamond[2], diamond[3], diamond[0] },
             GridLineColor, 2f, antialiased: true);
@@ -717,15 +721,32 @@ public partial class IsoBoard : Node2D
     }
 
     /// <summary>
+    /// Snap the layer-1 <see cref="_background"/> sprite so its top-left
+    /// corner registers on the desk floor rect's top-left corner (J3c-3).
+    ///
+    /// <para>
+    /// The sprite is <c>Centered = false</c>, so its <c>Position</c> IS its
+    /// top-left in the board's local pixel space. The floor rect's top-left
+    /// is at <c>cameraCentre - viewportSize/2 - slack</c> — a NEGATIVE
+    /// offset from the board origin — so the sprite cannot just sit at the
+    /// origin. Mira authored <c>wf_e1_desk_wood_floor.png</c> at exactly the
+    /// floor rect's size (slack included), so this single snap registers
+    /// the wood pixel-exact on the same rect the flat aplat used to fill;
+    /// the triangular clip shader on <c>DeskFloorTextureRect</c> then carves
+    /// the corner triangles out of it, identically to the aplat.
+    /// </para>
+    /// </summary>
+    private void AlignBackgroundToFloorRect(DeskFloorRectLogic.FloorRect rect)
+    {
+        _background.Position = new Vector2(rect.TopLeft.X, rect.TopLeft.Y);
+    }
+
+    /// <summary>
     /// J3c-1bis instrumented diagnostic (prefix <c>[DESK-DIAG]</c>). Prints,
-    /// at every <see cref="_Draw"/> pass of a board that fills a placeholder
-    /// floor (the desk), the exact rect the floor filled, the grid cell
-    /// count striped and its pixel bounds, a <c>GRID-COVERS-FLOOR</c>
-    /// verdict, and the two real RGBA colours. The point: the logs reveal
-    /// without ambiguity which element produces the "dark band" and where
-    /// grid coverage stops versus where the floor stops. Kept in the code
-    /// on purpose — if a fix ever regresses, the next F6 Output gives the
-    /// answer rather than another blind round-trip.
+    /// at every <see cref="_Draw"/> pass of a placeholder-floor board (the
+    /// desk), the exact floor rect, the grid cell count striped and its
+    /// pixel bounds, a <c>GRID-COVERS-FLOOR</c> verdict, whether the floor
+    /// is Mira's wood bitmap or the placeholder aplat, and the colours.
     /// </summary>
     private void DiagDraw(
         DeskFloorRectLogic.FloorRect? floorRect, int gridCellsDrawn,
@@ -741,37 +762,33 @@ public partial class IsoBoard : Node2D
         GD.Print($"[DESK-DIAG] IsoBoard._Draw '{Name}': " +
                  $"viewportRenderSize={(vp?.GetVisibleRect().Size.ToString() ?? "(none)")} " +
                  $"camera2DPos={(cam?.Position.ToString() ?? "(none)")}");
+        GD.Print($"[DESK-DIAG]   floor source: " +
+                 $"{(_hasFloorBitmap ? $"WOOD BITMAP ('{BackgroundTexturePath}', " +
+                     $"size={_background.Texture?.GetSize().ToString() ?? "(none)"}, " +
+                     $"spriteTopLeft={_background.Position}) — flat aplat SKIPPED"
+                   : "FLAT APLAT (no BackgroundTexturePath — placeholder state)")}");
         if (floorRect is { } fr)
         {
             GD.Print($"[DESK-DIAG]   floor rect: topLeft=({fr.TopLeft.X},{fr.TopLeft.Y}) " +
                      $"size=({fr.Size.X},{fr.Size.Y}) " +
                      $"bottomRight=({fr.TopLeft.X + fr.Size.X},{fr.TopLeft.Y + fr.Size.Y}) " +
                      $"source={(_deskFloorFillRect is null ? "ViewportFloorFillRect-fallback" : "GameScreen-push")}");
-            GD.Print($"[DESK-DIAG]   floor 4 corners: " +
-                     $"TL=({fr.TopLeft.X},{fr.TopLeft.Y}) " +
-                     $"TR=({fr.TopLeft.X + fr.Size.X},{fr.TopLeft.Y}) " +
-                     $"BR=({fr.TopLeft.X + fr.Size.X},{fr.TopLeft.Y + fr.Size.Y}) " +
-                     $"BL=({fr.TopLeft.X},{fr.TopLeft.Y + fr.Size.Y})");
         }
         else
         {
-            GD.Print("[DESK-DIAG]   floor rect: NULL — floor NOT drawn this pass " +
-                     "(no pushed rect, and ViewportFloorFillRect could not " +
-                     "resolve a camera). THIS WOULD BE A DARK ZONE.");
+            GD.Print("[DESK-DIAG]   floor rect: NULL — floor rect not resolved " +
+                     "this pass (no pushed rect, no camera). THIS WOULD BE A DARK ZONE.");
         }
         GD.Print($"[DESK-DIAG]   iso grid: cellsDrawn={gridCellsDrawn} " +
                  $"pixelBounds min=({gridMin.X},{gridMin.Y}) max=({gridMax.X},{gridMax.Y})");
         if (floorRect is { } f2 && gridCellsDrawn > 0)
         {
-            // The decisive comparison: does the striped grid actually reach
-            // the floor rect edges? A grid bound well inside the floor rect
-            // IS the dark-band bug — floor with no grid between the two.
             bool gridCoversFloor =
                 gridMin.X <= f2.TopLeft.X && gridMin.Y <= f2.TopLeft.Y
                 && gridMax.X >= f2.TopLeft.X + f2.Size.X
                 && gridMax.Y >= f2.TopLeft.Y + f2.Size.Y;
             GD.Print($"[DESK-DIAG]   GRID-COVERS-FLOOR={gridCoversFloor} " +
-                     $"(false => bare-floor wedge with no grid = the dark band)");
+                     $"(false => bare-floor wedge with no grid)");
         }
         GD.Print($"[DESK-DIAG]   colours: FloorFillColor(rgba)=" +
                  $"({FloorFillColor.R},{FloorFillColor.G},{FloorFillColor.B},{FloorFillColor.A}) " +
@@ -781,8 +798,12 @@ public partial class IsoBoard : Node2D
 
     /// <summary>
     /// Load and assign the layer-1 floor bitmap. An empty path is a
-    /// tolerated placeholder state (Mira asset not yet delivered) — logged,
-    /// not fatal. A non-empty path that fails to resolve is a real error.
+    /// tolerated placeholder state (no district / desk-floor texture wired)
+    /// — logged, not fatal: the maquette runs without it and a
+    /// placeholder-floor board falls back to the flat aplat. A non-empty
+    /// path that fails to resolve is a real error. On success
+    /// <see cref="_hasFloorBitmap"/> flips true, which makes <see cref="_Draw"/>
+    /// skip the placeholder aplat (J3c-3).
     /// </summary>
     private void LoadBackground()
     {
@@ -801,6 +822,9 @@ public partial class IsoBoard : Node2D
             return;
         }
         _background.Texture = texture;
+        _hasFloorBitmap = true;
+        GD.Print($"[IsoBoard] floor bitmap loaded '{BackgroundTexturePath}' " +
+                 $"size={texture.GetSize()} — placeholder aplat will be skipped.");
     }
 
     /// <summary>
@@ -809,12 +833,17 @@ public partial class IsoBoard : Node2D
     /// block, so it sits half a grid-width in from the left of the floor.
     /// When a district sidecar is wired this whole method is replaced by a
     /// sidecar read (design doc §2).
+    ///
+    /// <para>
+    /// J3c-3 note: this anchor is unchanged by the wood-floor wire-in. The
+    /// projection (cell ↔ pixel) is independent of where the layer-1 sprite
+    /// sits — <see cref="AlignBackgroundToFloorRect"/> moves only the
+    /// sprite, never the projection — so the J3c-2 click routing and the
+    /// pawn placement are untouched.
+    /// </para>
     /// </summary>
     private SysVec2 ComputeAnchorPixel()
     {
-        // Place (0,0) so the full diamond of PlaceholderGridWidth ×
-        // PlaceholderGridHeight cells fits with x>=0: the left-most cell is
-        // (0, height-1), which projects to localX = -(height-1)*halfW.
         float halfW = TileWidthPx * 0.5f;
         float xOffset = (PlaceholderGridHeight - 1) * halfW;
         return new SysVec2(xOffset, 0f);
@@ -833,7 +862,9 @@ public partial class IsoBoard : Node2D
 
         GD.Print($"[IsoBoard] preflight: background size=" +
                  $"{_background.Texture?.GetSize().ToString() ?? "(none)"} " +
-                 $"centered={_background.Centered}");
+                 $"centered={_background.Centered} " +
+                 $"spriteTopLeft={_background.Position} " +
+                 $"hasFloorBitmap={_hasFloorBitmap}");
         GD.Print($"[IsoBoard] preflight: grid cells={grid.Count} " +
                  $"placeholder={PlaceholderGridWidth}x{PlaceholderGridHeight} " +
                  $"drawGrid={DrawPlaceholderGrid} drawFloor={DrawPlaceholderFloor}");

@@ -74,6 +74,7 @@ render_target_update_mode = 4
 [node name="DeskFloorCamera2D" type="Camera2D" parent="DeskFloorViewport"]
 
 [node name="DeskFloorBoard" parent="DeskFloorViewport" instance=ExtResource("2_isoboard")]
+BackgroundTexturePath = "res://assets/wayfinders_visual_assets/e1/wf_e1_desk_wood_floor.png"
 TileWidthPx = 256
 PlaceholderGridWidth = 8
 PlaceholderGridHeight = 8
