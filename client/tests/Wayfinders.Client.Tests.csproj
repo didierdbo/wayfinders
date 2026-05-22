@@ -566,6 +566,24 @@
     <Compile Include="..\scripts\screens\DeskFloorRectLogic.cs" Link="src\DeskFloorRectLogic.cs" />
   </ItemGroup>
 
+  <!-- TEMPORARY twin-corner desk-floor framing placeholder (Rune, 2026-05-22
+       F6-readability fix). DeskTrianglePlaceholderLogic answers "is this
+       point inside one of the two bottom-corner desk wedges?" so
+       IsoBoard._Draw can SKIP the floor aplat + grid outside them — keeping
+       the placeholder F6 interpretable in the gap between the removal of
+       desk_triangle_clip.gdshader (4-layer rework) and the arrival of
+       Mira'''s Blender decor that will carry the real shape. It is a CPU
+       draw-time framing, NOT a return of the removed UV clip shader. When
+       the decor lands, this file + DeskTrianglePlaceholderLogicTests + the
+       IsoBoard.DeskTrianglePlaceholderClip flag are all deleted together.
+       Godot-free by design (System.Numerics.Vector2) so it pins here
+       without an engine; the Godot-bound wiring (IsoBoard._Draw clip,
+       GameScreen.ConfigureDesk) is validated via the GameScreen.tscn F6
+       smoke. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\DeskTrianglePlaceholderLogic.cs" Link="src\DeskTrianglePlaceholderLogic.cs" />
+  </ItemGroup>
+
   <!-- J3c-1sexies maquette content centring (Rune, 2026-05-21).
        MaquetteContentLogic is the pure-C# geometry that returns the
        maquette content GEOMETRIC centre — the point the pannable

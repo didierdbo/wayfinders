@@ -231,6 +231,44 @@ public partial class IsoBoard : Node2D
     public bool DrawPlaceholderFloor { get; set; }
 
     /// <summary>
+    /// <b>TEMPORARY twin-corner desk-floor framing placeholder (Rune,
+    /// 2026-05-22 — F6-readability fix). Off by default.</b>
+    ///
+    /// <para>
+    /// When true together with <see cref="DrawPlaceholderFloor"/>,
+    /// <see cref="_Draw"/> paints the desk floor aplat and stripes the iso
+    /// grid <i>only inside the two bottom-corner desk wedges</i>
+    /// (<see cref="DeskTrianglePlaceholderLogic"/>) instead of across the
+    /// whole viewport rect. The screen centre is then left unpainted, so the
+    /// layer-B maquette diamond shows through.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why this exists.</b> The 4-layer rework removed
+    /// <c>desk_triangle_clip.gdshader</c> — the GPU UV clip that used to cut
+    /// the desk SubViewport render into two corner triangles. With the clip
+    /// gone, the desk floor renders as a full opaque rectangle that hides the
+    /// maquette: the F6 smoke became unreadable. Mira's Blender decor (layers
+    /// A + D) will carry the desk-floor shape for real via its two alpha
+    /// holes — but until it lands the F6 placeholder must stay interpretable.
+    /// This flag is the gap-filler: a CPU draw-time framing, no shader, no
+    /// material, no UV uniforms. It is <b>not</b> a return of the removed
+    /// clip — it just decides which cells / which aplat to skip in
+    /// <see cref="_Draw"/>.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Delete-me marker.</b> When Mira's decor lands, drop this flag, the
+    /// <see cref="_deskTriangles"/> field, <see cref="SetDeskTrianglePlaceholder"/>,
+    /// and the whole <see cref="DeskTrianglePlaceholderLogic"/> helper +
+    /// its tests. The desk floor then renders full-rect again, framed by the
+    /// decor's alpha — exactly the shipped path.
+    /// </para>
+    /// </summary>
+    [Export]
+    public bool DeskTrianglePlaceholderClip { get; set; }
+
+    /// <summary>
     /// The layer-2 logical grid for this board. Authoritative game data;
     /// the authoritative <i>owner</i> is <c>GameState</c>, which adopts
     /// this reference when a district loads. Null until <see cref="_Ready"/>
@@ -265,6 +303,15 @@ public partial class IsoBoard : Node2D
     /// never to a grid-bounding diamond.
     /// </summary>
     private DeskFloorRectLogic.FloorRect? _deskFloorFillRect;
+
+    /// <summary>
+    /// <b>TEMPORARY</b> — the two bottom-corner desk wedges the placeholder
+    /// floor is clipped to, in this board's local pixel space, set by
+    /// <c>GameScreen</c> via <see cref="SetDeskTrianglePlaceholder"/>. Null
+    /// unless <see cref="DeskTrianglePlaceholderClip"/> is on. Deleted with
+    /// the rest of the placeholder when Mira's Blender decor lands.
+    /// </summary>
+    private DeskTrianglePlaceholderLogic.DeskTriangles? _deskTriangles;
 
     /// <summary>
     /// True once a real floor bitmap is loaded into <see cref="_background"/>
@@ -410,6 +457,36 @@ public partial class IsoBoard : Node2D
         {
             AlignBackgroundToFloorRect(rect);
         }
+        if (IsInsideTree() && DrawPlaceholderFloor)
+        {
+            QueueRedraw();
+        }
+    }
+
+    /// <summary>
+    /// <b>TEMPORARY (Rune, 2026-05-22 F6-readability fix).</b> Hand the board
+    /// the two bottom-corner desk wedges its placeholder floor + grid must be
+    /// clipped to. Only meaningful while <see cref="DeskTrianglePlaceholderClip"/>
+    /// is on; <c>GameScreen.ConfigureDesk</c> computes the wedges with
+    /// <see cref="DeskTrianglePlaceholderLogic.Build"/> from the immobile desk
+    /// camera + viewport size and calls this.
+    ///
+    /// <para>
+    /// This is the gap-filler between the removal of
+    /// <c>desk_triangle_clip.gdshader</c> and the arrival of Mira's Blender
+    /// decor. When the decor lands, delete this method, the
+    /// <see cref="_deskTriangles"/> field, the
+    /// <see cref="DeskTrianglePlaceholderClip"/> flag, and the helper.
+    /// </para>
+    /// </summary>
+    /// <param name="triangles">
+    /// The two bottom-corner desk wedges, from
+    /// <see cref="DeskTrianglePlaceholderLogic.Build"/>.
+    /// </param>
+    public void SetDeskTrianglePlaceholder(
+        DeskTrianglePlaceholderLogic.DeskTriangles triangles)
+    {
+        _deskTriangles = triangles;
         if (IsInsideTree() && DrawPlaceholderFloor)
         {
             QueueRedraw();
@@ -584,12 +661,34 @@ public partial class IsoBoard : Node2D
             if (floorRect is { } rect && !_hasFloorBitmap)
             {
                 // No-texture placeholder state: the flat aplat is the floor.
-                DrawRect(
-                    new Rect2(
-                        rect.TopLeft.X, rect.TopLeft.Y,
-                        rect.Size.X, rect.Size.Y),
-                    FloorFillColor,
-                    filled: true);
+                if (DeskTrianglePlaceholderClip && _deskTriangles is { } tris)
+                {
+                    // TEMPORARY (Rune, 2026-05-22 F6 fix): the desk floor is
+                    // framed to the two bottom-corner wedges, NOT the whole
+                    // viewport rect. Filling the full rect here is exactly
+                    // what hid the layer-B maquette after the clip shader
+                    // was removed. Two triangle fills leave the screen
+                    // centre unpainted so the maquette shows through. When
+                    // Mira's Blender decor lands this branch is deleted and
+                    // the full-rect DrawRect below is the only path.
+                    DrawColoredPolygon(
+                        ToGodotPoly(DeskTrianglePlaceholderLogic.Vertices(
+                            tris.Left)),
+                        FloorFillColor);
+                    DrawColoredPolygon(
+                        ToGodotPoly(DeskTrianglePlaceholderLogic.Vertices(
+                            tris.Right)),
+                        FloorFillColor);
+                }
+                else
+                {
+                    DrawRect(
+                        new Rect2(
+                            rect.TopLeft.X, rect.TopLeft.Y,
+                            rect.Size.X, rect.Size.Y),
+                        FloorFillColor,
+                        filled: true);
+                }
             }
         }
 
@@ -668,12 +767,41 @@ public partial class IsoBoard : Node2D
                 {
                     continue;
                 }
+                // TEMPORARY (Rune, 2026-05-22 F6 fix): when the desk floor is
+                // framed to the two bottom-corner wedges, only stripe a cell
+                // whose centre falls inside one of them — the grid then
+                // reads as "the desk lives in the corners", not a full-screen
+                // square lattice over the maquette. Deleted with the rest of
+                // the placeholder when Mira's decor lands.
+                if (DeskTrianglePlaceholderClip && _deskTriangles is { } tris
+                    && !DeskTrianglePlaceholderLogic.Contains(
+                        tris, new SysVec2(centre.X, centre.Y)))
+                {
+                    continue;
+                }
                 DrawCellDiamond(centre, halfW, halfH);
                 drawn++;
                 AccumulateBounds(centre, halfW, halfH, ref first, ref gridMin, ref gridMax);
             }
         }
         return drawn;
+    }
+
+    /// <summary>
+    /// Engine seam: convert an array of <see cref="System.Numerics.Vector2"/>
+    /// polygon vertices (from the Godot-free
+    /// <see cref="DeskTrianglePlaceholderLogic"/>) into the
+    /// <see cref="Vector2"/>[] a <see cref="CanvasItem.DrawColoredPolygon"/>
+    /// call expects. Temporary — removed with the placeholder.
+    /// </summary>
+    private static Vector2[] ToGodotPoly(SysVec2[] points)
+    {
+        var result = new Vector2[points.Length];
+        for (int i = 0; i < points.Length; i++)
+        {
+            result[i] = new Vector2(points[i].X, points[i].Y);
+        }
+        return result;
     }
 
     /// <summary>Stroke one iso cell diamond around <paramref name="centre"/>.</summary>
@@ -781,6 +909,15 @@ public partial class IsoBoard : Node2D
         }
         GD.Print($"[DESK-DIAG]   iso grid: cellsDrawn={gridCellsDrawn} " +
                  $"pixelBounds min=({gridMin.X},{gridMin.Y}) max=({gridMax.X},{gridMax.Y})");
+        if (DeskTrianglePlaceholderClip)
+        {
+            GD.Print($"[DESK-DIAG]   desk floor framing: " +
+                     $"TEMPORARY twin-corner triangle placeholder " +
+                     $"(clip={(_deskTriangles is null ? "NOT SET" : "set")}) " +
+                     $"-- floor + grid drawn only in the two bottom-corner " +
+                     $"wedges; screen centre left clear for the maquette. " +
+                     $"Removed when Mira's Blender decor lands.");
+        }
         if (floorRect is { } f2 && gridCellsDrawn > 0)
         {
             bool gridCoversFloor =

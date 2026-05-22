@@ -55,16 +55,34 @@ namespace Wayfinders.Client.Scenes.Screens;
 //        J3c-2 routing a single affine map) — only the clip shader is gone.
 //        The floor TextureRect now carries NO material.
 //
+//        TEMPORARY GAP-FILLER (Rune, 2026-05-22 — F6-readability fix).
+//        Removing the clip shader left the desk floor rendering as a FULL
+//        OPAQUE RECTANGLE that buried the layer-B maquette: the F6 smoke
+//        became unreadable. Until Mira's Blender decor carries the
+//        desk-floor shape, the placeholder desk floor is framed to the two
+//        bottom-corner wedges by a CPU draw-time clip
+//        (DeskTrianglePlaceholderLogic + IsoBoard.DeskTrianglePlaceholderClip).
+//        This is NOT the removed clip shader returning — it is a draw-time
+//        decision (which cells / which aplat to skip), no shader, no
+//        material, no UV uniforms. The desk wood bitmap is also dropped for
+//        the gap (a full-rect Sprite2D cannot be carved by a CPU clip); the
+//        placeholder aplat returns. When Mira's decor lands, delete the
+//        flag, the helper, and re-load the wood bitmap.
+//
 //   D. FRONT DECOR  (LayerDFrontDecor)
 //        A full-screen TextureRect with alpha. In the shipped game this
 //        carries the Blender "front" pass — the recess lip, the carved
 //        furniture edges that must paint OVER the map and the desk floor to
 //        sell the "the map is inset" illusion. FROZEN. Drawn AFTER C and
-//        BEFORE the HUD. RIGHT NOW it is a SEMI-TRANSPARENT GREY GRID
-//        PLACEHOLDER — semi-transparent on purpose, so the F6 smoke can
-//        VERIFY layer D really does paint over both B (the maquette) and C
-//        (the desk + pawns). MouseFilter = Ignore: it is purely visual and
-//        must never eat a click.
+//        BEFORE the HUD. RIGHT NOW it is a MOSTLY-TRANSPARENT placeholder
+//        carrying only a THIN iso-diamond liseré around the maquette window
+//        (the "losange-creux") plus an on-screen label — NOT a full-screen
+//        opaque grid (that grid was exactly what buried the maquette in the
+//        first 4-layer F6). The liseré is semi-transparent on purpose, so
+//        the F6 smoke can VERIFY layer D really does paint over both B (the
+//        maquette) and C (the desk wedges) while hiding almost nothing.
+//        MouseFilter = Ignore: it is purely visual and must never eat a
+//        click.
 //
 //  HUD. The CanvasLayer HUD (layer 10) is unchanged — two 32 px bands,
 //  always above everything including layer D.
@@ -137,8 +155,9 @@ namespace Wayfinders.Client.Scenes.Screens;
 ///   <item><b>D — front decor.</b> A full-screen alpha
 ///     <see cref="TextureRect"/> (<c>LayerDFrontDecor</c>). Frozen. Carries
 ///     the Blender front-pass (recess lip) in the shipped game; a
-///     <b>semi-transparent grey grid placeholder</b> for now, so the F6
-///     smoke can verify it paints over B and C.</item>
+///     <b>mostly-transparent placeholder — a thin iso-diamond liseré around
+///     the maquette window plus an on-screen label</b> for now, so the F6
+///     smoke can verify it paints over B and C without burying them.</item>
 /// </list>
 /// </para>
 ///
@@ -347,8 +366,10 @@ public partial class GameScreen : Control
         ApplyResidualRect(residual);
         _mapViewport.Size = (Vector2I)_mapContainer.Size;
 
-        // Layer A / D placeholders fill the whole screen.
-        ConfigureDecorPlaceholders(screen);
+        // Layer A / D placeholders fill the whole screen. Layer D is given
+        // the residual map rect so it can draw a THIN iso-diamond liseré
+        // around the maquette window — not a full-screen opaque grid.
+        ConfigureDecorPlaceholders(screen, residual);
 
         // Park the maquette camera on the content's GEOMETRIC CENTRE so the
         // maquette is centred on screen.
@@ -522,37 +543,57 @@ public partial class GameScreen : Control
     }
 
     /// <summary>
-    /// Stand up the layer-A and layer-D <b>grey placeholders</b>. Both are
-    /// full-screen <see cref="TextureRect"/>s; the textures themselves are
-    /// generated procedurally here so the scene needs no asset on disk
-    /// while Mira's Blender decor is not yet produced.
+    /// Stand up the layer-A and layer-D placeholders so the F6 smoke reads
+    /// the four-layer structure WITHOUT the (removed) clip scaffold and
+    /// WITHOUT the full-screen opaque grid that used to bury the maquette.
     ///
     /// <para>
-    /// Layer A is an opaque flat grey, layer D is a semi-transparent grey
-    /// grid — the grid lets the F6 smoke confirm layer D really paints OVER
-    /// layers B and C. When Mira delivers the real decor, this method is
-    /// replaced by loading the two Blender passes; the rest of the scene is
+    /// <b>Layer A — back decor.</b> An opaque warm-grey fill, full screen.
+    /// A <c>LayerALabel</c> child (authored in <c>GameScreen.tscn</c>) names
+    /// it on screen so Didier identifies the zone — "COUCHE A — décor
+    /// arrière (placeholder, sera le rendu Blender)". Frozen.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Layer D — front decor.</b> NOT a full-screen opaque grid anymore
+    /// (that grid is exactly what made the F6 unreadable). It is now a
+    /// mostly-transparent texture carrying only a THIN semi-transparent
+    /// iso-diamond <i>liseré</i> traced around the maquette window — the
+    /// "losange-creux" through which layers B and C show. The
+    /// <c>LayerDLabel</c> child names it. The liseré proves layer D paints
+    /// OVER B and C (it draws on top of the maquette diamond edge) while
+    /// hiding almost nothing. Frozen, <c>MouseFilter = Ignore</c>.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Temporary.</b> When Mira delivers the real Blender passes this
+    /// method is replaced by loading the two render textures; the labels and
+    /// the procedural liseré are dropped. The rest of the scene is
     /// unaffected.
     /// </para>
     /// </summary>
     /// <param name="screen">The real screen size in pixels.</param>
-    private void ConfigureDecorPlaceholders(Vector2 screen)
+    /// <param name="residual">
+    /// The residual maquette rect (screen minus the two HUD bands) — the
+    /// window the layer-D liseré is traced around.
+    /// </param>
+    private void ConfigureDecorPlaceholders(Vector2 screen, HudRect residual)
     {
         var size = (Vector2I)screen;
 
-        // Layer A — opaque flat grey, "back decor" stand-in.
+        // Layer A — opaque warm-grey, "back decor" stand-in. The on-screen
+        // LayerALabel (in the .tscn) identifies the zone.
         _layerABackDecor.Texture = MakeFlatPlaceholder(
-            size, new Color(0.32f, 0.32f, 0.34f, 1f));
+            size, new Color(0.30f, 0.29f, 0.31f, 1f));
         _layerABackDecor.MouseFilter = MouseFilterEnum.Ignore;
 
-        // Layer D — semi-transparent grey grid, "front decor" stand-in.
-        // Semi-transparent on purpose: the F6 smoke must SEE it over B + C.
-        _layerDFrontDecor.Texture = MakeGridPlaceholder(
-            size,
-            new Color(0.55f, 0.55f, 0.58f, 0.28f),
-            new Color(0.78f, 0.78f, 0.82f, 0.45f));
-        // Purely visual — never eats a click (trap: a decor TextureRect must
-        // not block the desk's _UnhandledInput routing).
+        // Layer D — a thin semi-transparent iso-diamond liseré around the
+        // maquette window, transparent everywhere else. The F6 smoke can
+        // SEE the liseré sit OVER the maquette diamond and the desk wedges,
+        // proving the draw order, without burying B or C.
+        _layerDFrontDecor.Texture = MakeDiamondLiserePlaceholder(size, residual);
+        // Purely visual — never eats a click (a decor TextureRect must not
+        // block the desk's _UnhandledInput routing).
         _layerDFrontDecor.MouseFilter = MouseFilterEnum.Ignore;
     }
 
@@ -568,31 +609,79 @@ public partial class GameScreen : Control
     }
 
     /// <summary>
-    /// Build a semi-transparent grid <see cref="ImageTexture"/> — the
-    /// layer-D placeholder. The grid lines (every 64 px) make it obvious in
-    /// the F6 smoke that layer D is painting over the maquette and the desk.
+    /// <b>TEMPORARY (Rune, 2026-05-22 F6-readability fix).</b> Build the
+    /// layer-D placeholder texture: fully transparent everywhere except a
+    /// thin semi-transparent iso-diamond <i>liseré</i> inscribed in the
+    /// residual maquette rect — the "losange-creux" outline.
+    ///
+    /// <para>
+    /// The diamond is the iso 2:1 rhombus inscribed in the residual rect:
+    /// apexes at the top, right, bottom and left mid-edges. The liseré is a
+    /// few pixels thick. It is drawn so the F6 smoke confirms layer D paints
+    /// over the maquette (B) and the desk wedges (C) — the previous
+    /// full-screen opaque grid hid both. Replaced by Mira's Blender
+    /// front-pass texture; the rest of the scene is unaffected.
+    /// </para>
     /// </summary>
-    private static ImageTexture MakeGridPlaceholder(
-        Vector2I size, Color cellColor, Color lineColor)
+    private static ImageTexture MakeDiamondLiserePlaceholder(
+        Vector2I size, HudRect residual)
     {
-        const int step = 64;
+        const int thickness = 5;
         var image = Image.CreateEmpty(size.X, size.Y, false, Image.Format.Rgba8);
-        image.Fill(cellColor);
-        for (int x = 0; x < size.X; x += step)
-        {
-            for (int y = 0; y < size.Y; y++)
-            {
-                image.SetPixel(x, y, lineColor);
-            }
-        }
-        for (int y = 0; y < size.Y; y += step)
-        {
-            for (int x = 0; x < size.X; x++)
-            {
-                image.SetPixel(x, y, lineColor);
-            }
-        }
+        image.Fill(new Color(0f, 0f, 0f, 0f)); // fully transparent
+
+        var liseColor = new Color(0.82f, 0.78f, 0.66f, 0.55f);
+
+        // The iso-diamond apexes inscribed in the residual rect.
+        float cx = residual.X + residual.Width * 0.5f;
+        float cy = residual.Y + residual.Height * 0.5f;
+        float halfW = residual.Width * 0.5f;
+        float halfH = residual.Height * 0.5f;
+
+        var top = new Vector2(cx, residual.Y);
+        var right = new Vector2(residual.X + residual.Width, cy);
+        var bottom = new Vector2(cx, residual.Y + residual.Height);
+        var left = new Vector2(residual.X, cy);
+
+        StrokeSegment(image, size, top, right, thickness, liseColor);
+        StrokeSegment(image, size, right, bottom, thickness, liseColor);
+        StrokeSegment(image, size, bottom, left, thickness, liseColor);
+        StrokeSegment(image, size, left, top, thickness, liseColor);
+
         return ImageTexture.CreateFromImage(image);
+    }
+
+    /// <summary>
+    /// <b>TEMPORARY</b> — stamp a thick line segment into an
+    /// <see cref="Image"/> for the layer-D liseré. A simple per-pixel walk:
+    /// the liseré is a one-shot placeholder, not a hot path.
+    /// </summary>
+    private static void StrokeSegment(
+        Image image, Vector2I size, Vector2 a, Vector2 b,
+        int thickness, Color color)
+    {
+        float length = a.DistanceTo(b);
+        int steps = Mathf.Max(1, Mathf.CeilToInt(length));
+        int half = thickness / 2;
+        for (int i = 0; i <= steps; i++)
+        {
+            float t = (float)i / steps;
+            var p = a.Lerp(b, t);
+            int px = Mathf.RoundToInt(p.X);
+            int py = Mathf.RoundToInt(p.Y);
+            for (int dx = -half; dx <= half; dx++)
+            {
+                for (int dy = -half; dy <= half; dy++)
+                {
+                    int x = px + dx;
+                    int y = py + dy;
+                    if (x >= 0 && x < size.X && y >= 0 && y < size.Y)
+                    {
+                        image.SetPixel(x, y, color);
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -682,6 +771,24 @@ public partial class GameScreen : Control
             ToSys(deskCameraPos),
             new SysVec2(deskVisibleSize.X, deskVisibleSize.Y));
         _deskFloorBoard.SetDeskFloorFillRect(floorRect);
+
+        // TEMPORARY (Rune, 2026-05-22 — F6-readability fix). The
+        // desk_triangle_clip shader is gone; until Mira's Blender decor
+        // carries the desk-floor shape, frame the placeholder desk floor to
+        // the two bottom-corner wedges with a CPU draw-time clip. Without
+        // this the desk floor renders as a full opaque rectangle that hides
+        // the layer-B maquette — the exact F6 bug. The wedges are built in
+        // the desk board's local pixel space: the visible viewport rect's
+        // top-left is cameraCentre - deskVisibleSize/2 (slack excluded — the
+        // slack only pads the fill rect, the wedges hug the real viewport).
+        var deskVisibleTopLeft = new SysVec2(
+            deskCameraPos.X - deskVisibleSize.X * 0.5f,
+            deskCameraPos.Y - deskVisibleSize.Y * 0.5f);
+        var deskTriangles = DeskTrianglePlaceholderLogic.Build(
+            new SysVec2(deskVisibleSize.X, deskVisibleSize.Y),
+            deskVisibleTopLeft.X,
+            deskVisibleTopLeft.Y);
+        _deskFloorBoard.SetDeskTrianglePlaceholder(deskTriangles);
 
         // J3c-2: hand the desk board's logical grid to the GameState
         // authority and seed the Company formation onto it.
@@ -774,9 +881,11 @@ public partial class GameScreen : Control
                  $"D front decor (placeholder)='{_layerDFrontDecor.Name}' " +
                  $"index={_layerDFrontDecor.GetIndex()}");
         GD.Print($"[4-LAYER] layer A texture={_layerABackDecor.Texture?.GetSize()} " +
-                 $"opaque grey placeholder | layer D texture=" +
-                 $"{_layerDFrontDecor.Texture?.GetSize()} semi-transparent grid " +
-                 $"placeholder (verify it paints OVER B and C in F6)");
+                 $"opaque grey placeholder (labelled 'COUCHE A') | layer D " +
+                 $"texture={_layerDFrontDecor.Texture?.GetSize()} mostly-" +
+                 $"transparent placeholder: thin iso-diamond liseré + label " +
+                 $"'COUCHE D' (verify it paints OVER B and C in F6 without " +
+                 $"burying them)");
         if (_layerABackDecor.GetIndex() >= _mapContainer.GetIndex()
             || _layerDFrontDecor.GetIndex() <= _deskEntitiesTextureRect.GetIndex())
         {
