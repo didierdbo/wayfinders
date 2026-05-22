@@ -31,21 +31,6 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
-[node name="LayerALabel" type="Label" parent="LayerABackDecor"]
-layout_mode = 1
-anchors_preset = 5
-anchor_left = 0.5
-anchor_right = 0.5
-offset_left = -360.0
-offset_top = 96.0
-offset_right = 360.0
-offset_bottom = 132.0
-grow_horizontal = 2
-theme_override_colors/font_color = Color(0.86, 0.82, 0.7, 1)
-text = "COUCHE A — décor arrière (placeholder, sera le rendu Blender)"
-horizontal_alignment = 1
-vertical_alignment = 1
-
 [node name="MapViewportContainer" type="SubViewportContainer" parent="."]
 layout_mode = 1
 offset_top = 32.0
@@ -79,6 +64,7 @@ render_target_update_mode = 4
 TileWidthPx = 256
 PlaceholderGridWidth = 8
 PlaceholderGridHeight = 8
+BackgroundTexturePath = "res://assets/wayfinders_visual_assets/e1/wf_e1_desk_wood_floor.png"
 DrawPlaceholderGrid = true
 DrawPlaceholderFloor = true
 DeskTrianglePlaceholderClip = true
@@ -122,25 +108,6 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-
-[node name="LayerDLabel" type="Label" parent="LayerDFrontDecor"]
-layout_mode = 1
-anchors_preset = 7
-anchor_left = 0.5
-anchor_top = 1.0
-anchor_right = 0.5
-anchor_bottom = 1.0
-offset_left = -260.0
-offset_top = -150.0
-offset_right = 260.0
-offset_bottom = -118.0
-grow_horizontal = 2
-grow_vertical = 0
-modulate = Color(1, 1, 1, 0.7)
-theme_override_colors/font_color = Color(0.95, 0.95, 0.98, 1)
-text = "COUCHE D — décor avant (placeholder)"
-horizontal_alignment = 1
-vertical_alignment = 1
 
 [node name="HudLayer" type="CanvasLayer" parent="."]
 layer = 10

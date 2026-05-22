@@ -92,39 +92,54 @@ namespace Wayfinders.Client.Scenes.Iso;
 /// forbids: it is one debug <see cref="_Draw"/> pass over the logical
 /// grid, dropped the moment a real floor bitmap exists. With
 /// <see cref="DrawPlaceholderFloor"/> the same pass first fills the
-/// desk floor with a flat table-surface colour — the desk's placeholder
-/// floor (see that property's doc for why it is here and not a UI Panel).
+/// desk floor with the desk-surface visual — see the next paragraph.
 /// </para>
 ///
 /// <para>
-/// <b>Desk floor — flat aplat OR Mira's wood bitmap (J3c-3 wire-in,
-/// 2026-05-22).</b> The placeholder aplat (<see cref="DrawPlaceholderFloor"/>'s
-/// <see cref="CanvasItem.DrawRect"/> in <see cref="FloorFillColor"/>) was a
-/// stand-in until Mira's desk-floor texture landed. It has now landed
-/// (<c>wf_e1_desk_wood_floor.png</c>, authored at the exact desk floor-rect
-/// size). When a <see cref="BackgroundTexturePath"/> is set on a
-/// placeholder-floor board, <see cref="LoadBackground"/> loads it into the
-/// layer-1 <see cref="_background"/> sprite, <see cref="AlignBackgroundToFloorRect"/>
-/// snaps that sprite's top-left onto the floor rect's top-left, and
-/// <see cref="_Draw"/> then SKIPS the flat aplat — the wood bitmap is the
-/// floor, the aplat would only hide it. The aplat path stays in the code
-/// as the tolerated no-texture placeholder state (an empty path) — exactly
-/// the Mira ↔ Rune placeholder discipline: the day the asset arrives, the
-/// code serves it with no structural change.
+/// <b>Desk floor — Mira's wood bitmap, carved to the two corner wedges
+/// (2026-05-22 decor wire-in).</b> The desk floor surface is Mira's
+/// <c>wf_e1_desk_wood_floor.png</c>, wired as <see cref="BackgroundTexturePath"/>
+/// on the <c>DeskFloorBoard</c>. The bitmap is authored at the exact desk
+/// floor-rect size (the whole desk viewport). <b>Crucially, while the
+/// twin-corner clip (<see cref="DeskTrianglePlaceholderClip"/>) is on, the
+/// wood does NOT go onto the layer-1 full-rect <see cref="_background"/>
+/// sprite.</b> A <see cref="Sprite2D"/> renders one textured quad — there
+/// is no way to carve it to two triangles, so a full-rect wood sprite
+/// would cover the whole screen and bury the layer-B maquette. Instead
+/// <see cref="LoadBackground"/> keeps the wood texture in
+/// <see cref="_deskWoodTexture"/> and <see cref="_Draw"/> paints it as TWO
+/// textured triangles via <see cref="CanvasItem.DrawColoredPolygon"/> with
+/// per-vertex UVs — the wood appears inside exactly the two bottom-corner
+/// wedges. When the clip is OFF (the maquette board, or a future desk
+/// without the clip) the wood DOES go onto the layer-1 sprite as a normal
+/// full-rect floor and <see cref="_Draw"/> skips the aplat. The flat
+/// <see cref="FloorFillColor"/> aplat stays as the tolerated no-texture
+/// fallback (an empty <see cref="BackgroundTexturePath"/>).
+/// </para>
+///
+/// <para>
+/// <b>Why the desk floor must still be carved (the stacking-order verdict,
+/// Rune 2026-05-22).</b> Mira's back decor (layer A) carries two triangular
+/// alpha holes at the desk corners. The intuition "A's alpha confines the
+/// desk floor to the holes" does NOT hold: the locked draw order is
+/// A → B → C → D, so layer A is BEHIND the desk floor (layer C). A texture
+/// drawn before C cannot mask C. The desk floor must therefore be confined
+/// to the two corner wedges by the CPU clip here — A fills the furniture
+/// AROUND the holes, the clip confines the live desk wood INTO the holes.
+/// They are complementary. See <see cref="DeskTrianglePlaceholderClip"/>.
 /// </para>
 ///
 /// <para>
 /// <b>Desk floor + grid both fill the whole viewport (J3c-1bis F6 fix,
 /// 2026-05-21, sixth round — the instrumented diagnostic round).</b> The
-/// desk must read as ONE homogeneous surface with iso grid everywhere. Two
-/// earlier rounds corrected the <i>floor</i> (it fills the whole viewport
-/// rect) and changed nothing on screen — because the visible bug was the
-/// <i>grid</i>, not the floor. The fix: when <see cref="DrawPlaceholderGrid"/>
-/// is on together with <see cref="DrawPlaceholderFloor"/>, <see cref="_Draw"/>
-/// stripes the grid over <i>every</i> cell whose diamond touches the floor
-/// rect (<see cref="DrawGridOverRect"/>), a purely visual superset of the
-/// 8×8 logical grid. The logical <see cref="Grid"/> stays 8×8 (the
-/// occupiable cells, J3c-1 scope).
+/// desk reads as ONE homogeneous surface with iso grid everywhere. When
+/// <see cref="DrawPlaceholderGrid"/> is on together with
+/// <see cref="DrawPlaceholderFloor"/>, <see cref="_Draw"/> stripes the
+/// grid over <i>every</i> cell whose diamond touches the floor rect
+/// (<see cref="DrawGridOverRect"/>), a purely visual superset of the 8×8
+/// logical grid. The logical <see cref="Grid"/> stays 8×8 (the occupiable
+/// cells, J3c-1 scope). With the twin-corner clip on, both the wood and
+/// the grid are limited to the two wedges.
 /// </para>
 ///
 /// <para>
@@ -156,7 +171,10 @@ public partial class IsoBoard : Node2D
     /// tolerated placeholder state, logged, not a crash: the maquette runs
     /// without it until the district bitmap lands, and a placeholder-floor
     /// board falls back to the flat <see cref="FloorFillColor"/> aplat.
-    /// On the J3c desk this points at Mira's <c>wf_e1_desk_wood_floor.png</c>.
+    /// On the J3c desk this points at Mira's <c>wf_e1_desk_wood_floor.png</c>;
+    /// while the twin-corner clip is on, that wood is carved to the two
+    /// bottom-corner wedges by <see cref="_Draw"/> rather than placed onto
+    /// the full-rect layer-1 sprite — see the class summary.
     /// </summary>
     [Export]
     public string BackgroundTexturePath { get; set; } = string.Empty;
@@ -190,25 +208,24 @@ public partial class IsoBoard : Node2D
     /// When true, <see cref="_Draw"/> strokes the iso diamond of every
     /// grid cell — a developer-only placeholder so the J3a maquette and
     /// J3c-1 desk are visible (pan + clip + desk grid observable). Off by
-    /// default; the J3a/J3c <c>GameScreen.tscn</c> turns it on. Since the
-    /// J3c-3 wood-floor wire-in the grid is ATTENUATED to a faint hairline
-    /// (see <see cref="GridLineColor"/>) so it reads as a developer overlay
-    /// on the wood, not a paint layer over it — J3c-2 click placement still
-    /// wants the cell lattice readable. Drop it once cell placement is
-    /// self-evident from the wood and the pawns.
+    /// default; the J3a/J3c <c>GameScreen.tscn</c> turns it on. The grid is
+    /// ATTENUATED to a faint hairline (see <see cref="GridLineColor"/>) so
+    /// it reads as a developer overlay on the wood, not a paint layer over
+    /// it — J3c-2 click placement still wants the cell lattice readable.
+    /// Drop it once cell placement is self-evident from the wood and the
+    /// pawns.
     /// </summary>
     [Export]
     public bool DrawPlaceholderGrid { get; set; }
 
     /// <summary>
     /// When true, the board treats itself as the desk floor: <see cref="_Draw"/>
-    /// either fills the whole desk floor rect with the flat warm-earth
+    /// either paints Mira's wood bitmap (carved to the two wedges while the
+    /// twin-corner clip is on) OR — when no <see cref="BackgroundTexturePath"/>
+    /// is wired — fills the desk floor rect with the flat warm-earth
     /// <see cref="FloorFillColor"/> aplat (the no-texture placeholder
-    /// state) OR — once a <see cref="BackgroundTexturePath"/> is wired —
-    /// SKIPS that aplat because the layer-1 wood bitmap already covers the
-    /// rect (J3c-3). With <see cref="DrawPlaceholderGrid"/> also on, the
-    /// grid is then striped over the whole floor rect, not only the 8×8
-    /// logical grid.
+    /// state). With <see cref="DrawPlaceholderGrid"/> also on, the grid is
+    /// then striped over the floor, limited to the same wedges.
     ///
     /// <para>
     /// <b>Which rect.</b> Always an axis-aligned rect covering the
@@ -231,38 +248,41 @@ public partial class IsoBoard : Node2D
     public bool DrawPlaceholderFloor { get; set; }
 
     /// <summary>
-    /// <b>TEMPORARY twin-corner desk-floor framing placeholder (Rune,
-    /// 2026-05-22 — F6-readability fix). Off by default.</b>
+    /// <b>Twin-corner desk-floor carve. Off by default.</b>
     ///
     /// <para>
     /// When true together with <see cref="DrawPlaceholderFloor"/>,
-    /// <see cref="_Draw"/> paints the desk floor aplat and stripes the iso
-    /// grid <i>only inside the two bottom-corner desk wedges</i>
-    /// (<see cref="DeskTrianglePlaceholderLogic"/>) instead of across the
-    /// whole viewport rect. The screen centre is then left unpainted, so the
-    /// layer-B maquette diamond shows through.
+    /// <see cref="_Draw"/> paints the desk floor (Mira's wood bitmap, or the
+    /// fallback aplat) and stripes the iso grid <i>only inside the two
+    /// bottom-corner desk wedges</i> (<see cref="DeskTrianglePlaceholderLogic"/>)
+    /// instead of across the whole viewport rect. The screen centre is then
+    /// left unpainted, so the layer-B maquette shows through.
     /// </para>
     ///
     /// <para>
-    /// <b>Why this exists.</b> The 4-layer rework removed
-    /// <c>desk_triangle_clip.gdshader</c> — the GPU UV clip that used to cut
-    /// the desk SubViewport render into two corner triangles. With the clip
-    /// gone, the desk floor renders as a full opaque rectangle that hides the
-    /// maquette: the F6 smoke became unreadable. Mira's Blender decor (layers
-    /// A + D) will carry the desk-floor shape for real via its two alpha
-    /// holes — but until it lands the F6 placeholder must stay interpretable.
-    /// This flag is the gap-filler: a CPU draw-time framing, no shader, no
-    /// material, no UV uniforms. It is <b>not</b> a return of the removed
-    /// clip — it just decides which cells / which aplat to skip in
-    /// <see cref="_Draw"/>.
+    /// <b>Why this is load-bearing — the stacking-order verdict.</b> The
+    /// Game Screen Shell draw order is locked A → B → C → D: Mira's back
+    /// decor (A) is BEHIND the desk floor (C). A's two triangular alpha
+    /// holes therefore CANNOT confine the desk floor to the corners — a
+    /// texture drawn before C cannot mask C. The desk wood bitmap is
+    /// authored as a full viewport-covering rectangle; if it rendered
+    /// unclipped it would cover the whole screen and bury the maquette.
+    /// This flag is what actually confines the live desk floor to the two
+    /// corner wedges, complementing decor A (which fills the furniture
+    /// AROUND the holes). It is a CPU draw-time framing — no shader, no
+    /// material, no UV uniforms; just a point-in-triangle skip in
+    /// <see cref="_Draw"/>. It is NOT the removed
+    /// <c>desk_triangle_clip.gdshader</c> returning.
     /// </para>
     ///
     /// <para>
-    /// <b>Delete-me marker.</b> When Mira's decor lands, drop this flag, the
-    /// <see cref="_deskTriangles"/> field, <see cref="SetDeskTrianglePlaceholder"/>,
-    /// and the whole <see cref="DeskTrianglePlaceholderLogic"/> helper +
-    /// its tests. The desk floor then renders full-rect again, framed by the
-    /// decor's alpha — exactly the shipped path.
+    /// <b>When it can be retired.</b> Only when a decor layer that sits
+    /// ABOVE layer C in the draw order carries the desk-floor shape (a
+    /// genuine occluding mask), or a decor-supplied desk_floor_rect that is
+    /// itself two triangles lands. That is a future asset change. Until
+    /// then this flag, <see cref="_deskTriangles"/>,
+    /// <see cref="SetDeskTrianglePlaceholder"/>, and
+    /// <see cref="DeskTrianglePlaceholderLogic"/> stay.
     /// </para>
     /// </summary>
     [Export]
@@ -305,39 +325,48 @@ public partial class IsoBoard : Node2D
     private DeskFloorRectLogic.FloorRect? _deskFloorFillRect;
 
     /// <summary>
-    /// <b>TEMPORARY</b> — the two bottom-corner desk wedges the placeholder
-    /// floor is clipped to, in this board's local pixel space, set by
-    /// <c>GameScreen</c> via <see cref="SetDeskTrianglePlaceholder"/>. Null
-    /// unless <see cref="DeskTrianglePlaceholderClip"/> is on. Deleted with
-    /// the rest of the placeholder when Mira's Blender decor lands.
+    /// The two bottom-corner desk wedges the desk floor + grid are carved
+    /// to, in this board's local pixel space, set by <c>GameScreen</c> via
+    /// <see cref="SetDeskTrianglePlaceholder"/>. Null unless
+    /// <see cref="DeskTrianglePlaceholderClip"/> is on.
     /// </summary>
     private DeskTrianglePlaceholderLogic.DeskTriangles? _deskTriangles;
 
     /// <summary>
     /// True once a real floor bitmap is loaded into <see cref="_background"/>
-    /// (<see cref="BackgroundTexturePath"/> was set and resolved). On a
-    /// placeholder-floor board this flips the floor from the flat
-    /// <see cref="FloorFillColor"/> aplat to Mira's wood bitmap: when true,
-    /// <see cref="_Draw"/> skips the aplat <see cref="CanvasItem.DrawRect"/>
-    /// because the layer-1 sprite already covers the rect (J3c-3).
+    /// (<see cref="BackgroundTexturePath"/> was set and resolved AND it is
+    /// placed on the full-rect layer-1 sprite). On a placeholder-floor board
+    /// without the twin-corner clip this flips the floor from the flat
+    /// <see cref="FloorFillColor"/> aplat to Mira's wood bitmap. When the
+    /// twin-corner clip IS on, the wood is held in <see cref="_deskWoodTexture"/>
+    /// and carved by <see cref="_Draw"/> instead — this flag stays false in
+    /// that case (the sprite carries nothing).
     /// </summary>
     private bool _hasFloorBitmap;
+
+    /// <summary>
+    /// Mira's desk wood texture when the twin-corner clip is on. The wood
+    /// cannot ride the full-rect layer-1 <see cref="_background"/> sprite
+    /// (a Sprite2D renders one un-carvable quad that would bury the
+    /// maquette), so it is held here and painted by <see cref="_Draw"/> as
+    /// two textured triangles. Null on the maquette board, on a desk board
+    /// with no <see cref="BackgroundTexturePath"/>, or when the clip is off
+    /// (then the wood rides the sprite and <see cref="_hasFloorBitmap"/> is
+    /// true instead).
+    /// </summary>
+    private Texture2D? _deskWoodTexture;
 
     // Placeholder-grid stroke colours — warm earth, Wayfinders visual DNA
     // (terracotta / parchment / umber). Developer placeholder only.
     //
-    // J3c-3 (Mira wood-floor wire-in, 2026-05-22): the desk floor is no
-    // longer a flat brown aplat — it carries Mira's wf_e1_desk_wood_floor
-    // bitmap. The debug grid is KEPT (J3c-2 click placement still needs the
-    // cell lattice readable for development) but ATTENUATED, so it reads as
-    // a faint developer overlay on the wood rather than a paint layer
-    // competing with it. The fill alpha drops to 0 (the diamonds no longer
-    // tint the wood) and the line alpha drops to a thin dark hairline. The
-    // aplat-era values (0.85 / 0.10 alpha) were sized for a flat surface
-    // with nothing else on it; over a real texture they muddy the wood.
-    // Drop the whole grid (set DrawPlaceholderGrid = false on the desk
-    // board) once J3c-2 cell placement is self-evident from the wood +
-    // pawns and no longer needs the debug lattice.
+    // The desk floor carries Mira's wf_e1_desk_wood_floor bitmap. The debug
+    // grid is KEPT (J3c-2 click placement still needs the cell lattice
+    // readable for development) but ATTENUATED, so it reads as a faint
+    // developer overlay on the wood rather than a paint layer competing
+    // with it. The fill alpha is 0 (the diamonds no longer tint the wood)
+    // and the line alpha is a thin dark hairline. Drop the whole grid (set
+    // DrawPlaceholderGrid = false on the desk board) once J3c-2 cell
+    // placement is self-evident from the wood + pawns.
     private static readonly Color GridLineColor = new(0.20f, 0.13f, 0.08f, 0.30f);
     private static readonly Color GridFillColor = new(0.91f, 0.85f, 0.72f, 0.0f);
 
@@ -347,17 +376,7 @@ public partial class IsoBoard : Node2D
     /// Panel. <b>This is now a fallback only</b>: it is drawn only on a
     /// placeholder-floor board that has no <see cref="BackgroundTexturePath"/>
     /// (the tolerated no-texture state). The J3c desk has Mira's wood
-    /// bitmap, so this aplat is skipped there (J3c-3).
-    ///
-    /// <para>
-    /// <b>Still kept in sync with <c>GameScreen.tscn</c>'s
-    /// <c>DeskBackground</c> panel colour.</b> When the aplat is the
-    /// fallback floor, any sub-pixel gap between it and the screen edge
-    /// must not expose a second brown. Authored equal, there is no second
-    /// colour. With the wood bitmap in place the bitmap covers the rect, so
-    /// <c>DeskBackground</c> stops mattering for the floor — but it remains
-    /// the correct neutral backstop the same colour family.
-    /// </para>
+    /// bitmap, so this aplat is not used there.
     /// </summary>
     public static readonly Color FloorFillColor = new(0.27f, 0.19f, 0.12f, 1f);
 
@@ -377,11 +396,11 @@ public partial class IsoBoard : Node2D
         Grid = IsoGrid.BuildRectangle(PlaceholderGridWidth, PlaceholderGridHeight);
         Projection = IsoProjection.Iso2To1(TileWidthPx, ComputeAnchorPixel());
 
-        // J3c-3: on a placeholder-floor board carrying the wood bitmap,
-        // register the sprite onto the floor rect. SetDeskFloorFillRect has
-        // not necessarily run yet (GameScreen calls it after _Ready), so
-        // align against the board's own viewport-derived rect now; the
-        // later explicit push re-aligns it exactly.
+        // On a placeholder-floor board carrying the wood bitmap on the
+        // full-rect sprite (clip OFF), register the sprite onto the floor
+        // rect. SetDeskFloorFillRect has not necessarily run yet (GameScreen
+        // calls it after _Ready), so align against the board's own
+        // viewport-derived rect now; the later explicit push re-aligns it.
         if (_hasFloorBitmap && DrawPlaceholderFloor)
         {
             if (ViewportFloorFillRect() is { } rect)
@@ -433,11 +452,12 @@ public partial class IsoBoard : Node2D
     /// desk camera and the viewport size, then calls this.
     ///
     /// <para>
-    /// J3c-3: when a floor bitmap is loaded this also re-registers the
-    /// layer-1 wood sprite onto the new rect (<see cref="AlignBackgroundToFloorRect"/>),
-    /// so the wood texture stays pixel-exact on the floor rect even though
-    /// <see cref="_Ready"/> already aligned it once against the board's own
-    /// viewport-derived rect.
+    /// When a floor bitmap is loaded onto the full-rect sprite (clip OFF)
+    /// this also re-registers the layer-1 wood sprite onto the new rect
+    /// (<see cref="AlignBackgroundToFloorRect"/>), so the wood texture stays
+    /// pixel-exact on the floor rect. When the twin-corner clip is ON the
+    /// wood lives in <see cref="_deskWoodTexture"/> and is carved by
+    /// <see cref="_Draw"/> against this rect's geometry directly.
     /// </para>
     ///
     /// <para>
@@ -464,20 +484,12 @@ public partial class IsoBoard : Node2D
     }
 
     /// <summary>
-    /// <b>TEMPORARY (Rune, 2026-05-22 F6-readability fix).</b> Hand the board
-    /// the two bottom-corner desk wedges its placeholder floor + grid must be
-    /// clipped to. Only meaningful while <see cref="DeskTrianglePlaceholderClip"/>
-    /// is on; <c>GameScreen.ConfigureDesk</c> computes the wedges with
-    /// <see cref="DeskTrianglePlaceholderLogic.Build"/> from the immobile desk
-    /// camera + viewport size and calls this.
-    ///
-    /// <para>
-    /// This is the gap-filler between the removal of
-    /// <c>desk_triangle_clip.gdshader</c> and the arrival of Mira's Blender
-    /// decor. When the decor lands, delete this method, the
-    /// <see cref="_deskTriangles"/> field, the
-    /// <see cref="DeskTrianglePlaceholderClip"/> flag, and the helper.
-    /// </para>
+    /// Hand the board the two bottom-corner desk wedges its floor + grid
+    /// are carved to. Only meaningful while
+    /// <see cref="DeskTrianglePlaceholderClip"/> is on;
+    /// <c>GameScreen.ConfigureDesk</c> computes the wedges with
+    /// <see cref="DeskTrianglePlaceholderLogic.Build"/> from the immobile
+    /// desk camera + viewport size and calls this.
     /// </summary>
     /// <param name="triangles">
     /// The two bottom-corner desk wedges, from
@@ -624,23 +636,23 @@ public partial class IsoBoard : Node2D
     /// <see cref="DrawPlaceholderFloor"/>).
     ///
     /// <para>
-    /// <b>Floor.</b> On a placeholder-floor board: if Mira's wood bitmap is
-    /// loaded (<see cref="_hasFloorBitmap"/>) the flat <see cref="FloorFillColor"/>
-    /// aplat is SKIPPED — the layer-1 <see cref="_background"/> sprite,
-    /// snapped onto the floor rect by <see cref="AlignBackgroundToFloorRect"/>,
-    /// IS the floor (J3c-3). Only when no bitmap is wired is the aplat
-    /// <see cref="CanvasItem.DrawRect"/> drawn, as the tolerated no-texture
-    /// fallback. The floor rect itself (used either way for the grid
-    /// superset) is still resolved from the explicit push or the board's
-    /// own viewport.
+    /// <b>Floor.</b> On a placeholder-floor board: if the twin-corner clip
+    /// is on and Mira's wood texture is loaded
+    /// (<see cref="_deskWoodTexture"/>), the wood is painted as TWO textured
+    /// triangles (<see cref="DrawDeskWoodTriangle"/>). If the wood rides the
+    /// full-rect layer-1 sprite (<see cref="_hasFloorBitmap"/>, clip OFF)
+    /// nothing is drawn here — the sprite IS the floor. Only with no
+    /// texture at all is the flat <see cref="FloorFillColor"/> aplat
+    /// drawn, as the tolerated fallback.
     /// </para>
     ///
     /// <para>
     /// <b>Grid.</b> With the grid flag, strokes the iso diamond outline of
     /// every cell; on a placeholder-floor board the grid is striped over
-    /// the whole floor rect (<see cref="DrawGridOverRect"/>), not only the
-    /// 8×8 logical grid. The grid is attenuated (see <see cref="GridLineColor"/>)
-    /// so it reads as a faint developer overlay on the wood.
+    /// the whole floor rect (<see cref="DrawGridOverRect"/>), limited to the
+    /// two wedges while the clip is on. The grid is attenuated (see
+    /// <see cref="GridLineColor"/>) so it reads as a faint developer
+    /// overlay on the wood.
     /// </para>
     /// </summary>
     public override void _Draw()
@@ -650,45 +662,15 @@ public partial class IsoBoard : Node2D
             return;
         }
 
-        // Resolve the desk floor rect. Used to PLACE the aplat (no-texture
-        // fallback) and, either way, to size the grid superset. The wood
-        // bitmap is drawn by the layer-1 Sprite2D, not here — when it is
-        // loaded the aplat DrawRect below is skipped so it cannot hide it.
+        // Resolve the desk floor rect. Used to PLACE the floor (aplat or
+        // carved wood) and, either way, to size the grid superset.
         DeskFloorRectLogic.FloorRect? floorRect = null;
         if (DrawPlaceholderFloor)
         {
             floorRect = _deskFloorFillRect ?? ViewportFloorFillRect();
-            if (floorRect is { } rect && !_hasFloorBitmap)
+            if (floorRect is { } rect)
             {
-                // No-texture placeholder state: the flat aplat is the floor.
-                if (DeskTrianglePlaceholderClip && _deskTriangles is { } tris)
-                {
-                    // TEMPORARY (Rune, 2026-05-22 F6 fix): the desk floor is
-                    // framed to the two bottom-corner wedges, NOT the whole
-                    // viewport rect. Filling the full rect here is exactly
-                    // what hid the layer-B maquette after the clip shader
-                    // was removed. Two triangle fills leave the screen
-                    // centre unpainted so the maquette shows through. When
-                    // Mira's Blender decor lands this branch is deleted and
-                    // the full-rect DrawRect below is the only path.
-                    DrawColoredPolygon(
-                        ToGodotPoly(DeskTrianglePlaceholderLogic.Vertices(
-                            tris.Left)),
-                        FloorFillColor);
-                    DrawColoredPolygon(
-                        ToGodotPoly(DeskTrianglePlaceholderLogic.Vertices(
-                            tris.Right)),
-                        FloorFillColor);
-                }
-                else
-                {
-                    DrawRect(
-                        new Rect2(
-                            rect.TopLeft.X, rect.TopLeft.Y,
-                            rect.Size.X, rect.Size.Y),
-                        FloorFillColor,
-                        filled: true);
-                }
+                DrawDeskFloor(rect);
             }
         }
 
@@ -721,6 +703,98 @@ public partial class IsoBoard : Node2D
         }
 
         DiagDraw(floorRect, cellsDrawn, gridMin, gridMax);
+    }
+
+    /// <summary>
+    /// Draw the desk floor surface for one <see cref="_Draw"/> pass.
+    ///
+    /// <list type="bullet">
+    ///   <item><b>Twin-corner clip ON + wood loaded.</b> Mira's wood bitmap
+    ///     is painted as two textured triangles, one per bottom-corner
+    ///     wedge — the wood appears only in the two corners, leaving the
+    ///     screen centre clear for the layer-B maquette. A Sprite2D could
+    ///     not be carved this way; <see cref="CanvasItem.DrawColoredPolygon"/>
+    ///     with per-vertex UVs can.</item>
+    ///   <item><b>Twin-corner clip ON, no wood texture.</b> The flat
+    ///     <see cref="FloorFillColor"/> aplat is painted in the two wedges
+    ///     (tolerated no-texture fallback).</item>
+    ///   <item><b>Clip OFF.</b> If the wood rides the full-rect layer-1
+    ///     sprite (<see cref="_hasFloorBitmap"/>) nothing is drawn here.
+    ///     Otherwise the aplat fills the whole floor rect.</item>
+    /// </list>
+    /// </summary>
+    private void DrawDeskFloor(DeskFloorRectLogic.FloorRect rect)
+    {
+        if (DeskTrianglePlaceholderClip && _deskTriangles is { } tris)
+        {
+            // The desk floor is confined to the two bottom-corner wedges,
+            // NOT the whole viewport rect — filling the full rect is exactly
+            // what would bury the layer-B maquette (decor A, the BACK layer,
+            // cannot mask C). The screen centre is left unpainted so the
+            // maquette shows through.
+            if (_deskWoodTexture is not null)
+            {
+                // Mira's wood bitmap, carved to each wedge. The wood texture
+                // is authored at the desk floor-rect size, so a board-local
+                // point p maps to texture pixel (p - rect.TopLeft).
+                DrawDeskWoodTriangle(tris.Left, rect);
+                DrawDeskWoodTriangle(tris.Right, rect);
+            }
+            else
+            {
+                // No-texture fallback: the flat aplat in the two wedges.
+                DrawColoredPolygon(
+                    ToGodotPoly(DeskTrianglePlaceholderLogic.Vertices(tris.Left)),
+                    FloorFillColor);
+                DrawColoredPolygon(
+                    ToGodotPoly(DeskTrianglePlaceholderLogic.Vertices(tris.Right)),
+                    FloorFillColor);
+            }
+            return;
+        }
+
+        // Clip OFF. If the wood rides the full-rect layer-1 sprite, the
+        // sprite IS the floor — draw nothing. Otherwise the aplat fills the
+        // whole rect (no-texture fallback).
+        if (!_hasFloorBitmap)
+        {
+            DrawRect(
+                new Rect2(rect.TopLeft.X, rect.TopLeft.Y, rect.Size.X, rect.Size.Y),
+                FloorFillColor,
+                filled: true);
+        }
+    }
+
+    /// <summary>
+    /// Paint Mira's desk wood bitmap inside one bottom-corner wedge
+    /// triangle, via <see cref="CanvasItem.DrawColoredPolygon"/> with
+    /// per-vertex UVs.
+    ///
+    /// <para>
+    /// The wood texture (<see cref="_deskWoodTexture"/>) is authored at the
+    /// desk floor-rect size, registered onto the rect's top-left. A
+    /// board-local point <c>p</c> therefore samples the texture at pixel
+    /// <c>p - rect.TopLeft</c> — that is the UV for each triangle vertex.
+    /// Godot 4 <see cref="CanvasItem.DrawColoredPolygon"/> takes UVs in
+    /// texture pixels.
+    /// </para>
+    /// </summary>
+    private void DrawDeskWoodTriangle(
+        DeskTrianglePlaceholderLogic.Triangle tri,
+        DeskFloorRectLogic.FloorRect rect)
+    {
+        var verts = DeskTrianglePlaceholderLogic.Vertices(tri);
+        var points = new Vector2[verts.Length];
+        var uvs = new Vector2[verts.Length];
+        for (int i = 0; i < verts.Length; i++)
+        {
+            points[i] = new Vector2(verts[i].X, verts[i].Y);
+            uvs[i] = new Vector2(
+                verts[i].X - rect.TopLeft.X,
+                verts[i].Y - rect.TopLeft.Y);
+        }
+        // White modulate => the wood texture's own colour is shown unchanged.
+        DrawColoredPolygon(points, Colors.White, uvs, _deskWoodTexture);
     }
 
     /// <summary>
@@ -767,12 +841,11 @@ public partial class IsoBoard : Node2D
                 {
                     continue;
                 }
-                // TEMPORARY (Rune, 2026-05-22 F6 fix): when the desk floor is
-                // framed to the two bottom-corner wedges, only stripe a cell
-                // whose centre falls inside one of them — the grid then
-                // reads as "the desk lives in the corners", not a full-screen
-                // square lattice over the maquette. Deleted with the rest of
-                // the placeholder when Mira's decor lands.
+                // When the desk floor is carved to the two bottom-corner
+                // wedges, only stripe a cell whose centre falls inside one
+                // of them — the grid then reads as "the desk lives in the
+                // corners", not a full-screen square lattice over the
+                // maquette.
                 if (DeskTrianglePlaceholderClip && _deskTriangles is { } tris
                     && !DeskTrianglePlaceholderLogic.Contains(
                         tris, new SysVec2(centre.X, centre.Y)))
@@ -792,7 +865,7 @@ public partial class IsoBoard : Node2D
     /// polygon vertices (from the Godot-free
     /// <see cref="DeskTrianglePlaceholderLogic"/>) into the
     /// <see cref="Vector2"/>[] a <see cref="CanvasItem.DrawColoredPolygon"/>
-    /// call expects. Temporary — removed with the placeholder.
+    /// call expects.
     /// </summary>
     private static Vector2[] ToGodotPoly(SysVec2[] points)
     {
@@ -814,11 +887,11 @@ public partial class IsoBoard : Node2D
             centre + new Vector2(0f, halfH),      // bottom
             centre + new Vector2(-halfW, 0f),     // left
         };
-        // J3c-3: GridFillColor alpha is 0 — over the wood bitmap the
-        // diamonds no longer tint the floor; only the hairline outline is
-        // visible. The DrawColoredPolygon call is kept (cost negligible,
-        // and a future debug build can re-raise the fill alpha) but it
-        // paints nothing while the alpha stays 0.
+        // GridFillColor alpha is 0 — over the wood bitmap the diamonds no
+        // longer tint the floor; only the hairline outline is visible. The
+        // DrawColoredPolygon call is kept (cost negligible, and a future
+        // debug build can re-raise the fill alpha) but it paints nothing
+        // while the alpha stays 0.
         if (GridFillColor.A > 0f)
         {
             DrawColoredPolygon(diamond, GridFillColor);
@@ -850,7 +923,7 @@ public partial class IsoBoard : Node2D
 
     /// <summary>
     /// Snap the layer-1 <see cref="_background"/> sprite so its top-left
-    /// corner registers on the desk floor rect's top-left corner (J3c-3).
+    /// corner registers on the desk floor rect's top-left corner.
     ///
     /// <para>
     /// The sprite is <c>Centered = false</c>, so its <c>Position</c> IS its
@@ -859,9 +932,14 @@ public partial class IsoBoard : Node2D
     /// offset from the board origin — so the sprite cannot just sit at the
     /// origin. Mira authored <c>wf_e1_desk_wood_floor.png</c> at exactly the
     /// floor rect's size (slack included), so this single snap registers
-    /// the wood pixel-exact on the same rect the flat aplat used to fill;
-    /// the triangular clip shader on <c>DeskFloorTextureRect</c> then carves
-    /// the corner triangles out of it, identically to the aplat.
+    /// the wood pixel-exact on the same rect the flat aplat used to fill.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Only called when the wood rides the full-rect sprite (clip OFF).</b>
+    /// When the twin-corner clip is on, the wood is carved by
+    /// <see cref="_Draw"/> and the sprite carries nothing, so this is never
+    /// called for the desk board.
     /// </para>
     /// </summary>
     private void AlignBackgroundToFloorRect(DeskFloorRectLogic.FloorRect rect)
@@ -890,11 +968,23 @@ public partial class IsoBoard : Node2D
         GD.Print($"[DESK-DIAG] IsoBoard._Draw '{Name}': " +
                  $"viewportRenderSize={(vp?.GetVisibleRect().Size.ToString() ?? "(none)")} " +
                  $"camera2DPos={(cam?.Position.ToString() ?? "(none)")}");
-        GD.Print($"[DESK-DIAG]   floor source: " +
-                 $"{(_hasFloorBitmap ? $"WOOD BITMAP ('{BackgroundTexturePath}', " +
-                     $"size={_background.Texture?.GetSize().ToString() ?? "(none)"}, " +
-                     $"spriteTopLeft={_background.Position}) — flat aplat SKIPPED"
-                   : "FLAT APLAT (no BackgroundTexturePath — placeholder state)")}");
+        string floorSource;
+        if (_deskWoodTexture is not null)
+        {
+            floorSource = $"WOOD BITMAP carved to 2 wedges ('{BackgroundTexturePath}', " +
+                          $"size={_deskWoodTexture.GetSize()})";
+        }
+        else if (_hasFloorBitmap)
+        {
+            floorSource = $"WOOD BITMAP full-rect sprite ('{BackgroundTexturePath}', " +
+                          $"size={_background.Texture?.GetSize().ToString() ?? "(none)"}, " +
+                          $"spriteTopLeft={_background.Position})";
+        }
+        else
+        {
+            floorSource = "FLAT APLAT (no BackgroundTexturePath — placeholder state)";
+        }
+        GD.Print($"[DESK-DIAG]   floor source: {floorSource}");
         if (floorRect is { } fr)
         {
             GD.Print($"[DESK-DIAG]   floor rect: topLeft=({fr.TopLeft.X},{fr.TopLeft.Y}) " +
@@ -911,12 +1001,13 @@ public partial class IsoBoard : Node2D
                  $"pixelBounds min=({gridMin.X},{gridMin.Y}) max=({gridMax.X},{gridMax.Y})");
         if (DeskTrianglePlaceholderClip)
         {
-            GD.Print($"[DESK-DIAG]   desk floor framing: " +
-                     $"TEMPORARY twin-corner triangle placeholder " +
-                     $"(clip={(_deskTriangles is null ? "NOT SET" : "set")}) " +
-                     $"-- floor + grid drawn only in the two bottom-corner " +
+            GD.Print($"[DESK-DIAG]   desk floor framing: twin-corner CPU carve " +
+                     $"(triangles={(_deskTriangles is null ? "NOT SET" : "set")}) " +
+                     $"-- wood + grid painted only in the two bottom-corner " +
                      $"wedges; screen centre left clear for the maquette. " +
-                     $"Removed when Mira's Blender decor lands.");
+                     $"Decor A is the BACK layer, so its alpha holes cannot " +
+                     $"mask layer C -- this CPU carve is what confines the " +
+                     $"desk floor.");
         }
         if (floorRect is { } f2 && gridCellsDrawn > 0)
         {
@@ -925,7 +1016,8 @@ public partial class IsoBoard : Node2D
                 && gridMax.X >= f2.TopLeft.X + f2.Size.X
                 && gridMax.Y >= f2.TopLeft.Y + f2.Size.Y;
             GD.Print($"[DESK-DIAG]   GRID-COVERS-FLOOR={gridCoversFloor} " +
-                     $"(false => bare-floor wedge with no grid)");
+                     $"(with the twin-corner carve the grid covers only the " +
+                     $"two wedges, so false here is expected and correct)");
         }
         GD.Print($"[DESK-DIAG]   colours: FloorFillColor(rgba)=" +
                  $"({FloorFillColor.R},{FloorFillColor.G},{FloorFillColor.B},{FloorFillColor.A}) " +
@@ -938,9 +1030,18 @@ public partial class IsoBoard : Node2D
     /// tolerated placeholder state (no district / desk-floor texture wired)
     /// — logged, not fatal: the maquette runs without it and a
     /// placeholder-floor board falls back to the flat aplat. A non-empty
-    /// path that fails to resolve is a real error. On success
-    /// <see cref="_hasFloorBitmap"/> flips true, which makes <see cref="_Draw"/>
-    /// skip the placeholder aplat (J3c-3).
+    /// path that fails to resolve is a real error.
+    ///
+    /// <para>
+    /// <b>Routing.</b> When the twin-corner clip
+    /// (<see cref="DeskTrianglePlaceholderClip"/>) is on, the loaded texture
+    /// is kept in <see cref="_deskWoodTexture"/> and NOT placed on the
+    /// full-rect <see cref="_background"/> sprite — a Sprite2D quad cannot
+    /// be carved to two triangles and would bury the maquette.
+    /// <see cref="_Draw"/> paints the carved wood instead. Otherwise the
+    /// texture goes onto the layer-1 sprite as a normal full-rect floor and
+    /// <see cref="_hasFloorBitmap"/> flips true.
+    /// </para>
     /// </summary>
     private void LoadBackground()
     {
@@ -958,10 +1059,23 @@ public partial class IsoBoard : Node2D
                          $"'{BackgroundTexturePath}'.");
             return;
         }
+
+        if (DeskTrianglePlaceholderClip)
+        {
+            // Desk wood under the twin-corner clip: held off the full-rect
+            // sprite, carved by _Draw into the two bottom-corner wedges.
+            _deskWoodTexture = texture;
+            GD.Print($"[IsoBoard] desk wood bitmap loaded '{BackgroundTexturePath}' " +
+                     $"size={texture.GetSize()} — held for the twin-corner CPU " +
+                     $"carve (NOT placed on the full-rect sprite, which would " +
+                     $"bury the maquette).");
+            return;
+        }
+
         _background.Texture = texture;
         _hasFloorBitmap = true;
         GD.Print($"[IsoBoard] floor bitmap loaded '{BackgroundTexturePath}' " +
-                 $"size={texture.GetSize()} — placeholder aplat will be skipped.");
+                 $"size={texture.GetSize()} on the full-rect layer-1 sprite.");
     }
 
     /// <summary>
@@ -972,11 +1086,9 @@ public partial class IsoBoard : Node2D
     /// sidecar read (design doc §2).
     ///
     /// <para>
-    /// J3c-3 note: this anchor is unchanged by the wood-floor wire-in. The
-    /// projection (cell ↔ pixel) is independent of where the layer-1 sprite
-    /// sits — <see cref="AlignBackgroundToFloorRect"/> moves only the
-    /// sprite, never the projection — so the J3c-2 click routing and the
-    /// pawn placement are untouched.
+    /// This anchor is unchanged by the wood-floor wire-in. The projection
+    /// (cell ↔ pixel) is independent of where the layer-1 sprite sits — the
+    /// J3c-2 click routing and the pawn placement are untouched.
     /// </para>
     /// </summary>
     private SysVec2 ComputeAnchorPixel()
@@ -1001,10 +1113,12 @@ public partial class IsoBoard : Node2D
                  $"{_background.Texture?.GetSize().ToString() ?? "(none)"} " +
                  $"centered={_background.Centered} " +
                  $"spriteTopLeft={_background.Position} " +
-                 $"hasFloorBitmap={_hasFloorBitmap}");
+                 $"hasFloorBitmap={_hasFloorBitmap} " +
+                 $"deskWoodTexture={(_deskWoodTexture is null ? "(none)" : _deskWoodTexture.GetSize().ToString())}");
         GD.Print($"[IsoBoard] preflight: grid cells={grid.Count} " +
                  $"placeholder={PlaceholderGridWidth}x{PlaceholderGridHeight} " +
-                 $"drawGrid={DrawPlaceholderGrid} drawFloor={DrawPlaceholderFloor}");
+                 $"drawGrid={DrawPlaceholderGrid} drawFloor={DrawPlaceholderFloor} " +
+                 $"twinCornerClip={DeskTrianglePlaceholderClip}");
         GD.Print($"[IsoBoard] preflight: projection tile=" +
                  $"{proj.TileWidth}x{proj.TileHeight} anchor={proj.AnchorPixel}");
 

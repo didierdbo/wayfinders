@@ -4,6 +4,7 @@ using Wayfinders.Client.Scenes.Ui;
 using Wayfinders.Client.Scripts.Screens;
 using Wayfinders.Client.Services;
 using Wayfinders.Client.Services.Dtos;
+using Wayfinders.Client.Utils;
 using SysVec2 = System.Numerics.Vector2;
 
 namespace Wayfinders.Client.Scenes.Screens;
@@ -26,15 +27,21 @@ namespace Wayfinders.Client.Scenes.Screens;
 //  carries its own shape in two passes. The scaffold is removed: the
 //  decor IS its own shape.
 //
+//  DECOR WIRED IN (Rune, 2026-05-22 — Mira's Blender decor landed). The
+//  three decor assets are now wired: layers A and D carry Mira's two
+//  Blender render passes, layer C's desk floor carries Mira's wood-floor
+//  bitmap. The grey/liseré placeholders are gone. ONE placeholder survives
+//  on purpose — the DeskTrianglePlaceholderClip — see layer C below for the
+//  stacking-order reason it is NOT redundant with the decor.
+//
 //  THE FOUR LAYERS — draw order, back to front: A -> B -> C -> D -> HUD.
 //
 //   A. BACK DECOR  (LayerABackDecor)
-//        A full-screen TextureRect. In the shipped game this carries the
-//        Blender "back" render pass — the cartographer's desk-furniture, the
-//        recess floor, everything painted BEHIND the map. FROZEN — never
-//        moves. RIGHT NOW it is a GREY PLACEHOLDER (a flat ColorRect-style
-//        texture stamped "LAYER A — back decor placeholder") so the layout
-//        can be locked before Mira's costly Blender render lands.
+//        A full-screen TextureRect carrying Mira's Blender "back" render
+//        pass — the cartographer's desk-furniture, the recess floor,
+//        everything painted BEHIND the map. The asset is opaque except for
+//        TWO triangular alpha holes at the desk-corner positions. FROZEN —
+//        never moves. Asset: wf_e1_gamescreen_decor_back.png (1920x1080).
 //
 //   B. MAQUETTE  (MapViewportContainer / MapViewport / Maquette)
 //        The pannable district maquette — UNCHANGED from J3a/J3b. A
@@ -52,35 +59,56 @@ namespace Wayfinders.Client.Scenes.Screens;
 //        zone; the two triangles keep their live iso grid + interactive
 //        pawns. The two-board / one-shared-camera-frame split is preserved
 //        verbatim (it is what makes the pawns sit on the floor and the
-//        J3c-2 routing a single affine map) — only the clip shader is gone.
-//        The floor TextureRect now carries NO material.
+//        J3c-2 routing a single affine map).
 //
-//        TEMPORARY GAP-FILLER (Rune, 2026-05-22 — F6-readability fix).
-//        Removing the clip shader left the desk floor rendering as a FULL
-//        OPAQUE RECTANGLE that buried the layer-B maquette: the F6 smoke
-//        became unreadable. Until Mira's Blender decor carries the
-//        desk-floor shape, the placeholder desk floor is framed to the two
-//        bottom-corner wedges by a CPU draw-time clip
-//        (DeskTrianglePlaceholderLogic + IsoBoard.DeskTrianglePlaceholderClip).
-//        This is NOT the removed clip shader returning — it is a draw-time
-//        decision (which cells / which aplat to skip), no shader, no
-//        material, no UV uniforms. The desk wood bitmap is also dropped for
-//        the gap (a full-rect Sprite2D cannot be carved by a CPU clip); the
-//        placeholder aplat returns. When Mira's decor lands, delete the
-//        flag, the helper, and re-load the wood bitmap.
+//        WHY THE TWIN-CORNER CLIP STILL EXISTS — AND IS NOT REDUNDANT WITH
+//        DECOR A (Rune, 2026-05-22, the stacking-order verdict). Mira's
+//        back decor (A) carries two triangular alpha holes; the intuition
+//        is "A masks the desk floor everywhere except the two holes". That
+//        intuition does NOT hold with the locked draw order A -> B -> C
+//        -> D: layer A is BEHIND layer C. A texture drawn BEFORE C cannot
+//        mask C — C paints over it. Through A's two alpha holes you see
+//        whatever is behind A (the window background), and everywhere else
+//        you see A's opaque furniture; but layer C is drawn LATER, on top
+//        of A, so A's alpha cannot confine C at all. The desk floor's wood
+//        bitmap is authored as a FULL viewport-covering rectangle (sized
+//        to desk_floor_rect, the whole desk viewport). If it rendered
+//        unclipped it would cover the entire screen and bury the layer-B
+//        maquette — the exact F6 bug. So the desk floor (C) must be
+//        confined to the two corner wedges by SOMETHING OTHER than A's
+//        alpha. That something is the CPU draw-time clip
+//        (DeskTrianglePlaceholderClip + DeskTrianglePlaceholderLogic): it
+//        decides which fragments of the desk wood IsoBoard._Draw paints,
+//        confining the wood to the two bottom-corner triangles. A and the
+//        clip are COMPLEMENTARY, not redundant — A fills the furniture
+//        around the holes, the clip confines the live desk wood INTO the
+//        hole positions. The clip stays. It is NOT the removed UV clip
+//        shader returning — no shader, no material, no UV uniforms, just a
+//        draw-time point-in-triangle skip. It will be retired only when a
+//        decor that genuinely sits ABOVE C in the draw order (or a
+//        decor-supplied desk_floor_rect that is itself two triangles)
+//        lands; that is a future asset change, not this commit.
+//
+//        DESK WOOD BITMAP — CARVED, NOT FULL-RECT. Mira's
+//        wf_e1_desk_wood_floor.png is wired as the DeskFloorBoard's
+//        BackgroundTexturePath. While the twin-corner clip is on, the wood
+//        does NOT go onto the layer-1 full-rect Sprite2D (a Sprite2D
+//        cannot be carved by a CPU clip — it would render full-screen and
+//        bury the maquette). Instead IsoBoard loads the wood texture and
+//        IsoBoard._Draw paints it as TWO textured triangles via
+//        DrawColoredPolygon(points, uvs, texture) — the wood appears
+//        inside exactly the two bottom-corner wedges. Same carve the flat
+//        aplat used to get; the only change is the aplat became Mira's
+//        bitmap.
 //
 //   D. FRONT DECOR  (LayerDFrontDecor)
-//        A full-screen TextureRect with alpha. In the shipped game this
-//        carries the Blender "front" pass — the recess lip, the carved
-//        furniture edges that must paint OVER the map and the desk floor to
-//        sell the "the map is inset" illusion. FROZEN. Drawn AFTER C and
-//        BEFORE the HUD. RIGHT NOW it is a MOSTLY-TRANSPARENT placeholder
-//        carrying only a THIN iso-diamond liseré around the maquette window
-//        (the "losange-creux") plus an on-screen label — NOT a full-screen
-//        opaque grid (that grid was exactly what buried the maquette in the
-//        first 4-layer F6). The liseré is semi-transparent on purpose, so
-//        the F6 smoke can VERIFY layer D really does paint over both B (the
-//        maquette) and C (the desk wedges) while hiding almost nothing.
+//        A full-screen TextureRect with alpha carrying Mira's Blender
+//        "front" pass — the recess lip, the carved furniture edges, the
+//        cast shadow that must paint OVER the map and the desk floor to
+//        sell the "the map is inset" illusion. Transparent everywhere
+//        else. FROZEN. Drawn AFTER C and BEFORE the HUD. Asset:
+//        wf_e1_gamescreen_decor_front.png (1920x1080 RGBA). Same Blender
+//        camera as A => the two decor textures overlay pixel-exact.
 //        MouseFilter = Ignore: it is purely visual and must never eat a
 //        click.
 //
@@ -90,7 +118,7 @@ namespace Wayfinders.Client.Scenes.Screens;
 //  WHY THE DESK STILL HAS TWO SUBVIEWPORTS (the part that must NOT regress).
 //  The floor and the pawns are split into two co-located SubViewports —
 //  DeskFloorViewport and DeskEntitiesViewport — sharing ONE camera frame.
-//  This is NOT about the (now-removed) clip: a pawn standing near the
+//  This is NOT about the (now-removed) clip shader: a pawn standing near the
 //  shipped decor's recess edge has its body and head extending UP, above
 //  the desk zone, into the maquette zone — a figurine is taller than the
 //  table it stands on. The pawns therefore ride their own UNCLIPPED
@@ -119,7 +147,8 @@ namespace Wayfinders.Client.Scenes.Screens;
 //      -> DeskEntitiesTextureRect, full screen, NO material  [-> screen]
 //  The floor flows the identical path through DeskFloorBoard /
 //  DeskFloorCamera2D / DeskFloorViewport / DeskFloorTextureRect — the floor
-//  TextureRect now carries NO material (the clip shader is gone).
+//  TextureRect carries NO material (the clip shader is gone; the carve is
+//  a CPU draw-time decision inside IsoBoard._Draw).
 //
 //  INPUT FLOW (J3c-2, the inverse direction — unchanged).
 //    screen pixel (left-click in _UnhandledInput)
@@ -143,43 +172,32 @@ namespace Wayfinders.Client.Scenes.Screens;
 /// <b>The four layers (draw order back-to-front: A → B → C → D → HUD).</b>
 /// <list type="bullet">
 ///   <item><b>A — back decor.</b> A full-screen <see cref="TextureRect"/>
-///     (<c>LayerABackDecor</c>). Frozen. Carries the Blender back-pass in
-///     the shipped game; a <b>grey placeholder</b> for now.</item>
+///     (<c>LayerABackDecor</c>) carrying Mira's Blender back-pass render
+///     (<c>wf_e1_gamescreen_decor_back.png</c>). Opaque with two triangular
+///     alpha holes at the desk corners. Frozen.</item>
 ///   <item><b>B — maquette.</b> The pannable district maquette
 ///     (<c>MapViewportContainer</c>) — unchanged from J3a/J3b, nudged down
 ///     by <see cref="MapRecessDepthPx"/>.</item>
 ///   <item><b>C — desk board.</b> The interactive iso desk + the 7 Company
 ///     pawns + J3c-2 click selection/placement — preserved functionally.
 ///     The desk floor stays a live <see cref="IsoBoard"/> (Didier's option
-///     Beta), framed by — not painted into — the decor.</item>
+///     Beta), carrying Mira's wood bitmap carved to the two corner wedges
+///     by the CPU twin-corner clip.</item>
 ///   <item><b>D — front decor.</b> A full-screen alpha
-///     <see cref="TextureRect"/> (<c>LayerDFrontDecor</c>). Frozen. Carries
-///     the Blender front-pass (recess lip) in the shipped game; a
-///     <b>mostly-transparent placeholder — a thin iso-diamond liseré around
-///     the maquette window plus an on-screen label</b> for now, so the F6
-///     smoke can verify it paints over B and C without burying them.</item>
+///     <see cref="TextureRect"/> (<c>LayerDFrontDecor</c>) carrying Mira's
+///     Blender front-pass render (<c>wf_e1_gamescreen_decor_front.png</c>)
+///     — the recess lip + cast shadow. Frozen.</item>
 /// </list>
 /// </para>
 ///
 /// <para>
-/// <b>What the 4-layer rework removed (Rune, 2026-05-22).</b> The
-/// <c>desk_triangle_clip.gdshader</c> and its pure-C#
-/// <c>DeskClipFrontierLogic</c> are gone. They were a scaffold — a way to
-/// cut a rectangular SubViewport render into two corner triangles without a
-/// painted asset. The four-layer model replaces that with a Blender front
-/// decor (layer D) that carries its own alpha-cut shape: the decor IS its
-/// own shape, so the procedural clip has nothing left to do. The desk
-/// floor <see cref="TextureRect"/> now carries no material.
-/// </para>
-///
-/// <para>
-/// <b>What survives untouched.</b> The pannable maquette (J3a), the fixed
-/// HUD frame (J3b), the desk's two-SubViewport / one-shared-camera split,
-/// and the whole J3c-2 click pipeline (<see cref="DeskInputRoutingLogic"/>
-/// → <c>PixelToCell</c> → <see cref="DeskSelectionLogic"/> →
-/// <c>GameState</c>). The two desk SubViewports are kept because a pawn is
-/// taller than the desk floor and must be able to overflow above it without
-/// being sliced — that reason is independent of the (now-removed) clip.
+/// <b>Why the twin-corner clip survives (the stacking-order verdict).</b>
+/// Decor A is the BACK layer (drawn before C). A's two alpha holes cannot
+/// mask the desk floor C, because C is drawn ON TOP of A. The desk wood is
+/// authored as a full viewport-covering rectangle; without the CPU clip it
+/// would bury the layer-B maquette. A fills the furniture around the holes;
+/// the clip confines the live desk wood into the hole positions. They are
+/// complementary, not redundant — see the boxed comment above.
 /// </para>
 ///
 /// <para>
@@ -215,6 +233,21 @@ public partial class GameScreen : Control
     /// <c>-offset_top</c> in <c>GameScreen.tscn</c>.
     /// </summary>
     private const float HudBandHeight = 32f;
+
+    /// <summary>
+    /// <c>res://</c> path of Mira's Blender back-pass render — layer A.
+    /// Loaded through <see cref="AssetLoader.LoadTextureWithUserOverride"/>
+    /// so a <c>user://</c> hot-swap works without a rebuild (trap #13).
+    /// </summary>
+    private const string DecorBackTexturePath =
+        "res://assets/wayfinders_visual_assets/e1/wf_e1_gamescreen_decor_back.png";
+
+    /// <summary>
+    /// <c>res://</c> path of Mira's Blender front-pass render (RGBA, alpha) —
+    /// layer D. Loaded through <see cref="AssetLoader.LoadTextureWithUserOverride"/>.
+    /// </summary>
+    private const string DecorFrontTexturePath =
+        "res://assets/wayfinders_visual_assets/e1/wf_e1_gamescreen_decor_front.png";
 
     /// <summary>
     /// <b>The recess-depth knob — the cosmetic vertical offset of layer B
@@ -366,10 +399,9 @@ public partial class GameScreen : Control
         ApplyResidualRect(residual);
         _mapViewport.Size = (Vector2I)_mapContainer.Size;
 
-        // Layer A / D placeholders fill the whole screen. Layer D is given
-        // the residual map rect so it can draw a THIN iso-diamond liseré
-        // around the maquette window — not a full-screen opaque grid.
-        ConfigureDecorPlaceholders(screen, residual);
+        // Layers A and D: load Mira's two Blender decor passes onto the two
+        // full-screen decor TextureRects.
+        ConfigureDecor();
 
         // Park the maquette camera on the content's GEOMETRIC CENTRE so the
         // maquette is centred on screen.
@@ -543,145 +575,61 @@ public partial class GameScreen : Control
     }
 
     /// <summary>
-    /// Stand up the layer-A and layer-D placeholders so the F6 smoke reads
-    /// the four-layer structure WITHOUT the (removed) clip scaffold and
-    /// WITHOUT the full-screen opaque grid that used to bury the maquette.
+    /// Wire Mira's two Blender decor passes onto the layer-A and layer-D
+    /// <see cref="TextureRect"/>s. Both are full-screen, calibrated 1:1 with
+    /// the screen (the assets are authored at the 1920x1080 target
+    /// resolution under one frozen ortho Blender camera — design doc §4,
+    /// calibration rules 1+2).
     ///
     /// <para>
-    /// <b>Layer A — back decor.</b> An opaque warm-grey fill, full screen.
-    /// A <c>LayerALabel</c> child (authored in <c>GameScreen.tscn</c>) names
-    /// it on screen so Didier identifies the zone — "COUCHE A — décor
-    /// arrière (placeholder, sera le rendu Blender)". Frozen.
+    /// <b>Layer A — back decor.</b> Mira's opaque back-pass with two
+    /// triangular alpha holes at the desk corners. Drawn first.
     /// </para>
     ///
     /// <para>
-    /// <b>Layer D — front decor.</b> NOT a full-screen opaque grid anymore
-    /// (that grid is exactly what made the F6 unreadable). It is now a
-    /// mostly-transparent texture carrying only a THIN semi-transparent
-    /// iso-diamond <i>liseré</i> traced around the maquette window — the
-    /// "losange-creux" through which layers B and C show. The
-    /// <c>LayerDLabel</c> child names it. The liseré proves layer D paints
-    /// OVER B and C (it draws on top of the maquette diamond edge) while
-    /// hiding almost nothing. Frozen, <c>MouseFilter = Ignore</c>.
+    /// <b>Layer D — front decor.</b> Mira's RGBA front-pass — the recess lip
+    /// and its cast shadow, transparent everywhere else. Drawn after the
+    /// desk layers, before the HUD, so it paints OVER both B and C.
+    /// <c>MouseFilter = Ignore</c>: purely visual, never eats a click.
     /// </para>
     ///
     /// <para>
-    /// <b>Temporary.</b> When Mira delivers the real Blender passes this
-    /// method is replaced by loading the two render textures; the labels and
-    /// the procedural liseré are dropped. The rest of the scene is
-    /// unaffected.
+    /// <b>Calibration.</b> Both decor rects are full-screen anchors-15 in
+    /// the <c>.tscn</c>; the assets are 1920x1080 and the window is the same
+    /// — so 1 decor pixel = 1 screen pixel, no scaling, A and D overlay
+    /// pixel-exact (same Blender camera). <see cref="TextureFilterEnum.Nearest"/>
+    /// because there is no scaling to smooth.
     /// </para>
     /// </summary>
-    /// <param name="screen">The real screen size in pixels.</param>
-    /// <param name="residual">
-    /// The residual maquette rect (screen minus the two HUD bands) — the
-    /// window the layer-D liseré is traced around.
-    /// </param>
-    private void ConfigureDecorPlaceholders(Vector2 screen, HudRect residual)
+    private void ConfigureDecor()
     {
-        var size = (Vector2I)screen;
-
-        // Layer A — opaque warm-grey, "back decor" stand-in. The on-screen
-        // LayerALabel (in the .tscn) identifies the zone.
-        _layerABackDecor.Texture = MakeFlatPlaceholder(
-            size, new Color(0.30f, 0.29f, 0.31f, 1f));
+        var backTex = AssetLoader.LoadTextureWithUserOverride(DecorBackTexturePath);
+        if (backTex is not null)
+        {
+            _layerABackDecor.Texture = backTex;
+        }
+        else
+        {
+            GD.PushError("[GameScreen] layer A back decor texture failed to " +
+                         $"load ('{DecorBackTexturePath}').");
+        }
+        _layerABackDecor.TextureFilter = TextureFilterEnum.Nearest;
         _layerABackDecor.MouseFilter = MouseFilterEnum.Ignore;
 
-        // Layer D — a thin semi-transparent iso-diamond liseré around the
-        // maquette window, transparent everywhere else. The F6 smoke can
-        // SEE the liseré sit OVER the maquette diamond and the desk wedges,
-        // proving the draw order, without burying B or C.
-        _layerDFrontDecor.Texture = MakeDiamondLiserePlaceholder(size, residual);
+        var frontTex = AssetLoader.LoadTextureWithUserOverride(DecorFrontTexturePath);
+        if (frontTex is not null)
+        {
+            _layerDFrontDecor.Texture = frontTex;
+        }
+        else
+        {
+            GD.PushError("[GameScreen] layer D front decor texture failed to " +
+                         $"load ('{DecorFrontTexturePath}').");
+        }
+        _layerDFrontDecor.TextureFilter = TextureFilterEnum.Nearest;
         // Purely visual — never eats a click (a decor TextureRect must not
         // block the desk's _UnhandledInput routing).
         _layerDFrontDecor.MouseFilter = MouseFilterEnum.Ignore;
-    }
-
-    /// <summary>
-    /// Build a flat single-colour <see cref="ImageTexture"/> at the given
-    /// size — the layer-A placeholder fill.
-    /// </summary>
-    private static ImageTexture MakeFlatPlaceholder(Vector2I size, Color fill)
-    {
-        var image = Image.CreateEmpty(size.X, size.Y, false, Image.Format.Rgba8);
-        image.Fill(fill);
-        return ImageTexture.CreateFromImage(image);
-    }
-
-    /// <summary>
-    /// <b>TEMPORARY (Rune, 2026-05-22 F6-readability fix).</b> Build the
-    /// layer-D placeholder texture: fully transparent everywhere except a
-    /// thin semi-transparent iso-diamond <i>liseré</i> inscribed in the
-    /// residual maquette rect — the "losange-creux" outline.
-    ///
-    /// <para>
-    /// The diamond is the iso 2:1 rhombus inscribed in the residual rect:
-    /// apexes at the top, right, bottom and left mid-edges. The liseré is a
-    /// few pixels thick. It is drawn so the F6 smoke confirms layer D paints
-    /// over the maquette (B) and the desk wedges (C) — the previous
-    /// full-screen opaque grid hid both. Replaced by Mira's Blender
-    /// front-pass texture; the rest of the scene is unaffected.
-    /// </para>
-    /// </summary>
-    private static ImageTexture MakeDiamondLiserePlaceholder(
-        Vector2I size, HudRect residual)
-    {
-        const int thickness = 5;
-        var image = Image.CreateEmpty(size.X, size.Y, false, Image.Format.Rgba8);
-        image.Fill(new Color(0f, 0f, 0f, 0f)); // fully transparent
-
-        var liseColor = new Color(0.82f, 0.78f, 0.66f, 0.55f);
-
-        // The iso-diamond apexes inscribed in the residual rect.
-        float cx = residual.X + residual.Width * 0.5f;
-        float cy = residual.Y + residual.Height * 0.5f;
-        float halfW = residual.Width * 0.5f;
-        float halfH = residual.Height * 0.5f;
-
-        var top = new Vector2(cx, residual.Y);
-        var right = new Vector2(residual.X + residual.Width, cy);
-        var bottom = new Vector2(cx, residual.Y + residual.Height);
-        var left = new Vector2(residual.X, cy);
-
-        StrokeSegment(image, size, top, right, thickness, liseColor);
-        StrokeSegment(image, size, right, bottom, thickness, liseColor);
-        StrokeSegment(image, size, bottom, left, thickness, liseColor);
-        StrokeSegment(image, size, left, top, thickness, liseColor);
-
-        return ImageTexture.CreateFromImage(image);
-    }
-
-    /// <summary>
-    /// <b>TEMPORARY</b> — stamp a thick line segment into an
-    /// <see cref="Image"/> for the layer-D liseré. A simple per-pixel walk:
-    /// the liseré is a one-shot placeholder, not a hot path.
-    /// </summary>
-    private static void StrokeSegment(
-        Image image, Vector2I size, Vector2 a, Vector2 b,
-        int thickness, Color color)
-    {
-        float length = a.DistanceTo(b);
-        int steps = Mathf.Max(1, Mathf.CeilToInt(length));
-        int half = thickness / 2;
-        for (int i = 0; i <= steps; i++)
-        {
-            float t = (float)i / steps;
-            var p = a.Lerp(b, t);
-            int px = Mathf.RoundToInt(p.X);
-            int py = Mathf.RoundToInt(p.Y);
-            for (int dx = -half; dx <= half; dx++)
-            {
-                for (int dy = -half; dy <= half; dy++)
-                {
-                    int x = px + dx;
-                    int y = py + dy;
-                    if (x >= 0 && x < size.X && y >= 0 && y < size.Y)
-                    {
-                        image.SetPixel(x, y, color);
-                    }
-                }
-            }
-        }
     }
 
     /// <summary>
@@ -766,21 +714,26 @@ public partial class GameScreen : Control
         _deskEntitiesCamera.Position = deskCameraPos;
 
         // Compute the viewport-covering floor fill rect from the FINAL
-        // camera position; only the FLOOR board fills it.
+        // camera position; only the FLOOR board fills it. This rect is also
+        // the rect Mira's wf_e1_desk_wood_floor.png is authored against
+        // (the [MIRA-LAYOUT] desk_floor_rect) — the wood bitmap registers
+        // pixel-exact on it.
         var floorRect = DeskFloorRectLogic.Compute(
             ToSys(deskCameraPos),
             new SysVec2(deskVisibleSize.X, deskVisibleSize.Y));
         _deskFloorBoard.SetDeskFloorFillRect(floorRect);
 
-        // TEMPORARY (Rune, 2026-05-22 — F6-readability fix). The
-        // desk_triangle_clip shader is gone; until Mira's Blender decor
-        // carries the desk-floor shape, frame the placeholder desk floor to
-        // the two bottom-corner wedges with a CPU draw-time clip. Without
-        // this the desk floor renders as a full opaque rectangle that hides
-        // the layer-B maquette — the exact F6 bug. The wedges are built in
-        // the desk board's local pixel space: the visible viewport rect's
-        // top-left is cameraCentre - deskVisibleSize/2 (slack excluded — the
-        // slack only pads the fill rect, the wedges hug the real viewport).
+        // The desk_triangle_clip shader is gone; until a decor that sits
+        // ABOVE layer C carries the desk-floor shape lands, the desk floor
+        // is confined to the two bottom-corner wedges by a CPU draw-time
+        // clip. Layer A's two alpha holes CANNOT do this on their own — A
+        // is the BACK layer (drawn before C), so its alpha cannot mask C.
+        // Without this clip the desk wood renders as a full opaque
+        // rectangle that buries the layer-B maquette. The wedges are built
+        // in the desk board's local pixel space: the visible viewport
+        // rect's top-left is cameraCentre - deskVisibleSize/2 (slack
+        // excluded — the slack only pads the fill rect, the wedges hug the
+        // real viewport).
         var deskVisibleTopLeft = new SysVec2(
             deskCameraPos.X - deskVisibleSize.X * 0.5f,
             deskCameraPos.Y - deskVisibleSize.Y * 0.5f);
@@ -876,16 +829,27 @@ public partial class GameScreen : Control
         // [4-LAYER] — the four-layer diorama, draw order A -> B -> C -> D.
         // ------------------------------------------------------------------
         GD.Print($"[4-LAYER] draw order A->B->C->D->HUD | " +
-                 $"A back decor (placeholder)='{_layerABackDecor.Name}' " +
+                 $"A back decor='{_layerABackDecor.Name}' " +
                  $"index={_layerABackDecor.GetIndex()} | " +
-                 $"D front decor (placeholder)='{_layerDFrontDecor.Name}' " +
+                 $"D front decor='{_layerDFrontDecor.Name}' " +
                  $"index={_layerDFrontDecor.GetIndex()}");
-        GD.Print($"[4-LAYER] layer A texture={_layerABackDecor.Texture?.GetSize()} " +
-                 $"opaque grey placeholder (labelled 'COUCHE A') | layer D " +
-                 $"texture={_layerDFrontDecor.Texture?.GetSize()} mostly-" +
-                 $"transparent placeholder: thin iso-diamond liseré + label " +
-                 $"'COUCHE D' (verify it paints OVER B and C in F6 without " +
-                 $"burying them)");
+        GD.Print($"[4-LAYER] layer A decor texture={_layerABackDecor.Texture?.GetSize()} " +
+                 $"(Mira back-pass, opaque + 2 alpha holes) | layer D decor " +
+                 $"texture={_layerDFrontDecor.Texture?.GetSize()} (Mira front-" +
+                 $"pass, RGBA recess lip + cast shadow, paints OVER B and C)");
+        // A and D must overlay pixel-exact: same Blender camera, both
+        // authored at the screen size.
+        var aSize = _layerABackDecor.Texture?.GetSize() ?? Vector2.Zero;
+        var dSize = _layerDFrontDecor.Texture?.GetSize() ?? Vector2.Zero;
+        bool decorAlign = aSize == dSize && aSize == screen;
+        GD.Print($"[4-LAYER] decor calibration: A size={aSize} D size={dSize} " +
+                 $"screen={screen} PIXEL-EXACT-1:1={decorAlign}");
+        if (!decorAlign)
+        {
+            GD.PushWarning("[GameScreen] layer A / D decor textures do not " +
+                           "match the screen size 1:1 — the back/front passes " +
+                           "will not overlay pixel-exact (design doc §4 rule 1).");
+        }
         if (_layerABackDecor.GetIndex() >= _mapContainer.GetIndex()
             || _layerDFrontDecor.GetIndex() <= _deskEntitiesTextureRect.GetIndex())
         {
@@ -1009,10 +973,11 @@ public partial class GameScreen : Control
                  $"size=({floorRect.Size.X},{floorRect.Size.Y})");
 
         // ------------------------------------------------------------------
-        // [MIRA-LAYOUT] — the frozen desk-floor rect Mira needs to size the
-        // wf_e1_desk_wood_floor.png texture against (production brief §5.1 /
-        // §7.2 desk_floor_rect). This is THE number the layout-lock hands
-        // to Mira: the exact rect the IsoBoard floor texture must cover.
+        // [MIRA-LAYOUT] — the frozen desk-floor rect Mira's
+        // wf_e1_desk_wood_floor.png is sized against (production brief §5.1 /
+        // §7.2 desk_floor_rect). Logged so the wood-bitmap calibration is
+        // verifiable in the Output: the desk wood texture must be exactly
+        // this rect's size for the carved triangles to register pixel-exact.
         // ------------------------------------------------------------------
         GD.Print($"[MIRA-LAYOUT] desk_floor_rect (FROZEN, layer C IsoBoard " +
                  $"floor texture size for wf_e1_desk_wood_floor.png): " +
