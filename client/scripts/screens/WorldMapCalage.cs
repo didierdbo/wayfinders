@@ -20,104 +20,106 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// </para>
 ///
 /// <para>
-/// <b>The two conventions that must be reconciled.</b>
-/// <list type="number">
-///   <item><b>World space</b> (world.yaml / <c>/api/world</c>) — origin at
-///         the <i>SW corner</i>, X grows east, <b>Y grows north</b>.</item>
-///   <item><b>Render-pixel space</b> (the PNG, and therefore the Godot
-///         <c>Sprite2D</c> local space with <c>Centered = false</c>) —
-///         origin at the <i>top-left</i>, X grows right, <b>Y grows
-///         down</b>.</item>
-/// </list>
-/// The X axes agree ; the Y axes are flipped. A world point high in the
-/// north (large world Y) must land near the <i>top</i> of the PNG (small
-/// pixel Y). <see cref="WorldMetresToRenderPixel"/> does that flip — this is
-/// the one spot the flip lives, so it cannot drift between the marker
-/// placement and any future eM hit-test.
+/// <b>Why an affine matrix, not a flat px/m scale (schema v2, 2026-05-22).</b>
+/// The PNG is a true isometric render — a 2:1 orthographic view of a flat
+/// extruded slab, camera at <c>rot_x=60°, rot_z=45°</c>. In an iso render the
+/// pixel X of a point depends on <i>both</i> its world X and its world Y, and
+/// likewise for pixel Y. A separable <c>px/m</c> scale (the v1 sidecar's
+/// <c>render_scale</c>) cannot express that — it is mathematically wrong for
+/// an iso projection and was the bug that landed the Halfgate marker out in
+/// the sea. v2 of the calage sidecar ships the <i>exact</i> projection as a
+/// 2×3 affine matrix under
+/// <c>iso_projection.world_to_pixel_projection.world_to_pixel.matrix</c>.
+/// This struct carries that matrix and applies it.
+/// </para>
+///
+/// <para>
+/// <b>The Y-flip is already in the matrix.</b> World space (world.yaml /
+/// <c>/api/world</c>) has its origin at the SW corner with Y growing north ;
+/// render-pixel space has its origin top-left with Y growing down. v1
+/// reconciled that with a separate explicit flip against the render height.
+/// v2 bakes the flip into the affine matrix (the iso camera's <c>iso_basis_y</c>
+/// carries a negative <c>dy</c> component). There is no separate flip step
+/// any more — applying the matrix is the whole transform.
+/// </para>
+///
+/// <para>
+/// <b>Ground plane Z=0.</b> POIs (cities, markers) register on the flat
+/// ground plane <c>world_z_m = 0</c>, not on the extruded land crest. The
+/// mesh extrusion raises the visible silhouette top, but city world
+/// coordinates are 2D ground coordinates — the matrix projects them at Z=0.
 /// </para>
 ///
 /// <para>
 /// <b>Godot-free by design.</b> Everything is
 /// <see cref="System.Numerics.Vector2"/> — never <c>Godot.Vector2</c> — so
 /// this helper is cherry-pickable into the xUnit host with no GodotSharp.
-/// The scene code (<c>GameScreen</c>) converts at the engine seam. Same
-/// logic-vs-node split as <see cref="MaquetteContentLogic"/> and
-/// <see cref="DeskFloorRectLogic"/>.
-/// </para>
-///
-/// <para>
-/// <b>Anisotropic scale is supported on purpose.</b> The eM mesh sidecar
-/// happens to carry equal X/Y scale (0.004096 px/m both axes), but the
-/// district (eT) sidecars do <i>not</i> (4.0 px/m X vs 1.6 px/m Y — the iso
-/// 2:1 squash). The transform keeps the two scales separate so the same
-/// class serves the eT calage at the next jalon without a rewrite — see
-/// <see cref="ForDistrictCommonFrame"/>.
+/// The scene code (<c>HalfgateMarkerLayer</c>) converts at the engine seam.
 /// </para>
 /// </summary>
 public readonly struct WorldMapCalage
 {
-    /// <summary>
-    /// World metres covered, on the X (east-west) axis, by the rendered
-    /// frame. From <c>world_frame_m.size_x_m</c>.
-    /// </summary>
-    public float FrameSizeXMetres { get; }
+    // --- The 2×3 affine, row-major: [[m00,m01,m02],[m10,m11,m12]]. -------
+    //   pixelX = m00*worldX + m01*worldY + m02
+    //   pixelY = m10*worldX + m11*worldY + m12
+    // Applied to ABSOLUTE world coords (metres). The Y-flip and the iso
+    // 2:1 squash are both baked in — this is the whole transform.
+
+    /// <summary>Affine coefficient m00 — pixelX contribution per world X metre.</summary>
+    public double M00 { get; }
+
+    /// <summary>Affine coefficient m01 — pixelX contribution per world Y metre.</summary>
+    public double M01 { get; }
+
+    /// <summary>Affine coefficient m02 — pixelX constant offset.</summary>
+    public double M02 { get; }
+
+    /// <summary>Affine coefficient m10 — pixelY contribution per world X metre.</summary>
+    public double M10 { get; }
+
+    /// <summary>Affine coefficient m11 — pixelY contribution per world Y metre.</summary>
+    public double M11 { get; }
+
+    /// <summary>Affine coefficient m12 — pixelY constant offset.</summary>
+    public double M12 { get; }
 
     /// <summary>
-    /// World metres covered, on the Y (north-south) axis, by the rendered
-    /// frame. From <c>world_frame_m.size_y_m</c>.
-    /// </summary>
-    public float FrameSizeYMetres { get; }
-
-    /// <summary>
-    /// World X (metres) of the SW corner of the rendered frame. From
-    /// <c>world_frame_m.frame_sw_anchor_m.x</c>. eM is 0 ; the eT districts
-    /// are non-zero (the district frame sits at 91 900 m east).
-    /// </summary>
-    public float FrameSwAnchorXMetres { get; }
-
-    /// <summary>
-    /// World Y (metres) of the SW corner of the rendered frame. From
-    /// <c>world_frame_m.frame_sw_anchor_m.y</c>.
-    /// </summary>
-    public float FrameSwAnchorYMetres { get; }
-
-    /// <summary>
-    /// Rendered PNG width in pixels. From <c>render_size_px.w</c>.
+    /// Rendered PNG width in pixels. From <c>render_size_px.w</c>. Kept for
+    /// in-frame bounds checks by callers — it is not part of the transform.
     /// </summary>
     public float RenderWidthPx { get; }
 
     /// <summary>
-    /// Rendered PNG height in pixels. From <c>render_size_px.h</c>.
+    /// Rendered PNG height in pixels. From <c>render_size_px.h</c>. Kept for
+    /// in-frame bounds checks by callers — it is not part of the transform.
     /// </summary>
     public float RenderHeightPx { get; }
 
     /// <summary>
-    /// Construct a calage from the sidecar's world frame and render size.
+    /// Construct a calage from the sidecar's iso world→pixel affine matrix
+    /// and render size.
     /// </summary>
-    /// <param name="frameSizeXMetres">World metres on X covered by the frame.
-    /// Positive.</param>
-    /// <param name="frameSizeYMetres">World metres on Y covered by the frame.
-    /// Positive.</param>
-    /// <param name="frameSwAnchorXMetres">World X of the frame's SW corner.</param>
-    /// <param name="frameSwAnchorYMetres">World Y of the frame's SW corner.</param>
+    /// <param name="m00">Affine m00 — pixelX per world X metre.</param>
+    /// <param name="m01">Affine m01 — pixelX per world Y metre.</param>
+    /// <param name="m02">Affine m02 — pixelX constant offset.</param>
+    /// <param name="m10">Affine m10 — pixelY per world X metre.</param>
+    /// <param name="m11">Affine m11 — pixelY per world Y metre.</param>
+    /// <param name="m12">Affine m12 — pixelY constant offset.</param>
     /// <param name="renderWidthPx">Rendered PNG width in pixels. Positive.</param>
     /// <param name="renderHeightPx">Rendered PNG height in pixels. Positive.</param>
-    /// <exception cref="ArgumentException">If any size is non-positive.</exception>
+    /// <exception cref="ArgumentException">If the render size is non-positive,
+    /// or the affine matrix is singular (zero determinant — not invertible,
+    /// which means it is not a valid projection).</exception>
     public WorldMapCalage(
-        float frameSizeXMetres,
-        float frameSizeYMetres,
-        float frameSwAnchorXMetres,
-        float frameSwAnchorYMetres,
+        double m00,
+        double m01,
+        double m02,
+        double m10,
+        double m11,
+        double m12,
         float renderWidthPx,
         float renderHeightPx)
     {
-        if (frameSizeXMetres <= 0f || frameSizeYMetres <= 0f)
-        {
-            throw new ArgumentException(
-                $"World frame size must be positive; got " +
-                $"{frameSizeXMetres}x{frameSizeYMetres} m.",
-                nameof(frameSizeXMetres));
-        }
         if (renderWidthPx <= 0f || renderHeightPx <= 0f)
         {
             throw new ArgumentException(
@@ -126,26 +128,34 @@ public readonly struct WorldMapCalage
                 nameof(renderWidthPx));
         }
 
-        FrameSizeXMetres = frameSizeXMetres;
-        FrameSizeYMetres = frameSizeYMetres;
-        FrameSwAnchorXMetres = frameSwAnchorXMetres;
-        FrameSwAnchorYMetres = frameSwAnchorYMetres;
+        // The 2×2 linear part must be invertible — a singular matrix cannot
+        // be a real projection and breaks the inverse round-trip. The iso
+        // basis vectors are linearly independent by construction, so a zero
+        // determinant means a corrupt sidecar.
+        double det = (m00 * m11) - (m01 * m10);
+        if (Math.Abs(det) < 1e-12)
+        {
+            throw new ArgumentException(
+                $"World→pixel affine is singular (det={det}); the iso " +
+                $"projection matrix is not invertible — corrupt calage sidecar.",
+                nameof(m00));
+        }
+
+        M00 = m00;
+        M01 = m01;
+        M02 = m02;
+        M10 = m10;
+        M11 = m11;
+        M12 = m12;
         RenderWidthPx = renderWidthPx;
         RenderHeightPx = renderHeightPx;
     }
 
     /// <summary>
-    /// Render pixels per world metre on the X axis — derived, not stored,
-    /// so it can never drift from the frame/render numbers. Matches the
-    /// sidecar's <c>render_scale.render_px_per_world_m_x</c>.
+    /// Determinant of the affine's 2×2 linear part. Non-zero by construction
+    /// (the constructor rejects a singular matrix); used by the inverse.
     /// </summary>
-    public float RenderPxPerMetreX => RenderWidthPx / FrameSizeXMetres;
-
-    /// <summary>
-    /// Render pixels per world metre on the Y axis. Matches the sidecar's
-    /// <c>render_scale.render_px_per_world_m_y</c>.
-    /// </summary>
-    public float RenderPxPerMetreY => RenderHeightPx / FrameSizeYMetres;
+    private double Determinant => (M00 * M11) - (M01 * M10);
 
     /// <summary>
     /// Convert a world-metre position to a render-pixel position on the eM
@@ -154,11 +164,11 @@ public readonly struct WorldMapCalage
     /// origin).
     ///
     /// <para>
-    /// <b>The maths.</b> X is a straight scale-and-offset:
-    /// <c>px = (worldX - swAnchorX) * pxPerMetreX</c>. Y is scale-and-offset
-    /// <i>then flipped</i> against the render height, because world Y grows
-    /// north (up) while pixel Y grows down:
-    /// <c>py = renderHeight - (worldY - swAnchorY) * pxPerMetreY</c>.
+    /// <b>The maths.</b> A single application of the iso world→pixel affine:
+    /// <c>pixelX = m00·worldX + m01·worldY + m02</c> and
+    /// <c>pixelY = m10·worldX + m11·worldY + m12</c>. The cross terms
+    /// (<c>m01</c>, <c>m10</c>) are what makes this an iso projection rather
+    /// than a flat scale ; the Y-flip is carried by the sign of <c>m11</c>.
     /// </para>
     ///
     /// <para>
@@ -170,15 +180,35 @@ public readonly struct WorldMapCalage
     /// </para>
     /// </summary>
     /// <param name="worldMetres">The world position in metres
-    /// (<c>X</c> east, <c>Y</c> north).</param>
+    /// (<c>X</c> east, <c>Y</c> north), on the ground plane Z=0.</param>
     /// <returns>The render-pixel position (<c>X</c> right, <c>Y</c> down).</returns>
     public SysVec2 WorldMetresToRenderPixel(SysVec2 worldMetres)
     {
-        float px = (worldMetres.X - FrameSwAnchorXMetres) * RenderPxPerMetreX;
-        float pyFromSw = (worldMetres.Y - FrameSwAnchorYMetres) * RenderPxPerMetreY;
-        // Y-flip: world-north (large Y) -> pixel-top (small Y).
-        float py = RenderHeightPx - pyFromSw;
-        return new SysVec2(px, py);
+        double wx = worldMetres.X;
+        double wy = worldMetres.Y;
+        double px = (M00 * wx) + (M01 * wy) + M02;
+        double py = (M10 * wx) + (M11 * wy) + M12;
+        return new SysVec2((float)px, (float)py);
+    }
+
+    /// <summary>
+    /// Inverse transform — a render-pixel position back to world metres on
+    /// the ground plane. The inverse of the 2×3 affine: subtract the
+    /// translation, then apply the inverse of the 2×2 linear part. Used by
+    /// the xUnit round-trip pin and by any future eM hit-test (click a pixel
+    /// on the map → world coordinate).
+    /// </summary>
+    /// <param name="renderPixel">A render-pixel position on the PNG.</param>
+    /// <returns>The world-metre position (<c>X</c> east, <c>Y</c> north).</returns>
+    public SysVec2 RenderPixelToWorldMetres(SysVec2 renderPixel)
+    {
+        double det = Determinant;
+        double dx = renderPixel.X - M02;
+        double dy = renderPixel.Y - M12;
+        // [wx, wy]^T = inv(L) . [dx, dy]^T, where L is the 2×2 linear part.
+        double wx = ((M11 * dx) - (M01 * dy)) / det;
+        double wy = ((-M10 * dx) + (M00 * dy)) / det;
+        return new SysVec2((float)wx, (float)wy);
     }
 
     /// <summary>
@@ -186,34 +216,37 @@ public readonly struct WorldMapCalage
     /// (<c>wf_e2_world_map_mesh_iso_2048x1024.png</c>).
     ///
     /// <para>
-    /// <b>The numbers and where they come from.</b> Every value below is the
-    /// committed calage sidecar
+    /// <b>The numbers and where they come from.</b> The six affine
+    /// coefficients are the committed calage sidecar
     /// <c>wf_e2_world_map_mesh_iso_2048x1024.png.calage.json</c> (Mira,
-    /// 2026-05-22) — <c>world_frame_m</c> and <c>render_size_px</c>. The
-    /// world frame is the full 500 × 250 km world with its SW corner at the
-    /// world origin (0, 0) ; the render is 2048 × 1024 px. The derived
-    /// <see cref="RenderPxPerMetreX"/> is 2048 / 500000 = 0.004096 px/m,
-    /// matching the sidecar's <c>render_scale.render_px_per_world_m_x</c>
-    /// exactly — that equality is the xUnit pin that catches a sidecar
-    /// regeneration drifting from this factory.
+    /// schema v2, 2026-05-22) —
+    /// <c>iso_projection.world_to_pixel_projection.world_to_pixel.matrix</c>,
+    /// row-major. The render size is <c>render_size_px</c> (2048 × 1024). The
+    /// matrix is verified by the sidecar's <c>control_point</c>: world
+    /// (250000, 125000) m — the frame centre — projects to pixel
+    /// (1024, 512) — the PNG centre. <c>WorldMapCalageTests</c> pins exactly
+    /// that, so a sidecar regeneration that drifts from this factory goes red
+    /// long before a marker lands at the wrong coastline.
     /// </para>
     ///
     /// <para>
     /// <b>Why a factory and not a sidecar read at runtime.</b> The eM frame
-    /// is Varn-locked (world is 500 × 250 km, the render size is fixed by
-    /// Mira's pipeline). A runtime JSON parse of a 4-line static file on the
-    /// boot path buys nothing and adds a failure mode. The constants live
-    /// here, the sidecar is the documented source of truth, and the
-    /// equality assertions in <c>WorldMapCalageTests</c> guard the link. If
-    /// Mira ever regenerates the eM mesh at a different size, this factory
-    /// and the sidecar move together in one PR.
+    /// and the iso camera are Varn-/Mira-locked. A runtime JSON parse of a
+    /// static file on the boot path buys nothing and adds a failure mode. The
+    /// constants live here, the sidecar is the documented source of truth,
+    /// and the <c>control_point</c> assertion in <c>WorldMapCalageTests</c>
+    /// guards the link. If Mira regenerates the eM mesh, this factory and the
+    /// sidecar move together in one PR.
     /// </para>
     /// </summary>
     public static WorldMapCalage ForEmWorldMesh() => new(
-        frameSizeXMetres: 500_000f,
-        frameSizeYMetres: 250_000f,
-        frameSwAnchorXMetres: 0f,
-        frameSwAnchorYMetres: 0f,
+        // iso_projection.world_to_pixel_projection.world_to_pixel.matrix
+        m00: 0.00263301,
+        m01: 0.00294782,
+        m02: -2.73022584,
+        m10: 0.0013165,
+        m11: -0.00147391,
+        m12: 367.11298207,
         renderWidthPx: 2048f,
         renderHeightPx: 1024f);
 
@@ -226,31 +259,38 @@ public readonly struct WorldMapCalage
     /// <b>The puzzle-interlock invariant (Mira, <c>puzzle_interlock</c> block
     /// in both eT calage sidecars).</b> The two district renders are NOT
     /// posed at their own anchors — they are posed at the <b>same</b> common
-    /// world frame. Both sidecars carry an identical <c>world_frame_m</c>
-    /// (400 × 500 m at SW corner 91 900, 37 700) and an identical
-    /// <c>render_size_px</c> (1600 × 800). Mira's compositor verified zero
-    /// pixel overlap between the two silhouettes <i>in that common frame</i>.
-    /// Therefore : both district <c>Sprite2D</c> nodes must be placed at the
-    /// <b>same top-left</b>, and they interlock as the puzzle. Posing them at
-    /// their individual <c>district.anchor</c> values instead would shear the
-    /// interlock apart.
+    /// world frame with the <b>same</b> iso projection. Both sidecars carry an
+    /// identical <c>world_to_pixel.matrix</c>, an identical
+    /// <c>render_size_px</c> (1600 × 800) and an identical <c>control_point</c>
+    /// (world (92100, 37950) m → pixel (800, 400), the PNG centre). Mira's
+    /// compositor verified zero pixel overlap between the two silhouettes
+    /// <i>in that common frame</i>. Therefore both district <c>Sprite2D</c>
+    /// nodes pose at the <b>same top-left</b> and interlock as the puzzle.
+    /// Posing them at their individual <c>district.anchor</c> values instead
+    /// would shear the interlock apart. Because both eT sidecars carry the
+    /// identical matrix, this single factory <i>is</i> that shared projection
+    /// — one calage, used twice.
     /// </para>
     ///
     /// <para>
     /// <b>Why this is in J5 even though eT does not render yet.</b> J5 ships
     /// the eM map only ; the eM→eT swap is a later jalon. But the interlock
-    /// rule is a calage decision Mira flagged now, and pinning it as a
-    /// single shared factory (one calage, used twice) makes the "same
-    /// top-left" contract unmissable and xUnit-pinned before the eT scene
-    /// code exists to get it wrong. <see cref="ForEmWorldMesh"/> and this
-    /// method are the two calage anchors the map layers register against.
+    /// rule is a calage decision Mira flagged now, and pinning it as a single
+    /// shared factory makes the "same projection, same top-left" contract
+    /// unmissable and xUnit-pinned before the eT scene code exists to get it
+    /// wrong.
     /// </para>
     /// </summary>
     public static WorldMapCalage ForDistrictCommonFrame() => new(
-        frameSizeXMetres: 400f,
-        frameSizeYMetres: 500f,
-        frameSwAnchorXMetres: 91_900f,
-        frameSwAnchorYMetres: 37_700f,
+        // Identical in BOTH eT district sidecars'
+        // iso_projection.world_to_pixel_projection.world_to_pixel.matrix —
+        // the shared projection that makes the puzzle interlock.
+        m00: 2.57129739,
+        m01: 2.57129739,
+        m02: -333597.22506658,
+        m10: 1.28564869,
+        m11: -1.28564869,
+        m12: -69217.87672955,
         renderWidthPx: 1600f,
         renderHeightPx: 800f);
 }
