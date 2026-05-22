@@ -50,6 +50,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from wayfinders.ml.schemas.character import CharacterState
+from wayfinders.world.models import Position
 
 # ---------------------------------------------------------------------------
 # Varn-locked type aliases (2026-05-10) — DO NOT EDIT without Varn ratification
@@ -303,6 +304,18 @@ class EmergentMission(BaseModel):
     seed: int = Field(
         ...,
         description="The spawn seed from the tick that produced this mission. Audit trail.",
+    )
+    position: Position | None = Field(
+        default=None,
+        description=(
+            "World-meter position of the mission. Optional in M1. "
+            "Varn-locked field (spec 2026-05-20 §6). "
+            "Derived from the centroid of the target_poi's district at emergence. "
+            "In M2+, may be set directly for off-POI missions (ambushes, road events). "
+            "Invariant: if position is set AND target_poi is set, "
+            "position_to_city(position) == target_poi city slug. "
+            "Validated at emergence and deserialization."
+        ),
     )
     recruit_target_npc_id: str | None = Field(
         default=None,

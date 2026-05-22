@@ -26,7 +26,9 @@ repos:
           [
             numpy>=1.26,
             types-python-slugify,
+            types-pyyaml>=6.0,
             fastapi>=0.115,
             pydantic>=2.0,
+            pyyaml>=6.0,
             torch>=2.0,
           ]

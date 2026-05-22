@@ -1,0 +1,12 @@
+{
+  "_comment": "STUB for J1 — hand-written rectangle. Replace at J2 when Mira produces lower_quays_mask.png and runs tools/extract_district_polygon.py.",
+  "_anchor": {"x": 91900, "y": 37700},
+  "_cell_size_m": 2,
+  "_stub": true,
+  "vertices": [
+    {"x": 91900, "y": 37700},
+    {"x": 92200, "y": 37700},
+    {"x": 92200, "y": 38000},
+    {"x": 91900, "y": 38000}
+  ]
+}

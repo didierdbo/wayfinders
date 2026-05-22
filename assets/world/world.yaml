@@ -1,0 +1,55 @@
+# world.yaml — Canonical world geometry source of truth.
+# Varn-locked schema v1 (2026-05-20). See varn-world-referential-spec-2026-05-20.md.
+#
+# Storage contract:
+#   - This file is versioned in git alongside code.
+#   - SQLite is for runtime/dynamic state only. World shape lives here.
+#   - Any breaking schema change MUST bump schema_version.
+#
+# Coordinate system:
+#   - Unit: meters (integer).
+#   - Origin (0, 0): south-west corner of the world bounding box.
+#   - X grows east, Y grows north. (Right-handed, top-down.)
+#   - Bounds: 0 <= x < max_x, 0 <= y < max_y.
+
+schema_version: 1
+
+world:
+  max_x: 500000  # 500 km east-west
+  max_y: 250000  # 250 km north-south
+
+cities:
+  - id: halfgate
+    name: Halfgate
+    # Placeholder centroid — value flagged tunable until eM mesh coastline is signed off
+    # by Mira. Field and schema are final. See Varn spec §7.
+    position: {x: 92000, y: 38000}
+    # Optional silhouette for eM city marker. Produced by Mira.
+    bitmap: cities/halfgate/halfgate_silhouette.png
+    districts:
+      - lower_quays
+      - high_wall
+    # Deferred to M2 (named but not yet bitmapped — Varn spec §7):
+    # guild_heart, north_faubourg, old_gate
+
+districts:
+  - id: lower_quays
+    name: Lower Quays
+    parent_city: halfgate
+    # Absolute world meters — SW corner of the district bitmap in the world frame.
+    anchor: {x: 91900, y: 37700}
+    # B/W mask: white=inside district, black=outside. Produced by Mira at J2.
+    # 1 pixel = 2 m (cell_size_m). A 150x150 px mask covers 300m x 300m.
+    footprint_bitmap: cities/halfgate/lower_quays_mask.png
+    cell_size_m: 2
+    # Derived polygon sidecar — produced by tools/extract_district_polygon.py.
+    # For J1 (pre-Mira bitmaps): stub rectangle hand-written. Replace at J2.
+    footprint_polygon: cities/halfgate/lower_quays_mask.polygon.json
+
+  - id: high_wall
+    name: High Wall
+    parent_city: halfgate
+    anchor: {x: 92100, y: 38100}
+    footprint_bitmap: cities/halfgate/high_wall_mask.png
+    cell_size_m: 2
+    footprint_polygon: cities/halfgate/high_wall_mask.polygon.json
