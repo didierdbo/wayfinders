@@ -30,6 +30,11 @@ Endpoints:
   explicit typed outcome (success / failure / abandoned).  Distinct from conclude
   so the resolution-outcome type stays a typed contract for the recruit panel.
   Returns 404 if not found.  409 if not in accepted state.
+* ``GET /api/world`` — World referential. Returns the full world geometry
+  (World bounding box, all Cities with positions, all Districts with polygon
+  footprints) loaded from ``assets/world/world.yaml`` via the J1 loader.
+  Read-only, static per server version; the client should cache this at startup.
+  Returns HTTP 500 if world.yaml is missing or invalid (service is broken).
 * ``GET /api/world/poi_tree`` — POI hierarchy manifest. Returns the Varn-locked
   ``poi_tree.json`` (2026-05-15 spec v2 §2). Read-only, static per server
   version; the client should cache this at startup. Structure: flat dict keyed
@@ -89,14 +94,27 @@ from wayfinders.api.models import (
 )
 from wayfinders.api.predictor import Predictor, PredictorNotReadyError
 from wayfinders.api.seed_data import UNITS
+from wayfinders.api.world_referential_models import (
+    CityDto,
+    DistrictDto,
+    PositionDto,
+    WorldDto,
+    WorldReferentialResponse,
+)
 from wayfinders.api.world_tick import EmergenceEngine
 from wayfinders.api.world_tick_models import EmergentMission, WorldTickRequest, WorldTickResponse
+from wayfinders.world.loader import WorldSchemaError, load_world_referential
+from wayfinders.world.models import City, District, WorldReferential
 
 logger = logging.getLogger(__name__)
 
 # Path to the static POI tree manifest (Varn spec v2 §2, 2026-05-15).
 # Loaded once at startup and held in app.state.poi_tree for all requests.
 _POI_TREE_PATH: Path = Path(__file__).parent / "data" / "poi_tree.json"
+
+# world.yaml schema version exposed in GET /api/world responses.
+# Must stay in sync with the loader's _SUPPORTED_SCHEMA_VERSION constant.
+_WORLD_SCHEMA_VERSION: int = 1
 
 
 @asynccontextmanager
@@ -131,6 +149,21 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Not persistent across server restarts (M1 — no save layer).
     app.state.mission_store = MissionStore()
     logger.info("Lifespan: mission store initialised.")
+    # Load the world referential once at startup (read-only, static per server version).
+    # A missing or invalid world.yaml is a hard startup error — the service cannot
+    # serve GET /api/world and will return HTTP 500 on every call if this fails.
+    # Stored on app.state so the endpoint never re-loads the file per request.
+    logger.info("Lifespan: loading world referential from assets/world/world.yaml")
+    try:
+        app.state.world_referential = load_world_referential()
+        logger.info(
+            "Lifespan: world referential loaded — cities=%d districts=%d",
+            len(app.state.world_referential.cities),
+            len(app.state.world_referential.districts),
+        )
+    except (WorldSchemaError, FileNotFoundError) as exc:
+        logger.error("Lifespan: world referential load failed: %s", exc)
+        app.state.world_referential = None
     yield
     # Cleanup: nothing to release (encoder/head are Python objects, GC handles them).
     logger.info("Lifespan: shutdown.")
@@ -306,6 +339,98 @@ def missions_active(request: Request) -> list[EmergentMission]:
     """
     mission_store: MissionStore = request.app.state.mission_store
     return mission_store.active()
+
+
+@app.get(
+    "/api/world",
+    response_model=WorldReferentialResponse,
+    tags=["world"],
+    summary="World referential — geometry + cities + districts",
+    responses={
+        500: {
+            "description": (
+                "World referential failed to load at startup. "
+                "assets/world/world.yaml is missing or invalid."
+            )
+        }
+    },
+)
+def get_world(request: Request) -> WorldReferentialResponse:
+    """Return the full world referential for the Godot client.
+
+    Exposes the world geometry loaded from ``assets/world/world.yaml`` at
+    startup via the J1 loader (``load_world_referential``).  The payload is
+    static per server version — the Godot client (Rune's ApiClient) should
+    cache this at startup.
+
+    Response schema (Varn-locked 2026-05-20):
+      - ``schema_version``: mirrors ``world.yaml`` schema_version (currently 1).
+      - ``world``: bounding box (max_x=500_000, max_y=250_000 m).
+      - ``cities``: all cities with id, name, position, district_ids, bitmap.
+      - ``districts``: all districts with id, name, parent_city_id, anchor,
+        footprint (polygon vertices in world meters), cell_size_m.
+
+    District footprint polygons are derived from the committed
+    ``*.polygon.json`` sidecars (marching-squares on Mira's B/W bitmaps).
+    Vertices are ``{x, y}`` in world meters; orientation (CW/CCW) is
+    undefined — client code must be orientation-agnostic.
+
+    Returns HTTP 500 if the world referential failed to load at startup
+    (world.yaml missing or invalid).  The service cannot recover without
+    a restart.
+    """
+    world_ref: WorldReferential | None = request.app.state.world_referential
+    if world_ref is None:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "World referential is not available. "
+                "assets/world/world.yaml failed to load at startup. "
+                "Fix the YAML or sidecar files and restart the server."
+            ),
+        )
+    return _build_world_response(world_ref)
+
+
+def _build_world_response(ref: WorldReferential) -> WorldReferentialResponse:
+    """Convert a loaded WorldReferential to its wire-format DTO.
+
+    Sorted by id ascending for deterministic JSON output (makes diffs and
+    client caches stable across re-orderings in world.yaml).
+    """
+    cities: list[CityDto] = [
+        _city_to_dto(c) for c in sorted(ref.cities.values(), key=lambda c: c.id)
+    ]
+    districts: list[DistrictDto] = [
+        _district_to_dto(d) for d in sorted(ref.districts.values(), key=lambda d: d.id)
+    ]
+    return WorldReferentialResponse(
+        schema_version=_WORLD_SCHEMA_VERSION,
+        world=WorldDto(max_x=ref.world.max_x, max_y=ref.world.max_y),
+        cities=cities,
+        districts=districts,
+    )
+
+
+def _city_to_dto(city: City) -> CityDto:
+    return CityDto(
+        id=city.id,
+        name=city.name,
+        position=PositionDto(x=city.position.x, y=city.position.y),
+        district_ids=list(city.district_ids),
+        bitmap=city.bitmap,
+    )
+
+
+def _district_to_dto(district: District) -> DistrictDto:
+    return DistrictDto(
+        id=district.id,
+        name=district.name,
+        parent_city_id=district.parent_city_id,
+        anchor=PositionDto(x=district.anchor.x, y=district.anchor.y),
+        footprint=[PositionDto(x=v.x, y=v.y) for v in district.footprint],
+        cell_size_m=district.cell_size_m,
+    )
 
 
 @app.get(
