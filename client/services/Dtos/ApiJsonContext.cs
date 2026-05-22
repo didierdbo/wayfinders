@@ -75,6 +75,15 @@ namespace Wayfinders.Client.Services.Dtos;
 /// only <c>(persona_id, dex_bucket, wis_bucket)</c> — see
 /// <c>MissionConcludeDtos.cs</c> for the rationale.
 /// </para>
+///
+/// <para>
+/// <b>J5 additions (2026-05-22).</b> The world referential wire type
+/// <see cref="WorldReferentialResponse"/> (GET /api/world). Only the
+/// envelope is registered — STJ source-gen recurses into the concrete
+/// nested record types (<see cref="WorldDto"/>, <see cref="WorldCityDto"/>,
+/// <see cref="WorldDistrictDto"/>, <see cref="WorldPositionDto"/>) and the
+/// <c>IReadOnlyList&lt;T&gt;</c> property instantiations automatically.
+/// </para>
 /// </summary>
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
@@ -128,6 +137,13 @@ namespace Wayfinders.Client.Services.Dtos;
 [JsonSerializable(typeof(MissionConcludeActionResponseDto))]
 [JsonSerializable(typeof(MissionResolveActionRequestDto))]
 [JsonSerializable(typeof(MissionResolveActionResponseDto))]
+// J5 — world referential wire type (GET /api/world). Mirrors Pydantic
+// WorldReferentialResponse / WorldDto / CityDto / DistrictDto /
+// PositionDto in wayfinders/api/world_referential_models.py (Tess
+// commit 55487d7). Only the envelope is registered : STJ source-gen
+// recurses into the nested concrete record types and the
+// IReadOnlyList<T> property instantiations automatically.
+[JsonSerializable(typeof(WorldReferentialResponse))]
 internal sealed partial class ApiJsonContext : JsonSerializerContext
 {
     // Body intentionally empty — the source generator emits the
