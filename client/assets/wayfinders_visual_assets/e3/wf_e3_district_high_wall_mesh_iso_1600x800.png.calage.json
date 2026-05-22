@@ -1,6 +1,22 @@
 {
   "_comment": "Calage sidecar for the Wayfinders 'meshes' jalon. Tells Rune how this iso-render PNG registers onto a Godot IsoBoard at J5. Produced by Mira 2026-05-22. Regeneratable -- do not hand-edit.",
   "_generator": "Owner's Inbox/Media/wayfinders/meshes_jalon_runner.py",
+  "schema": {
+    "version": 2,
+    "_doc": "Calage sidecar schema v2 (2026-05-22b). v1 shipped a flat separable 'render_scale' (px/m on X and Y independently) -- that is INVALID for an iso render and was removed. v2 ships the exact iso projection under 'iso_projection.world_to_pixel_projection'. Consumers MUST use that block.",
+    "iso_projection_block": "iso_projection.world_to_pixel_projection",
+    "consume": [
+      "iso_projection.world_to_pixel_projection.iso_basis_x  -- (dx,dy) px per +1m East",
+      "iso_projection.world_to_pixel_projection.iso_basis_y  -- (dx,dy) px per +1m North",
+      "iso_projection.world_to_pixel_projection.origin_px    -- px of the SW reference corner",
+      "iso_projection.world_to_pixel_projection.world_to_pixel.matrix -- equivalent 2x3 affine",
+      "iso_projection.world_to_pixel_projection.control_point -- verified (world -> pixel) pin",
+      "iso_projection.world_to_pixel_projection.reference_plane.world_z_m -- POIs project at Z=0 ground"
+    ],
+    "removed_in_v2": [
+      "render_scale (flat separable px/m -- mathematically wrong for iso)"
+    ]
+  },
   "target": "high_wall",
   "layer": "eT",
   "render_png": "wf_e3_district_high_wall_mesh_iso_1600x800.png",
@@ -12,7 +28,71 @@
   "iso_projection": {
     "ratio": "2:1",
     "camera": "orthographic, rot_x=60deg, rot_z=45deg",
-    "note": "Render canvas is 2:1 (w = 2*h). The PNG is an iso view of a flat extruded slab -- the silhouette IS the land/district outline."
+    "note": "Render canvas is 2:1 (w = 2*h). The PNG is a true iso view of a flat extruded slab -- the silhouette IS the land/district outline. world_to_pixel_projection below is the EXACT transform; do NOT use a flat px/m scale.",
+    "world_to_pixel_projection": {
+      "_doc": "EXACT world(metres)->pixel(this PNG) transform for a ground-level point. The PNG is a 2:1 iso render: pixelX is NOT separable from worldY. Use world_to_pixel (the 2x3 affine) OR the equivalent iso_basis/origin form below -- they are identical. Apply to a point on the flat ground plane (reference_plane below).",
+      "reference_plane": {
+        "world_z_m": 0.0,
+        "note": "POIs register on the flat ground plane Z=0, NOT on the extruded land crest. The mesh extrusion (LAND_HEIGHT) raises the visible silhouette top, but city/POI world coordinates are 2D ground coordinates -- project them at Z=0."
+      },
+      "formula": "pixelX = (worldX - anchorX)*iso_basis_x[0] + (worldY - anchorY)*iso_basis_y[0] + origin_px[0] ; pixelY = (worldX - anchorX)*iso_basis_x[1] + (worldY - anchorY)*iso_basis_y[1] + origin_px[1]",
+      "anchor_m": {
+        "x": 91900.0,
+        "y": 37700.0
+      },
+      "iso_basis_x": {
+        "_doc": "Pixel displacement (dx, dy) for +1 metre EAST (world +X).",
+        "dx_px": 2.57129739,
+        "dy_px": 1.28564869
+      },
+      "iso_basis_y": {
+        "_doc": "Pixel displacement (dx, dy) for +1 metre NORTH (world +Y).",
+        "dx_px": 2.57129739,
+        "dy_px": -1.28564869
+      },
+      "origin_px": {
+        "_doc": "Pixel where the world reference point (the SW corner of the frame: worldX=anchorX, worldY=anchorY) lands on the PNG. May be slightly negative -- CAM_ORTHO_SCALE keeps a 10% margin, so the plane does not touch the canvas edge.",
+        "x": -357.08382376,
+        "y": 464.28243465
+      },
+      "world_to_pixel": {
+        "_doc": "Equivalent 2x3 affine matrix applied to absolute world coords: [pixelX, pixelY]^T = M . [worldX, worldY, 1]^T. Row-major: [[m00,m01,m02],[m10,m11,m12]].",
+        "matrix": [
+          [
+            2.57129739,
+            2.57129739,
+            -333597.22506658
+          ],
+          [
+            1.28564869,
+            -1.28564869,
+            -69217.87672955
+          ]
+        ]
+      },
+      "control_point": {
+        "_doc": "Verified pin for Rune's xUnit test. This world point feeds through the projection to exactly this pixel. The frame CENTRE is used because it is margin-independent: it always lands at the PNG centre.",
+        "world_m": {
+          "x": 92100.0,
+          "y": 37950.0
+        },
+        "expected_pixel": {
+          "x": 800.0,
+          "y": 400.0
+        }
+      },
+      "_derivation": {
+        "blender_plane_width_bu": 20.0,
+        "blender_plane_height_bu": 25.0,
+        "cam_ortho_scale_bu": 22.0,
+        "pixels_per_blender_unit": 72.72727273,
+        "cam_rot_x_deg": 60.0,
+        "cam_rot_z_deg": 45.0,
+        "blender_units_per_world_m_x": 0.05,
+        "blender_units_per_world_m_y": 0.05,
+        "note": "Mirrors map_terrain_mesh_script.py: PLANE_WIDTH, CAM_ORTHO_SCALE = PLANE_WIDTH*1.10, CAM_ROT_X=60, CAM_ROT_Z=45, _pixel_to_world centred+Y-flipped plane."
+      }
+    }
   },
   "world_frame_m": {
     "size_x_m": 400,
@@ -29,17 +109,13 @@
     "src_bitmap_size_px": {
       "w": 200,
       "h": 250
-    }
-  },
-  "render_scale": {
-    "render_px_per_world_m_x": 4.0,
-    "render_px_per_world_m_y": 1.6,
-    "note": "Pixels of the RENDERED PNG per world meter. Use this to size the Sprite2D against the eT/eM camera."
+    },
+    "note": "Source-bitmap density only (provenance). NOT a render transform -- use iso_projection.world_to_pixel_projection to place anything on the PNG."
   },
   "godot_placement": {
     "sprite_centered": false,
     "background_texture_path_target": "IsoBoard.BackgroundTexturePath",
-    "note": "eT district. BOTH district PNGs share this identical common world frame, camera and scale -- pose BOTH Sprite2D nodes at the SAME top-left and they overlay pixel-exact and interlock as the puzzle (zero-overlap verified at composite time). Background is transparent so stacking them does not mask either silhouette. Each district's own anchor and outline polygon live in assets/world/cities/halfgate/<id>_mask.polygon.json."
+    "note": "eT district. BOTH district PNGs share this identical common world frame, camera and projection -- pose BOTH Sprite2D nodes at the SAME top-left and they overlay pixel-exact and interlock as the puzzle (zero-overlap verified at composite time). Background is transparent so stacking them does not mask either silhouette. Each district's own anchor and outline polygon live in assets/world/cities/halfgate/<id>_mask.polygon.json."
   },
   "puzzle_interlock": {
     "common_frame": true,
