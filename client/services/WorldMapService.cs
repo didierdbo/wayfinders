@@ -27,10 +27,25 @@ namespace Wayfinders.Client.Services;
 /// </para>
 ///
 /// <para>
+/// <b>Boot timing (the J5 marker bug, fixed 2026-05-22).</b> The fetch is
+/// fired fire-and-forget by <see cref="OpeningBootstrap"/> ; the cache
+/// assignment lands via <c>CallDeferred</c> <i>after</i> the whole
+/// <c>GameScreen</c> subtree — including <c>HalfgateMarkerLayer</c> — has
+/// finished its <c>_Ready</c> pass. A consumer that reads <see cref="World"/>
+/// exactly once at <c>_Ready</c> therefore always sees an empty cache and
+/// places nothing. The fix is the <see cref="WorldLoaded"/> signal :
+/// consumers that must react to the cache filling connect to it, and also
+/// handle the already-loaded fast path (cache warm before they subscribe).
+/// This mirrors the POI-tree consumer discipline — read the referential
+/// when it arrives, not once at boot.
+/// </para>
+///
+/// <para>
 /// <b>Graceful degrade.</b> If the HTTP load fails (server down at boot,
 /// network glitch, schema-version mismatch), the autoload keeps
-/// <see cref="World"/> null and <see cref="LoadFailed"/> true, and logs a
-/// warning. <c>GameScreen</c> handles the null case : the eM mesh still
+/// <see cref="World"/> null and <see cref="LoadFailed"/> true, logs a
+/// warning, and still emits <see cref="WorldLoaded"/> so waiting consumers
+/// stop waiting. <c>GameScreen</c> handles the null case : the eM mesh still
 /// renders (it is a static asset, not server data) but no city marker is
 /// placed. MVP behaviour — the map is visible, the marker waits for the
 /// next boot with the backend up. No crash, no exception to scene code.
@@ -38,16 +53,45 @@ namespace Wayfinders.Client.Services;
 ///
 /// <para>
 /// <b>Thread-safety (trap #4 / #13).</b> The fetch is async ; the cache
-/// assignment happens on the main thread via a deferred call from the
-/// continuation — never directly off the awaited (possibly thread-pool)
-/// continuation. Public reads after boot are pure field reads, safe from
-/// <c>_Ready</c> / <c>_Process</c> / input handlers without further
-/// marshalling. The autoload never touches scene-tree state itself.
+/// assignment AND the <see cref="WorldLoaded"/> emission happen on the main
+/// thread via a deferred call from the continuation — never directly off
+/// the awaited (possibly thread-pool) continuation. Public reads after boot
+/// are pure field reads, safe from <c>_Ready</c> / <c>_Process</c> / input
+/// handlers without further marshalling. The autoload never touches
+/// scene-tree state itself.
 /// </para>
 /// </summary>
 public partial class WorldMapService : Node
 {
     private CancellationTokenSource _shutdownCts = null!;
+
+    /// <summary>
+    /// Emitted exactly once, on the main thread, when the boot load has
+    /// completed — <b>whether it succeeded or failed</b>. This is the
+    /// timing seam J5 was missing : the world referential is loaded
+    /// fire-and-forget at boot, and <see cref="ApplyLoadResult"/> lands via
+    /// <c>CallDeferred</c> <i>after</i> <c>GameScreen</c> and every child
+    /// (including <c>HalfgateMarkerLayer</c>) have finished their
+    /// <c>_Ready</c> pass. A consumer that read <see cref="World"/> once at
+    /// <c>_Ready</c> would always see an empty cache. Consumers that need to
+    /// react to the cache filling — the J5 city marker — connect to this
+    /// signal instead, and additionally handle the already-loaded case
+    /// (cache warm before they subscribe) so there is no race either way.
+    ///
+    /// <para>
+    /// <b>Why a Godot <c>[Signal]</c> and not a C# <c>event</c>.</b> The
+    /// publisher is an autoload <see cref="Node"/> and the subscriber
+    /// (<c>HalfgateMarkerLayer</c>) is a scene node with a real lifetime ;
+    /// a Godot signal auto-disconnects when the subscriber is freed, which
+    /// is exactly the discipline a cross-lifetime publisher/subscriber pair
+    /// needs (trap #10). It also keeps the seam inspectable in the editor's
+    /// Node dock. Fired after the cache fields are assigned, so a handler
+    /// reading <see cref="World"/> / <see cref="LoadFailed"/> sees the
+    /// final state.
+    /// </para>
+    /// </summary>
+    [Signal]
+    public delegate void WorldLoadedEventHandler();
 
     /// <summary>
     /// The cached world referential, or <c>null</c> until a successful load
@@ -59,7 +103,9 @@ public partial class WorldMapService : Node
     /// <summary>
     /// True once <see cref="LoadAsync"/> has run to completion, whether it
     /// succeeded or failed. Callers waiting for the cache poll this together
-    /// with <see cref="World"/> != null.
+    /// with <see cref="World"/> != null. A consumer subscribing to
+    /// <see cref="WorldLoaded"/> after the load already completed checks
+    /// this to fire its handler immediately (the already-loaded fast path).
     /// </summary>
     public bool IsLoaded { get; private set; }
 
@@ -91,7 +137,7 @@ public partial class WorldMapService : Node
     /// after the autoloads are stable — same boot slot as
     /// <see cref="PoiTreeService.LoadAsync"/>. Idempotent : a second call
     /// replaces the cache (useful for an editor hot-reload of the backend
-    /// in dev).
+    /// in dev) and emits <see cref="WorldLoaded"/> again.
     ///
     /// <para>
     /// <b>Error handling.</b> Every failure path logs and leaves the cache
@@ -118,8 +164,9 @@ public partial class WorldMapService : Node
             .GetWorldAsync(linkedCts.Token)
             .ConfigureAwait(false);
 
-        // Marshal back to the main thread before mutating the cache —
-        // GameScreen may already be polling World via its _Ready path.
+        // Marshal back to the main thread before mutating the cache and
+        // emitting WorldLoaded — HalfgateMarkerLayer may already be
+        // subscribed and will place a marker straight off the signal.
         // Callable.From + lambda capture lets the WorldReferentialResponse
         // (a plain C# record, NOT a Godot Variant type) cross the deferred
         // boundary by reference, bypassing the engine marshaller — same
@@ -154,6 +201,13 @@ public partial class WorldMapService : Node
                     + $"with the backend up");
                 break;
         }
+
+        // Notify consumers AFTER the cache fields are final. A handler
+        // reading World / LoadFailed off this signal sees the settled
+        // state. Emitted on both the success and failure path so a
+        // consumer waiting for the load (HalfgateMarkerLayer) stops
+        // waiting either way — on failure it simply degrades gracefully.
+        EmitSignal(SignalName.WorldLoaded);
     }
 
     /// <summary>
