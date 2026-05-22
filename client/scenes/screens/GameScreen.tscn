@@ -1,7 +1,8 @@
-[gd_scene load_steps=6 format=3 uid="uid://dgamescreenj3a0"]
+[gd_scene load_steps=7 format=3 uid="uid://dgamescreenj3a0"]
 
 [ext_resource type="Script" path="res://scenes/screens/GameScreen.cs" id="1_gamescreen"]
 [ext_resource type="PackedScene" uid="uid://b3iso0boardj3i" path="res://scenes/iso/IsoBoard.tscn" id="2_isoboard"]
+[ext_resource type="Script" path="res://scripts/screens/HalfgateMarkerLayer.cs" id="3_marker"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hudband"]
 bg_color = Color(0.83, 0.74, 0.56, 1)
@@ -50,7 +51,10 @@ render_target_update_mode = 4
 TileWidthPx = 128
 PlaceholderGridWidth = 16
 PlaceholderGridHeight = 16
-DrawPlaceholderGrid = true
+BackgroundTexturePath = "res://assets/wayfinders_visual_assets/e2/wf_e2_world_map_mesh_iso_2048x1024.png"
+
+[node name="HalfgateMarkerLayer" type="Node2D" parent="MapViewportContainer/MapViewport/Maquette"]
+script = ExtResource("3_marker")
 
 [node name="DeskFloorViewport" type="SubViewport" parent="."]
 handle_input_locally = false

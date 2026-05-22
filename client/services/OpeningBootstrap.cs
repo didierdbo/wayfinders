@@ -76,6 +76,16 @@ namespace Wayfinders.Client.Services;
 /// (pure-C# seam, pinned by xUnit) so the contract has a regression
 /// guard outside the engine.
 /// </para>
+///
+/// <para>
+/// <b>J5 addition (2026-05-22, Rune).</b> The world referential
+/// (<see cref="WorldMapService"/>, <c>GET /api/world</c>) is loaded in the
+/// same boot slot as the POI tree — fire-and-forget, independent of the
+/// registration / NavigateTo path, tolerant of the backend being down.
+/// The Game Screen's eM map needs the city positions ; loading it here
+/// (not on GameScreen._Ready) means the cache is warm before any map
+/// scene mounts and is not re-fetched on an eM→eT swap.
+/// </para>
 /// </summary>
 public partial class OpeningBootstrap : Node
 {
@@ -123,6 +133,21 @@ public partial class OpeningBootstrap : Node
             GD.PushWarning("[OpeningBootstrap] PoiTreeService autoload missing -- POI tooltip aggregation will be empty");
         }
 
+        // J5 — fire the world referential boot load in the same slot.
+        // Same fire-and-forget discipline as the POI tree : the Game
+        // Screen's eM map degrades gracefully (mesh renders, no city
+        // marker) if the backend is down. Loading it here, not on
+        // GameScreen._Ready, keeps the cache warm and single-fetch.
+        var worldMapService = GetNodeOrNull<WorldMapService>("/root/WorldMapService");
+        if (worldMapService is not null)
+        {
+            _ = worldMapService.LoadAsync();
+        }
+        else
+        {
+            GD.PushWarning("[OpeningBootstrap] WorldMapService autoload missing -- eM map will render without a city marker");
+        }
+
         var hasSkipMeta = currentScene is not null
             && currentScene.HasMeta(SkipBootstrapMetaKey)
             && (bool)currentScene.GetMeta(SkipBootstrapMetaKey);
@@ -134,7 +159,7 @@ public partial class OpeningBootstrap : Node
         {
             GD.Print(
                 $"[OpeningBootstrap] gated by skip_opening_bootstrap on " +
-                $"'{currentScene?.Name}' -- registration AND NavigateTo skipped (PoiTree load still fired)");
+                $"'{currentScene?.Name}' -- registration AND NavigateTo skipped (PoiTree + world load still fired)");
             return;
         }
 

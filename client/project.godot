@@ -30,6 +30,7 @@ WorldSimTick="*res://services/WorldSimTick.tscn"
 MissionStore="*res://services/MissionStore.tscn"
 GameSettings="*res://services/GameSettings.tscn"
 PoiTreeService="*res://services/PoiTreeService.tscn"
+WorldMapService="*res://services/WorldMapService.tscn"
 OpeningBootstrap="*res://services/OpeningBootstrap.tscn"
 PoiInputRouter="*res://services/PoiInputRouter.tscn"
 
