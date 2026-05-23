@@ -48,6 +48,24 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// </para>
 ///
 /// <para>
+/// <b>The V-edge overlap (Rune 2026-05-23 second wedge-rendering round —
+/// the C↔D lip gap fix).</b> The wedges' V edge (InnerApex →
+/// SideShoulder) used to land EXACTLY on decor A's V boundary, with the
+/// idea that decor D's lip would meet it pixel-exact above. In practice a
+/// thin transparent sliver appeared at the boundary : decor D's lip
+/// alpha-tapers across a few sub-pixel rows, so even a pixel-perfect line
+/// of wedges left ~1-2 px of layer-B maquette visible through the seam.
+/// The fix is to <i>over-extend</i> the wedges UP past A's V by
+/// <see cref="VEdgeOverlapPx"/> pixels (default 4). Decor D paints over
+/// the overlap (D is drawn AFTER C in the locked A→B→C→D order), so the
+/// overlap is invisible ; the gap disappears because there is no row of
+/// pixels where neither C nor D paints. The overlap is safe : pulling
+/// <c>InnerApex</c> and <c>SideShoulder</c> a few pixels up only adds a
+/// few rows of wood under decor D's opaque lip ; the wood there is hidden
+/// behind D, the screen centre well above A's V apex stays untouched.
+/// </para>
+///
+/// <para>
 /// <b>The vertex order — and why the carve goes a few pixels BELOW A's V
 /// edge near the corners.</b> Each wedge is a 4-vertex convex polygon with
 /// these vertices, in clockwise order on the LEFT wedge :
@@ -58,19 +76,21 @@ namespace Wayfinders.Client.Scripts.Screens;
 ///   <item><c>BottomCentre</c> — the screen bottom-centre pixel
 ///     (<c>(centreX, bottom)</c>). The two wedges meet here, so the desk
 ///     wood is continuous along the bottom edge of the screen.</item>
-///   <item><c>InnerApex</c> — the V apex of decor A
-///     (<c>(centreX, bottom - InnerApexOffsetPx)</c>). Pixel-exact match to
-///     A's V apex.</item>
-///   <item><c>SideShoulder</c> — the V shoulder of decor A on the left side
-///     (<c>(left, bottom - SideShoulderOffsetPx)</c>). Pixel-exact match to
-///     A's V shoulder height.</item>
+///   <item><c>InnerApex</c> — the V apex of decor A pulled UP by
+///     <see cref="VEdgeOverlapPx"/>
+///     (<c>(centreX, bottom - InnerApexOffsetPx - VEdgeOverlapPx)</c>),
+///     so the wedge over-extends past A's V apex and meets decor D's lip
+///     under the lip's alpha taper rather than beside it.</item>
+///   <item><c>SideShoulder</c> — the V shoulder of decor A on the left
+///     side, similarly pulled UP by <see cref="VEdgeOverlapPx"/>.</item>
 /// </list>
 /// The hypotenuse <c>SideShoulder → InnerApex</c> has slope
-/// <c>(SideShoulderOffsetPx - InnerApexOffsetPx) / halfWidth</c>. Calibrated
-/// against the measured alpha, this is <i>parallel</i> to A's V edge — so
-/// the desk-wood polygon and A's opaque chevron meet edge-to-edge along the
-/// V, with no seam and no transparent sliver. The remaining edges
-/// (<c>BottomCorner → SideShoulder</c> along the side and
+/// <c>(SideShoulderOffsetPx - InnerApexOffsetPx) / halfWidth</c>. Even
+/// with the overlap the slope is unchanged (both vertices shift by the
+/// same <c>VEdgeOverlapPx</c>), so the V edge stays parallel to decor A's
+/// V edge — the desk-wood polygon and A's opaque chevron still meet edge-
+/// to-edge along the V, with no seam and no transparent sliver. The
+/// remaining edges (<c>BottomCorner → SideShoulder</c> along the side and
 /// <c>BottomCorner → BottomCentre</c> along the bottom) hug the screen
 /// border where A is fully transparent — so the desk floor solidly covers
 /// the alpha hole.
@@ -99,11 +119,13 @@ public static class DeskTrianglePlaceholderLogic
     /// bottom edge).
     /// </param>
     /// <param name="InnerApex">
-    /// Decor A's V apex (centre-X, slightly above the bottom). Shared by
-    /// both wedges along the screen-centre vertical edge.
+    /// Decor A's V apex pulled UP by <see cref="VEdgeOverlapPx"/> so the
+    /// wedge over-extends under decor D's lip. Shared by both wedges
+    /// along the screen-centre vertical edge.
     /// </param>
     /// <param name="SideShoulder">
-    /// Decor A's V shoulder on the side edge of the screen.
+    /// Decor A's V shoulder on the side edge of the screen, pulled UP by
+    /// <see cref="VEdgeOverlapPx"/> for the same reason.
     /// </param>
     public readonly record struct Wedge(
         SysVec2 BottomCorner,
@@ -131,7 +153,8 @@ public static class DeskTrianglePlaceholderLogic
     /// <summary>
     /// How far ABOVE the screen bottom decor A's V <b>apex</b> sits, in
     /// pixels at the 1080-tall reference resolution. The two wedges meet at
-    /// this height on the screen-centre vertical axis. Measured on
+    /// this height on the screen-centre vertical axis (before
+    /// <see cref="VEdgeOverlapPx"/> is added). Measured on
     /// <c>wf_e1_gamescreen_decor_back.png</c> : the last opaque row of A is
     /// y=1060, so the apex offset above the bottom (y=1080) is <c>20</c>
     /// pixels. Stored as a <i>fraction</i> of the viewport height so the
@@ -143,12 +166,29 @@ public static class DeskTrianglePlaceholderLogic
     /// How far ABOVE the screen bottom decor A's V <b>shoulder</b> sits, in
     /// pixels at the 1080-tall reference resolution. The wedge's
     /// <c>SideShoulder</c> vertex lands on the side edge of the screen at
-    /// this height. Measured on <c>wf_e1_gamescreen_decor_back.png</c> : at
-    /// x=0 the last opaque row is y=580, so the shoulder offset above the
-    /// bottom is <c>500</c> pixels. Stored as a fraction of viewport height
-    /// so the carve scales under a future resolution change.
+    /// this height (before <see cref="VEdgeOverlapPx"/> is added).
+    /// Measured on <c>wf_e1_gamescreen_decor_back.png</c> : at x=0 the
+    /// last opaque row is y=580, so the shoulder offset above the bottom
+    /// is <c>500</c> pixels. Stored as a fraction of viewport height so
+    /// the carve scales under a future resolution change.
     /// </summary>
     public const float SideShoulderFractionFromBottom = 500f / 1080f;
+
+    /// <summary>
+    /// <b>The V-edge overlap, in pixels.</b> The wedge's V edge
+    /// (InnerApex → SideShoulder) is shifted UP by this many pixels past
+    /// decor A's measured V boundary so the wedge over-extends UNDER
+    /// decor D's lip. Decor D paints over the overlap (D is drawn after
+    /// C in the locked A→B→C→D order), so the overlap is invisible — but
+    /// it eliminates the thin transparent sliver that appeared between
+    /// the wedges and decor D when the V edge landed pixel-exact on A's
+    /// V (decor D's lip alpha-tapers across a few rows and did not cover
+    /// the boundary completely). 4 px swallows the taper without
+    /// noticeably encroaching on the screen centre (the centre stays
+    /// well above the V apex). Tunable if Mira re-renders decor D with a
+    /// different taper width.
+    /// </summary>
+    public const float VEdgeOverlapPx = 4f;
 
     /// <summary>
     /// <b>Deprecated name.</b> Historical placeholder constant — kept as a
@@ -176,7 +216,9 @@ public static class DeskTrianglePlaceholderLogic
     /// positive. The fractions <see cref="InnerApexFractionFromBottom"/>
     /// and <see cref="SideShoulderFractionFromBottom"/> are applied to
     /// <paramref name="viewportSize"/>.Y to recover decor A's alpha-hole
-    /// geometry under the current camera zoom.
+    /// geometry under the current camera zoom ; <see cref="VEdgeOverlapPx"/>
+    /// is then subtracted from the V vertices' Y so the wedge over-extends
+    /// under decor D's lip.
     /// </param>
     /// <param name="originX">
     /// The desk board's local-X of the viewport's left edge. The desk
@@ -209,12 +251,18 @@ public static class DeskTrianglePlaceholderLogic
         float bottom = originY + viewportSize.Y;
         float centreX = originX + viewportSize.X * 0.5f;
 
-        float innerApexY = bottom - viewportSize.Y * InnerApexFractionFromBottom;
-        float sideShoulderY = bottom - viewportSize.Y * SideShoulderFractionFromBottom;
+        float innerApexY =
+            bottom - viewportSize.Y * InnerApexFractionFromBottom
+                   - VEdgeOverlapPx;
+        float sideShoulderY =
+            bottom - viewportSize.Y * SideShoulderFractionFromBottom
+                   - VEdgeOverlapPx;
 
         // Left wedge — clockwise : bottom-left corner -> bottom-centre ->
         // V apex -> left V shoulder. This tiles the LEFT half of decor A's
-        // alpha hole exactly.
+        // alpha hole exactly, with the V edge pulled up by VEdgeOverlapPx
+        // so the wedge over-extends UNDER decor D's lip and no transparent
+        // sliver remains between C and D.
         var leftWedge = new Wedge(
             BottomCorner: new SysVec2(left, bottom),
             BottomCentre: new SysVec2(centreX, bottom),

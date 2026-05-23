@@ -790,14 +790,21 @@ public partial class IsoBoard : Node2D
     /// <see cref="CanvasItem.DrawColoredPolygon"/> with per-vertex UVs.
     ///
     /// <para>
-    /// <b>UV space (2026-05-23 wedge-rendering round).</b> Godot 4's
-    /// <see cref="CanvasItem.DrawColoredPolygon"/> samples textures in the
-    /// normalized <c>[0,1]</c> UV domain, NOT in texture pixels. The wood
-    /// bitmap is authored at the floor rect's size and registered onto its
-    /// top-left, so a board-local vertex <c>v</c> maps to UV
-    /// <c>(v - rect.TopLeft) / rect.Size</c>. The conversion is in
-    /// <see cref="DeskWoodWedgeUvLogic.ComputeNormalizedUvs"/> (pure-C#,
-    /// xUnit-tested) so the formula is pinned and the seam stays Godot-free.
+    /// <b>UV space - iso basis (2026-05-23 wedge-rendering round 2).</b>
+    /// Godot 4 samples textures in normalized <c>[0,1]</c> UVs. The
+    /// first-pass fix earlier today used a screen-axis affine map
+    /// <c>uv = (vert - rect.TopLeft) / rect.Size</c> ; that closed the
+    /// sampler-clamp "aplat marron" bug but painted the wood grain
+    /// screen-axis-aligned. The desk is iso 2:1, so screen-axis grain
+    /// reads as a flat top-down floor pasted behind a 3/4-view stage.
+    /// The fix is to project each wedge vertex into the iso (col,row)
+    /// basis BEFORE normalizing - the wood is then sampled in iso space
+    /// and the grain follows the iso grid axes (shears onto slopes plus/
+    /// minus 0.5 on screen). The transform is in
+    /// <see cref="DeskWoodWedgeUvLogic.ComputeIsoNormalizedUvs"/>
+    /// (pure-C#, xUnit-tested) so the formula is pinned and the seam
+    /// stays Godot-free. The desk board's <see cref="TileWidthPx"/>
+    /// goes in as the iso basis scale.
     /// </para>
     /// </summary>
     private void DrawDeskWoodWedge(
@@ -805,8 +812,8 @@ public partial class IsoBoard : Node2D
         DeskFloorRectLogic.FloorRect rect)
     {
         var verts = DeskTrianglePlaceholderLogic.Vertices(wedge);
-        var normalizedUvs = DeskWoodWedgeUvLogic.ComputeNormalizedUvs(
-            wedge, rect);
+        var normalizedUvs = DeskWoodWedgeUvLogic.ComputeIsoNormalizedUvs(
+            wedge, rect, TileWidthPx);
 
         var points = new Vector2[verts.Length];
         var uvs = new Vector2[verts.Length];

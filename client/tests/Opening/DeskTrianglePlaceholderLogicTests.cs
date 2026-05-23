@@ -13,11 +13,15 @@ namespace Wayfinders.Client.Tests.Opening;
 /// alpha-hole geometry</b> (V apex at the centre-bottom, V shoulders on the
 /// side edges) — they tile the alpha hole edge-to-edge so the desk wood
 /// fully covers what decor A leaves transparent, with no central gap and
-/// no transparent sliver along the V edge. The screen centre (well above
-/// the V apex) is still left UNpainted so the maquette diamond shows
-/// through. The point-in-wedge convex-polygon test is winding-agnostic.
-/// The Godot-bound wiring — feeding the wedges into <c>IsoBoard._Draw</c>
-/// so the floor bitmap + grid are skipped outside them — is validated via
+/// no transparent sliver along the V edge. The V edge is pulled UP by
+/// <see cref="DeskTrianglePlaceholderLogic.VEdgeOverlapPx"/> so the wedges
+/// over-extend UNDER decor D's lip (D is drawn after C and covers the
+/// overlap) — that is what closes the thin C↔D seam where the maquette
+/// used to leak through. The screen centre (well above the V apex) is
+/// still left UNpainted so the maquette diamond shows through. The
+/// point-in-wedge convex-polygon test is winding-agnostic. The
+/// Godot-bound wiring — feeding the wedges into <c>IsoBoard._Draw</c> so
+/// the floor bitmap + grid are skipped outside them — is validated via
 /// the F6 smoke.
 /// </para>
 /// </summary>
@@ -97,39 +101,82 @@ public sealed class DeskTrianglePlaceholderLogicTests
     }
 
     [Fact]
-    public void The_inner_apex_height_matches_decor_A_V_apex()
+    public void The_inner_apex_height_is_decor_A_apex_pulled_up_by_the_V_overlap()
     {
         // Decor A's V apex sits InnerApexFractionFromBottom of the viewport
         // height above the bottom — pixel-exact against the measured alpha.
+        // The wedge's InnerApex is then pulled UP by VEdgeOverlapPx so the
+        // wedge over-extends UNDER decor D's lip and no C↔D sliver remains.
         var wedges = DeskTrianglePlaceholderLogic.Build(
             ViewportSize, OriginX, OriginY);
 
         float bottom = OriginY + ViewportSize.Y;
         float expectedApexY =
             bottom - ViewportSize.Y
-              * DeskTrianglePlaceholderLogic.InnerApexFractionFromBottom;
+              * DeskTrianglePlaceholderLogic.InnerApexFractionFromBottom
+              - DeskTrianglePlaceholderLogic.VEdgeOverlapPx;
 
         Assert.Equal(expectedApexY, wedges.Left.InnerApex.Y, precision: 3);
         Assert.Equal(expectedApexY, wedges.Right.InnerApex.Y, precision: 3);
     }
 
     [Fact]
-    public void The_side_shoulder_height_matches_decor_A_V_shoulder()
+    public void The_side_shoulder_height_is_decor_A_shoulder_pulled_up_by_the_V_overlap()
     {
         // Decor A's V shoulder sits SideShoulderFractionFromBottom of the
         // viewport height above the bottom — pixel-exact against the
         // measured alpha (at x=0 the last opaque row of decor A is y=580 on
-        // a 1080-tall image, hence 500/1080 ≈ 0.4630).
+        // a 1080-tall image, hence 500/1080 ≈ 0.4630). The wedge's
+        // SideShoulder is then pulled UP by VEdgeOverlapPx for the same
+        // C↔D-seam reason as InnerApex.
         var wedges = DeskTrianglePlaceholderLogic.Build(
             ViewportSize, OriginX, OriginY);
 
         float bottom = OriginY + ViewportSize.Y;
         float expectedShoulderY =
             bottom - ViewportSize.Y
-              * DeskTrianglePlaceholderLogic.SideShoulderFractionFromBottom;
+              * DeskTrianglePlaceholderLogic.SideShoulderFractionFromBottom
+              - DeskTrianglePlaceholderLogic.VEdgeOverlapPx;
 
         Assert.Equal(expectedShoulderY, wedges.Left.SideShoulder.Y, precision: 3);
         Assert.Equal(expectedShoulderY, wedges.Right.SideShoulder.Y, precision: 3);
+    }
+
+    [Fact]
+    public void The_V_edge_overlap_preserves_the_V_slope()
+    {
+        // The whole point of pulling InnerApex AND SideShoulder up by the
+        // same VEdgeOverlapPx : the V edge stays parallel to decor A's V
+        // edge, so the wedge's V boundary still runs edge-to-edge with A's
+        // V (just shifted up). If a future refactor shifted one vertex but
+        // not the other, the wedge's V slope would diverge from A's V slope
+        // and a sliver would re-open lower down where they used to coincide.
+        var wedges = DeskTrianglePlaceholderLogic.Build(
+            ViewportSize, OriginX, OriginY);
+
+        float bottom = OriginY + ViewportSize.Y;
+        float apexDelta = bottom
+            - ViewportSize.Y * DeskTrianglePlaceholderLogic.InnerApexFractionFromBottom
+            - wedges.Left.InnerApex.Y;
+        float shoulderDelta = bottom
+            - ViewportSize.Y * DeskTrianglePlaceholderLogic.SideShoulderFractionFromBottom
+            - wedges.Left.SideShoulder.Y;
+
+        Assert.Equal(DeskTrianglePlaceholderLogic.VEdgeOverlapPx, apexDelta, precision: 3);
+        Assert.Equal(DeskTrianglePlaceholderLogic.VEdgeOverlapPx, shoulderDelta, precision: 3);
+        Assert.Equal(apexDelta, shoulderDelta, precision: 3);
+    }
+
+    [Fact]
+    public void V_edge_overlap_is_positive_so_the_wedge_actually_over_extends()
+    {
+        // Pinning the contract : the overlap is strictly positive — a zero
+        // or negative value would mean the wedge stops AT or BELOW decor
+        // A's V boundary, re-opening the C↔D sliver this constant was
+        // introduced to close.
+        Assert.True(DeskTrianglePlaceholderLogic.VEdgeOverlapPx > 0f,
+            "VEdgeOverlapPx must be strictly positive ; a non-positive " +
+            "value re-opens the C↔D-lip sliver.");
     }
 
     [Fact]
@@ -165,7 +212,11 @@ public sealed class DeskTrianglePlaceholderLogicTests
     public void Neither_wedge_climbs_above_the_viewport_mid_line()
     {
         // The whole point of the carve : the desk wedges stay in the bottom
-        // half so they never overpaint the maquette zone.
+        // half so they never overpaint the maquette zone. The V-edge
+        // overlap is small (a handful of pixels) so the shoulder vertex
+        // (~500 px above the bottom on the reference 1080-tall viewport)
+        // still sits comfortably below the mid-line (540 px above the
+        // bottom) even after being pulled up by VEdgeOverlapPx.
         var wedges = DeskTrianglePlaceholderLogic.Build(
             ViewportSize, OriginX, OriginY);
 
