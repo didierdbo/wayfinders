@@ -342,6 +342,16 @@ public partial class GameScreen : Control
     /// </summary>
     private MaquetteModeController? _maquetteModeController;
 
+    /// <summary>
+    /// Étape C (2026-05-23, Rune) — the recruit-target perso layer riding
+    /// under the maquette <see cref="IsoBoard"/>. Visible only on eT ;
+    /// emits <c>RecruitTargetClicked</c> when the player clicks the
+    /// silhouette. <see cref="HandleMaquetteLeftClick"/> consults it
+    /// before the mission POI cascade so a click on the eT perso is
+    /// not stolen by an underlying (and hidden) mission pin.
+    /// </summary>
+    private RecruitTargetLayer? _recruitTargetLayer;
+
     // --- Layer C: the interactive desk -------------------------------------
     // The floor and the pawns are split into two co-located SubViewports
     // sharing one camera frame so a pawn that overflows above the desk floor
@@ -388,6 +398,8 @@ public partial class GameScreen : Control
         _missionPoiLayer = GetNode<MissionPoiLayer>(
             "MapViewportContainer/MapViewport/Maquette/MissionPoiLayer");
         _maquetteModeController = GetNodeOrNull<MaquetteModeController>("MaquetteModeController");
+        _recruitTargetLayer = GetNodeOrNull<RecruitTargetLayer>(
+            "MapViewportContainer/MapViewport/Maquette/RecruitTargetLayer");
 
         _deskFloorViewport = GetNode<SubViewport>("DeskFloorViewport");
         _deskFloorCamera = GetNode<Camera2D>("DeskFloorViewport/DeskFloorCamera2D");
@@ -567,6 +579,19 @@ public partial class GameScreen : Control
             containerSize,
             ToSys(_mapCamera.Position),
             ToSys(_mapCamera.Zoom));
+
+        // Étape C — recruit-target check FIRST when eT is active. The
+        // layer self-guards : OnClickAttempt returns false when not
+        // Visible (eM is showing) or when no target is configured. A
+        // hit emits RecruitTargetClicked and consumes the event ; a
+        // miss falls through to the mission POI cascade below (which
+        // is itself hidden on eT, so the cascade no-ops too — both
+        // layers are mutually exclusive by visibility).
+        if (_recruitTargetLayer is not null
+            && _recruitTargetLayer.OnClickAttempt(new Vector2(mapWorld.X, mapWorld.Y)))
+        {
+            return true;
+        }
 
         var pinCentres = _missionPoiLayer.SnapshotPinCentres();
         var hitMissionId = MissionPoiLayerLogic.PickClosestPin(
@@ -859,25 +884,21 @@ public partial class GameScreen : Control
                          "ConfigureDesk — J3c-2 desk interaction is disabled.");
         }
 
-        // Place one placeholder pawn per slot as a layer-3 occupant of the
-        // ENTITIES board (NOT the floor board).
-        for (int i = 0; i < slots.Count; i++)
+        // Étape C (Rune, 2026-05-23, roadmap J8) — the Compagnie starts
+        // EMPTY (0 pawns). The CompanyDeskRoster controller subscribes
+        // to GameState.CompanyMemberRecruited and instances one
+        // DeskCompanyPawn per recruit, on the slot the authority picks.
+        // The previous J3c-1 demo seeded 7 placeholder pawns up-front ;
+        // that drowned out the PoC chain's visual signal ("ah, my recruit
+        // just arrived"). The 7-slot layout is preserved (the authority
+        // still picks slots in canonical order), only the seeding shape
+        // changed.
+        var rosterController = new CompanyDeskRoster
         {
-            var cell = slots[i];
-            var pixel =
-                _deskEntitiesBoard.CellToPixel(new Vector2I(cell.Col, cell.Row));
-            var pawn = new DeskCompanyPawn
-            {
-                Name = $"DeskPawn{i}",
-                Position = pixel,
-            };
-            pawn.Configure(
-                slotIndex: i,
-                isLeader: DeskSlotLayoutLogic.IsLeaderSlot(i),
-                memberId: GameState.DeskMemberIdForSlot(i),
-                board: _deskEntitiesBoard);
-            _deskEntitiesBoard.AddOccupant(pawn);
-        }
+            Name = "CompanyDeskRoster",
+            DeskBoard = _deskEntitiesBoard,
+        };
+        _deskEntitiesBoard.AddChild(rosterController);
     }
 
     /// <summary>

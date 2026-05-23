@@ -632,6 +632,40 @@ public partial class GameState : Node
         string memberId, int targetCol, int targetRow);
 
     /// <summary>
+    /// Fired after <see cref="AddRecruitedCompanyMember"/> accepted a
+    /// new Company member and seeded its slot on the desk grid. Carries
+    /// the NpcId (e.g. <c>"kira"</c>), the canonical slot index
+    /// (0 = leader, 1-6 formation), and the slot cell coordinates the
+    /// new pawn must spawn on. The Étape C
+    /// <c>CompanyDeskRoster</c> view subscribes once and instantiates one
+    /// <see cref="Wayfinders.Client.Scenes.Ui.DeskCompanyPawn"/> per
+    /// emission ; the Compagnie therefore grows organically from zero
+    /// pawns at boot to one per recruit.
+    ///
+    /// <para>
+    /// <b>Wire format.</b> Same int-pair shape as
+    /// <see cref="CompanyMemberPlacementConfirmed"/> for symmetry — the
+    /// cell crosses the signal boundary as two ints, never as a
+    /// <c>Vector2I</c>, so consumers rebuild the coord at the receiver
+    /// edge. The receiver typically composes a
+    /// <see cref="Wayfinders.Client.Services.Dtos.TileCoordinate"/>
+    /// (pure-C# pair) to forward into the Godot-free logic layer, and
+    /// a <c>new Vector2I(col, row)</c> for
+    /// <c>IsoBoard.CellToPixel</c>.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Disconnection discipline (trap #10).</b> Consumers MUST
+    /// disconnect on <c>_ExitTree</c> — the autoload outlives every
+    /// scene, leaving the delegate over a freed view would crash on
+    /// the next emit.
+    /// </para>
+    /// </summary>
+    [Signal]
+    public delegate void CompanyMemberRecruitedEventHandler(
+        string npcId, int slotIndex, int slotCol, int slotRow);
+
+    /// <summary>
     /// The desk's layer-2 logical grid — the authoritative occupancy of
     /// the cartographer's-desk iso board. <c>null</c> until
     /// <see cref="AdoptDeskGrid"/> is called by <c>GameScreen</c> at
@@ -663,6 +697,15 @@ public partial class GameState : Node
     private readonly Dictionary<TileCoordinate, string> _deskCellOccupants = new();
 
     /// <summary>
+    /// The Company formation cells in canonical slot order, captured
+    /// by <see cref="AdoptDeskGrid"/>. Used by
+    /// <see cref="AddRecruitedCompanyMember"/> to find the next free
+    /// slot via <see cref="RecruitFlowLogic.ResolveNextCompanySlot"/>.
+    /// Empty until adoption ; idempotent re-adoption replaces it.
+    /// </summary>
+    private IReadOnlyList<TileCoordinate> _companySlotCells = System.Array.Empty<TileCoordinate>();
+
+    /// <summary>
     /// Read-only snapshot of the desk occupancy: cell → member id. The
     /// J3c-2 click-resolution (<c>DeskSelectionLogic.ResolveClickedMember</c>)
     /// reads this to answer "which pawn occupies the clicked cell".
@@ -672,24 +715,38 @@ public partial class GameState : Node
 
     /// <summary>
     /// Adopt the desk board's logical grid as the authoritative desk
-    /// occupancy, and seed the initial Company formation onto it.
-    /// Called once by <c>GameScreen.ConfigureDesk</c> after the desk
-    /// boards are ready. Idempotent re-adoption is allowed (a scene
-    /// reload re-seeds cleanly): it clears the prior occupancy first.
+    /// occupancy. Called once by <c>GameScreen.ConfigureDesk</c> after
+    /// the desk boards are ready. Idempotent re-adoption is allowed (a
+    /// scene reload starts fresh): it clears the prior occupancy first.
     ///
     /// <para>
-    /// Each slot cell is stamped with its member id on the grid
-    /// (<see cref="IsoGrid.SetOccupant"/>) and indexed in
-    /// <see cref="_deskCellOccupants"/>. The member id is the synthetic
-    /// J3c-2 slot id <c>"company-slot-N"</c> — J8 replaces these with
-    /// real recruited-persona ids; the desk flow does not care about the
-    /// id shape, only that it is a stable opaque string.
+    /// <b>Étape C change (Rune, 2026-05-23, roadmap J8).</b> Before
+    /// Étape C this method seeded the formation with 7 placeholder
+    /// pawns (<c>company-slot-N</c>) so the J3c-1 desk demo had
+    /// something to show. The PoC chain now ends with a real recruit
+    /// flow that drops one pawn per recruited NPC, and the placeholder
+    /// pawns drowned out the visual signal. The new contract is :
+    /// <list type="bullet">
+    ///   <item>The grid is adopted with NO occupants — the Compagnie
+    ///         starts empty (0 pawns on the desk).</item>
+    ///   <item>The <paramref name="slotCells"/> list is captured in
+    ///         <see cref="_companySlotCells"/> so the recruit handler
+    ///         (<see cref="AddRecruitedCompanyMember"/>) can resolve
+    ///         the next free slot via
+    ///         <see cref="RecruitFlowLogic.ResolveNextCompanySlot"/>.</item>
+    ///   <item>Each subsequent recruit fills the next free slot in the
+    ///         canonical order (leader first, then formation rows).</item>
+    /// </list>
+    /// The <see cref="DeskMemberIdForSlot"/> helper is retained for
+    /// the J3c-2 placement test harnesses that build synthetic grids
+    /// without going through this method.
     /// </para>
     /// </summary>
     /// <param name="grid">The desk board's <c>IsoGrid</c>.</param>
     /// <param name="slotCells">
     /// The Company formation cells in slot order
-    /// (<c>DeskSlotLayoutLogic.CompanySlotCells</c>).
+    /// (<c>DeskSlotLayoutLogic.CompanySlotCells</c>). Captured for the
+    /// recruit handler ; no longer pre-populated as occupants.
     /// </param>
     public void AdoptDeskGrid(
         IsoGrid grid, IReadOnlyList<TileCoordinate> slotCells)
@@ -698,7 +755,7 @@ public partial class GameState : Node
         System.ArgumentNullException.ThrowIfNull(slotCells);
 
         // Clear any prior occupancy (idempotent re-adoption on a scene
-        // reload) before seeding the formation onto the fresh grid.
+        // reload) before the fresh adoption.
         foreach (var cell in _deskCellOccupants.Keys)
         {
             if (grid.HasCell(cell))
@@ -710,15 +767,92 @@ public partial class GameState : Node
         SelectedCompanyMemberId = null;
 
         DeskGrid = grid;
-        for (int i = 0; i < slotCells.Count; i++)
+        _companySlotCells = new List<TileCoordinate>(slotCells);
+        GD.Print($"[GameState] desk grid adopted: {slotCells.Count} slot cells " +
+                 $"captured, grid has {grid.Count} cells, Compagnie starts EMPTY " +
+                 $"(Étape C — first recruit lands on slot 0).");
+    }
+
+    /// <summary>
+    /// Add a freshly-recruited NPC to the Compagnie on the next free
+    /// desk slot (Étape C, Rune 2026-05-23, roadmap J8). Idempotent on
+    /// <paramref name="npcId"/> : a duplicate add (the NPC is already
+    /// on the desk) is a silent no-op that returns null. Mutates
+    /// <see cref="DeskGrid"/> via <see cref="IsoGrid.SetOccupant"/>,
+    /// updates the <see cref="_deskCellOccupants"/> index, and emits
+    /// <see cref="CompanyMemberRecruited"/> with the slot index + cell
+    /// so the <c>CompanyDeskRoster</c> view instances the new
+    /// <see cref="Wayfinders.Client.Scenes.Ui.DeskCompanyPawn"/>.
+    ///
+    /// <para>
+    /// <b>Why a separate method, not a re-use of
+    /// <see cref="RequestCompanyMemberPlacement"/>.</b> The placement
+    /// helper assumes the member is already on the grid and wants to
+    /// move ; recruiting is the inverse — the member is NOT on the
+    /// grid and we want to add it. Re-using the same helper would force
+    /// a fake source cell and dilute the verdict semantics. One method
+    /// per concern, easier to pin in xUnit.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Authority discipline (NPC-autonomy lock 2026-05-09).</b>
+    /// <see cref="GameState"/> is the sole writer of
+    /// <see cref="_deskCellOccupants"/> ; the <c>CompanyDeskRoster</c>
+    /// view reacts to the signal and instances the pawn, it never
+    /// touches the occupancy itself. The pawn is a view of the slot,
+    /// the slot is the authority.
+    /// </para>
+    /// </summary>
+    /// <param name="npcId">The NpcId to seed (e.g. <c>"kira"</c>).
+    /// Must be non-null / non-empty.</param>
+    /// <returns>The slot assignment when the recruit landed, or null
+    /// when (a) the grid is not yet adopted, (b) the NPC is already on
+    /// the desk, or (c) the formation is full. The Godot-bound caller
+    /// logs the null branch ; the F6 smoke shows which branch resolved.</returns>
+    public RecruitFlowLogic.CompanySlotAssignment? AddRecruitedCompanyMember(string npcId)
+    {
+        System.ArgumentException.ThrowIfNullOrEmpty(npcId);
+
+        if (DeskGrid is null)
         {
-            var cell = slotCells[i];
-            var memberId = DeskMemberIdForSlot(i);
-            grid.SetOccupant(cell, memberId);
-            _deskCellOccupants[cell] = memberId;
+            GD.PushWarning($"[GameState] AddRecruitedCompanyMember({npcId}) called " +
+                           $"before the desk grid was adopted — ignored.");
+            return null;
         }
-        GD.Print($"[GameState] desk grid adopted: {slotCells.Count} slots " +
-                 $"seeded, grid has {grid.Count} cells.");
+
+        // Idempotence : the same NPC cannot occupy two slots.
+        foreach (var existing in _deskCellOccupants.Values)
+        {
+            if (existing == npcId)
+            {
+                GD.Print($"[GameState] AddRecruitedCompanyMember({npcId}) : already " +
+                         $"on the desk — silent no-op.");
+                return null;
+            }
+        }
+
+        var assignment = RecruitFlowLogic.ResolveNextCompanySlot(
+            _companySlotCells, _deskCellOccupants);
+        if (assignment is null)
+        {
+            GD.PushWarning($"[GameState] AddRecruitedCompanyMember({npcId}) : the " +
+                           $"Company formation is full ({_deskCellOccupants.Count} of " +
+                           $"{_companySlotCells.Count} slots occupied) — ignored.");
+            return null;
+        }
+
+        // Authority mutation : write the occupancy in both the grid and
+        // the reverse index, then emit so the view spawns the pawn.
+        DeskGrid.SetOccupant(assignment.Cell, npcId);
+        _deskCellOccupants[assignment.Cell] = npcId;
+
+        EmitSignal(
+            SignalName.CompanyMemberRecruited,
+            npcId,
+            assignment.SlotIndex,
+            assignment.Cell.Col,
+            assignment.Cell.Row);
+        return assignment;
     }
 
     /// <summary>
