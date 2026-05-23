@@ -666,4 +666,17 @@
     <Compile Include="..\scripts\screens\MissionPoiLayerLogic.cs" Link="src\MissionPoiLayerLogic.cs" />
   </ItemGroup>
 
+  <!-- Étape B: bascule eM->eT au clic POI mission (Rune, 2026-05-23,
+       roadmap J7 partial). Two pure-C# helpers : the mission->district
+       resolver (with the M1 first-of-city fallback for recruit slugs
+       absent from world.yaml) and the maquette-mode state machine +
+       transition planner (texture paths, idempotence on a same-district
+       click). Godot-free by design ; the Godot-bound MaquetteModeController
+       node lives in the client csproj only, wired by GameScreen.tscn and
+       validated via the GameScreen.tscn F6 smoke. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\MissionDistrictResolverLogic.cs" Link="src\MissionDistrictResolverLogic.cs" />
+    <Compile Include="..\scripts\screens\MaquetteModeLogic.cs" Link="src\MaquetteModeLogic.cs" />
+  </ItemGroup>
+
 </Project>

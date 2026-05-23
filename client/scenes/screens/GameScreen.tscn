@@ -1,9 +1,10 @@
-[gd_scene load_steps=8 format=3 uid="uid://dgamescreenj3a0"]
+[gd_scene load_steps=9 format=3 uid="uid://dgamescreenj3a0"]
 
 [ext_resource type="Script" path="res://scenes/screens/GameScreen.cs" id="1_gamescreen"]
 [ext_resource type="PackedScene" uid="uid://b3iso0boardj3i" path="res://scenes/iso/IsoBoard.tscn" id="2_isoboard"]
 [ext_resource type="Script" path="res://scripts/screens/HalfgateMarkerLayer.cs" id="3_marker"]
 [ext_resource type="Script" path="res://scripts/screens/MissionPoiLayer.cs" id="4_missionpoi"]
+[ext_resource type="Script" path="res://scripts/screens/MaquetteModeController.cs" id="5_modemode"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hudband"]
 bg_color = Color(0.83, 0.74, 0.56, 1)
@@ -116,6 +117,13 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
+
+[node name="MaquetteModeController" type="Node" parent="."]
+script = ExtResource("5_modemode")
+MaquetteBoardPath = NodePath("../MapViewportContainer/MapViewport/Maquette")
+MissionPoiLayerPath = NodePath("../MapViewportContainer/MapViewport/Maquette/MissionPoiLayer")
+HalfgateMarkerLayerPath = NodePath("../MapViewportContainer/MapViewport/Maquette/HalfgateMarkerLayer")
+MapCameraPath = NodePath("../MapViewportContainer/MapViewport/MapCamera2D")
 
 [node name="HudLayer" type="CanvasLayer" parent="."]
 layer = 10

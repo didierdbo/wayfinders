@@ -333,6 +333,15 @@ public partial class GameScreen : Control
     /// </summary>
     private MissionPoiLayer _missionPoiLayer = null!;
 
+    /// <summary>
+    /// Étape B (2026-05-23) — the eM↔eT bascule controller wired into
+    /// the scene tree. Resolved at <c>_Ready</c> ; consumed by the
+    /// Escape-key seam in <see cref="_UnhandledInput"/>. Optional :
+    /// when null (controller not in the scene yet), the Escape key is
+    /// a no-op.
+    /// </summary>
+    private MaquetteModeController? _maquetteModeController;
+
     // --- Layer C: the interactive desk -------------------------------------
     // The floor and the pawns are split into two co-located SubViewports
     // sharing one camera frame so a pawn that overflows above the desk floor
@@ -378,6 +387,7 @@ public partial class GameScreen : Control
         _maquette = GetNode<IsoBoard>("MapViewportContainer/MapViewport/Maquette");
         _missionPoiLayer = GetNode<MissionPoiLayer>(
             "MapViewportContainer/MapViewport/Maquette/MissionPoiLayer");
+        _maquetteModeController = GetNodeOrNull<MaquetteModeController>("MaquetteModeController");
 
         _deskFloorViewport = GetNode<SubViewport>("DeskFloorViewport");
         _deskFloorCamera = GetNode<Camera2D>("DeskFloorViewport/DeskFloorCamera2D");
@@ -482,6 +492,24 @@ public partial class GameScreen : Control
     /// </summary>
     public override void _UnhandledInput(InputEvent @event)
     {
+        // Étape B (2026-05-23) — Escape key requests a return to eM. We
+        // handle it at the very start of _UnhandledInput so a key press
+        // never falls through to the mouse-button logic below. The
+        // ENTITY-SELECTION priority (trap #9) is preserved : Escape is a
+        // shell-level intent, not an entity click.
+        if (@event is InputEventKey keyEvent
+            && keyEvent.Pressed
+            && !keyEvent.Echo
+            && keyEvent.Keycode == Key.Escape)
+        {
+            if (_maquetteModeController is not null)
+            {
+                _maquetteModeController.RequestReturnToWorldMap();
+                GetViewport().SetInputAsHandled();
+            }
+            return;
+        }
+
         if (@event is not InputEventMouseButton button
             || button.ButtonIndex != MouseButton.Left
             || button.Pressed)
