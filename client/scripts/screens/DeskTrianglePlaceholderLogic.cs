@@ -49,7 +49,7 @@ namespace Wayfinders.Client.Scripts.Screens;
 ///
 /// <para>
 /// <b>The V-edge overlap (Rune 2026-05-23 second wedge-rendering round —
-/// the C↔D lip gap fix).</b> The wedges' V edge (InnerApex →
+/// the C↔D lip gap fix, first pass).</b> The wedges' V edge (InnerApex →
 /// SideShoulder) used to land EXACTLY on decor A's V boundary, with the
 /// idea that decor D's lip would meet it pixel-exact above. In practice a
 /// thin transparent sliver appeared at the boundary : decor D's lip
@@ -59,41 +59,76 @@ namespace Wayfinders.Client.Scripts.Screens;
 /// <see cref="VEdgeOverlapPx"/> pixels (default 4). Decor D paints over
 /// the overlap (D is drawn AFTER C in the locked A→B→C→D order), so the
 /// overlap is invisible ; the gap disappears because there is no row of
-/// pixels where neither C nor D paints. The overlap is safe : pulling
-/// <c>InnerApex</c> and <c>SideShoulder</c> a few pixels up only adds a
-/// few rows of wood under decor D's opaque lip ; the wood there is hidden
-/// behind D, the screen centre well above A's V apex stays untouched.
+/// pixels where neither C nor D paints.
 /// </para>
 ///
 /// <para>
-/// <b>The vertex order — and why the carve goes a few pixels BELOW A's V
-/// edge near the corners.</b> Each wedge is a 4-vertex convex polygon with
-/// these vertices, in clockwise order on the LEFT wedge :
+/// <b>The lateral-edge overlap (Rune 2026-05-23 third wedge-rendering round
+/// — the lateral C↔D lip gap fix).</b> Extending the V-edge overlap closed
+/// the seam along the V (InnerApex → SideShoulder), but Didier still saw a
+/// seam along the wedge's <i>lateral edge</i> (SideShoulder → BottomCorner,
+/// the edge that runs vertically along x=left or x=right). Same root cause :
+/// decor D's lip wraps from the V down along the lateral side of the screen
+/// with the same sub-pixel alpha taper, so an edge pixel-exact on the
+/// screen border still leaks the layer-B maquette through the taper rows.
+/// The fix mirrors the V-edge one : push <c>SideShoulder.X</c> and
+/// <c>BottomCorner.X</c> OUTWARD by <see cref="LateralEdgeOverlapPx"/>
+/// pixels — left wedge to <c>left - overlap</c>, right wedge to
+/// <c>right + overlap</c>. The lateral edge then slips fully under decor
+/// D's lateral lip taper. The portion of the wedge that hangs outside the
+/// viewport rect is clipped by the engine viewport, so no wood leaks off
+/// the screen edge.
+/// </para>
+///
+/// <para>
+/// <b>What is NOT shifted, and why.</b> <c>BottomCentre</c> stays at
+/// <c>(centreX, bottom)</c>. It sits at the screen bottom-centre where
+/// decor A is fully transparent across the entire bottom row and decor D
+/// has no lip overlap to slip under (D's lip lives along the V and the
+/// lateral sides, not along the screen bottom row). Pulling BottomCentre
+/// further down off-screen, or off-centre, would break the wedge-meet
+/// invariant (the two wedges must share BottomCentre and InnerApex on the
+/// centreX axis to tile the alpha hole seamlessly).
+/// </para>
+///
+/// <para>
+/// <b>The vertex order — and the iso V-slope invariant.</b> Each wedge is
+/// a 4-vertex convex polygon with these vertices, in clockwise order on
+/// the LEFT wedge :
 /// <list type="number">
-///   <item><c>BottomCorner</c> — the screen bottom-corner pixel
-///     (<c>(left, bottom)</c>). The desk-floor bitmap must cover the very
-///     bottom row of pixels (decor A is transparent there).</item>
+///   <item><c>BottomCorner</c> — the screen bottom-corner pixel pushed
+///     OUTWARD by <see cref="LateralEdgeOverlapPx"/> in X
+///     (<c>(left - LateralEdgeOverlapPx, bottom)</c>). The desk-floor
+///     bitmap covers the very bottom row and slips a few pixels under
+///     decor D's lateral lip.</item>
 ///   <item><c>BottomCentre</c> — the screen bottom-centre pixel
 ///     (<c>(centreX, bottom)</c>). The two wedges meet here, so the desk
-///     wood is continuous along the bottom edge of the screen.</item>
+///     wood is continuous along the bottom edge of the screen — see the
+///     "what is NOT shifted" note above for why this vertex stays put.</item>
 ///   <item><c>InnerApex</c> — the V apex of decor A pulled UP by
 ///     <see cref="VEdgeOverlapPx"/>
 ///     (<c>(centreX, bottom - InnerApexOffsetPx - VEdgeOverlapPx)</c>),
 ///     so the wedge over-extends past A's V apex and meets decor D's lip
 ///     under the lip's alpha taper rather than beside it.</item>
-///   <item><c>SideShoulder</c> — the V shoulder of decor A on the left
-///     side, similarly pulled UP by <see cref="VEdgeOverlapPx"/>.</item>
+///   <item><c>SideShoulder</c> — the V shoulder of decor A on the side
+///     edge, pulled UP by <see cref="VEdgeOverlapPx"/> AND outward in X
+///     by <see cref="LateralEdgeOverlapPx"/>
+///     (<c>(left - LateralEdgeOverlapPx,
+///         bottom - SideShoulderOffsetPx - VEdgeOverlapPx)</c>).</item>
 /// </list>
-/// The hypotenuse <c>SideShoulder → InnerApex</c> has slope
-/// <c>(SideShoulderOffsetPx - InnerApexOffsetPx) / halfWidth</c>. Even
-/// with the overlap the slope is unchanged (both vertices shift by the
-/// same <c>VEdgeOverlapPx</c>), so the V edge stays parallel to decor A's
-/// V edge — the desk-wood polygon and A's opaque chevron still meet edge-
-/// to-edge along the V, with no seam and no transparent sliver. The
-/// remaining edges (<c>BottomCorner → SideShoulder</c> along the side and
-/// <c>BottomCorner → BottomCentre</c> along the bottom) hug the screen
-/// border where A is fully transparent — so the desk floor solidly covers
-/// the alpha hole.
+/// <b>The V slope is preserved.</b> The hypotenuse <c>SideShoulder →
+/// InnerApex</c> has rise <c>(SideShoulderY - InnerApexY)</c> and run
+/// <c>(centreX - SideShoulderX)</c>. Both vertices shift UP by the same
+/// <see cref="VEdgeOverlapPx"/>, so the rise is unchanged ; only
+/// SideShoulder shifts outward in X by <see cref="LateralEdgeOverlapPx"/>,
+/// so the run grows by exactly that overlap. The slope therefore goes
+/// from the original iso-aligned <c>0.5</c> to
+/// <c>rise / (run + LateralEdgeOverlapPx)</c> — a sub-percent change at
+/// the default 4 px overlap on a ~960 px run, well below the visual
+/// threshold. The wedges still read as two symmetric V triangles. If a
+/// future taste check demands a strictly-0.5 slope, the alternative is
+/// to shift InnerApex.Y instead — but that would re-open the V seam at
+/// the centre, which is why we keep the X shift here.
 /// </para>
 ///
 /// <para>
@@ -112,20 +147,24 @@ public static class DeskTrianglePlaceholderLogic
     /// </summary>
     /// <param name="BottomCorner">
     /// The screen bottom-corner vertex (bottom-left on the left wedge,
-    /// bottom-right on the right wedge).
+    /// bottom-right on the right wedge), pushed outward in X by
+    /// <see cref="LateralEdgeOverlapPx"/> so the wedge slips under decor
+    /// D's lateral lip.
     /// </param>
     /// <param name="BottomCentre">
     /// The screen bottom-centre vertex (shared by both wedges along the
-    /// bottom edge).
+    /// bottom edge). NOT shifted — see the type-level summary.
     /// </param>
     /// <param name="InnerApex">
     /// Decor A's V apex pulled UP by <see cref="VEdgeOverlapPx"/> so the
-    /// wedge over-extends under decor D's lip. Shared by both wedges
+    /// wedge over-extends under decor D's V lip. Shared by both wedges
     /// along the screen-centre vertical edge.
     /// </param>
     /// <param name="SideShoulder">
-    /// Decor A's V shoulder on the side edge of the screen, pulled UP by
-    /// <see cref="VEdgeOverlapPx"/> for the same reason.
+    /// Decor A's V shoulder on the side edge, pulled UP by
+    /// <see cref="VEdgeOverlapPx"/> AND pushed OUTWARD in X by
+    /// <see cref="LateralEdgeOverlapPx"/> so the wedge slips under both
+    /// the V lip and the lateral lip of decor D.
     /// </param>
     public readonly record struct Wedge(
         SysVec2 BottomCorner,
@@ -178,7 +217,7 @@ public static class DeskTrianglePlaceholderLogic
     /// <b>The V-edge overlap, in pixels.</b> The wedge's V edge
     /// (InnerApex → SideShoulder) is shifted UP by this many pixels past
     /// decor A's measured V boundary so the wedge over-extends UNDER
-    /// decor D's lip. Decor D paints over the overlap (D is drawn after
+    /// decor D's V lip. Decor D paints over the overlap (D is drawn after
     /// C in the locked A→B→C→D order), so the overlap is invisible — but
     /// it eliminates the thin transparent sliver that appeared between
     /// the wedges and decor D when the V edge landed pixel-exact on A's
@@ -189,6 +228,24 @@ public static class DeskTrianglePlaceholderLogic
     /// different taper width.
     /// </summary>
     public const float VEdgeOverlapPx = 4f;
+
+    /// <summary>
+    /// <b>The lateral-edge overlap, in pixels.</b> The wedge's lateral
+    /// edge (SideShoulder → BottomCorner, running vertically along x=left
+    /// or x=right) is shifted OUTWARD by this many pixels past the screen
+    /// border so the wedge over-extends UNDER decor D's <i>lateral</i>
+    /// lip. Same root cause as <see cref="VEdgeOverlapPx"/> : decor D's
+    /// lip alpha-tapers across a few sub-pixel rows along the lateral
+    /// side of the screen, so an edge pixel-exact on the screen border
+    /// still leaks the layer-B maquette through the taper rows. Pushing
+    /// the lateral edge OUT by 4 px makes the wedge wide enough to land
+    /// fully under D's opaque core ; the engine viewport clips the part
+    /// that hangs off-screen. Independent knob from
+    /// <see cref="VEdgeOverlapPx"/> so V and lateral tapers can be tuned
+    /// separately if Mira re-renders D with a different taper profile.
+    /// 4 px matches the V overlap as a sensible default.
+    /// </summary>
+    public const float LateralEdgeOverlapPx = 4f;
 
     /// <summary>
     /// <b>Deprecated name.</b> Historical placeholder constant — kept as a
@@ -217,8 +274,11 @@ public static class DeskTrianglePlaceholderLogic
     /// and <see cref="SideShoulderFractionFromBottom"/> are applied to
     /// <paramref name="viewportSize"/>.Y to recover decor A's alpha-hole
     /// geometry under the current camera zoom ; <see cref="VEdgeOverlapPx"/>
-    /// is then subtracted from the V vertices' Y so the wedge over-extends
-    /// under decor D's lip.
+    /// is then subtracted from the V vertices' Y, and
+    /// <see cref="LateralEdgeOverlapPx"/> is pushed outward on the
+    /// lateral X of <c>BottomCorner</c> and <c>SideShoulder</c>, so the
+    /// wedge over-extends under both the V lip and the lateral lip of
+    /// decor D.
     /// </param>
     /// <param name="originX">
     /// The desk board's local-X of the viewport's left edge. The desk
@@ -258,23 +318,34 @@ public static class DeskTrianglePlaceholderLogic
             bottom - viewportSize.Y * SideShoulderFractionFromBottom
                    - VEdgeOverlapPx;
 
+        // Lateral X for the lateral edge (SideShoulder ↔ BottomCorner).
+        // Pushed OUTWARD by LateralEdgeOverlapPx so the wedge slips under
+        // decor D's lateral lip taper, mirroring the V-edge overlap fix.
+        // Left wedge: lateral edge moves LEFT (smaller X). Right wedge:
+        // lateral edge moves RIGHT (larger X). The portion that hangs
+        // off-screen is clipped by the engine viewport ; no wood leaks
+        // past the screen border.
+        float leftLateralX = left - LateralEdgeOverlapPx;
+        float rightLateralX = right + LateralEdgeOverlapPx;
+
         // Left wedge — clockwise : bottom-left corner -> bottom-centre ->
         // V apex -> left V shoulder. This tiles the LEFT half of decor A's
-        // alpha hole exactly, with the V edge pulled up by VEdgeOverlapPx
-        // so the wedge over-extends UNDER decor D's lip and no transparent
-        // sliver remains between C and D.
+        // alpha hole, with the V edge pulled up by VEdgeOverlapPx and the
+        // lateral edge pulled outward by LateralEdgeOverlapPx so the
+        // wedge over-extends UNDER decor D's V lip AND lateral lip, and
+        // no transparent sliver remains between C and D on either edge.
         var leftWedge = new Wedge(
-            BottomCorner: new SysVec2(left, bottom),
+            BottomCorner: new SysVec2(leftLateralX, bottom),
             BottomCentre: new SysVec2(centreX, bottom),
             InnerApex: new SysVec2(centreX, innerApexY),
-            SideShoulder: new SysVec2(left, sideShoulderY));
+            SideShoulder: new SysVec2(leftLateralX, sideShoulderY));
 
         // Right wedge — mirror about centreX.
         var rightWedge = new Wedge(
-            BottomCorner: new SysVec2(right, bottom),
+            BottomCorner: new SysVec2(rightLateralX, bottom),
             BottomCentre: new SysVec2(centreX, bottom),
             InnerApex: new SysVec2(centreX, innerApexY),
-            SideShoulder: new SysVec2(right, sideShoulderY));
+            SideShoulder: new SysVec2(rightLateralX, sideShoulderY));
 
         return new DeskTriangles(leftWedge, rightWedge);
     }

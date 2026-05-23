@@ -14,11 +14,14 @@ namespace Wayfinders.Client.Tests.Opening;
 /// side edges) — they tile the alpha hole edge-to-edge so the desk wood
 /// fully covers what decor A leaves transparent, with no central gap and
 /// no transparent sliver along the V edge. The V edge is pulled UP by
-/// <see cref="DeskTrianglePlaceholderLogic.VEdgeOverlapPx"/> so the wedges
-/// over-extend UNDER decor D's lip (D is drawn after C and covers the
-/// overlap) — that is what closes the thin C↔D seam where the maquette
-/// used to leak through. The screen centre (well above the V apex) is
-/// still left UNpainted so the maquette diamond shows through. The
+/// <see cref="DeskTrianglePlaceholderLogic.VEdgeOverlapPx"/> AND the
+/// lateral edge is pushed OUTWARD by
+/// <see cref="DeskTrianglePlaceholderLogic.LateralEdgeOverlapPx"/> so the
+/// wedges over-extend UNDER decor D's V lip AND lateral lip (D is drawn
+/// after C and covers the overlap) — that is what closes the thin C↔D
+/// seam on both the V and the lateral edges where the maquette used to
+/// leak through. The screen centre (well above the V apex) is still
+/// left UNpainted so the maquette diamond shows through. The
 /// point-in-wedge convex-polygon test is winding-agnostic. The
 /// Godot-bound wiring — feeding the wedges into <c>IsoBoard._Draw</c> so
 /// the floor bitmap + grid are skipped outside them — is validated via
@@ -46,17 +49,25 @@ public sealed class DeskTrianglePlaceholderLogicTests
     }
 
     [Fact]
-    public void Both_wedges_anchor_at_their_screen_bottom_corner()
+    public void Both_wedges_anchor_at_their_lateral_edge_pushed_outward_at_the_bottom_row()
     {
+        // The bottom-corner vertex sits on the screen bottom row (Y unchanged
+        // — the screen bottom edge has no decor-D lip taper to slip under)
+        // but its X is pushed OUTWARD by LateralEdgeOverlapPx so the wedge's
+        // lateral edge (SideShoulder ↔ BottomCorner) slips under decor D's
+        // lateral lip taper. Left wedge → smaller X, right wedge → larger X.
         var wedges = DeskTrianglePlaceholderLogic.Build(
             ViewportSize, OriginX, OriginY);
 
         float left = OriginX;
         float right = OriginX + ViewportSize.X;
         float bottom = OriginY + ViewportSize.Y;
+        float overlap = DeskTrianglePlaceholderLogic.LateralEdgeOverlapPx;
 
-        Assert.Equal(new SysVec2(left, bottom), wedges.Left.BottomCorner);
-        Assert.Equal(new SysVec2(right, bottom), wedges.Right.BottomCorner);
+        Assert.Equal(
+            new SysVec2(left - overlap, bottom), wedges.Left.BottomCorner);
+        Assert.Equal(
+            new SysVec2(right + overlap, bottom), wedges.Right.BottomCorner);
     }
 
     [Fact]
@@ -67,7 +78,9 @@ public sealed class DeskTrianglePlaceholderLogicTests
         // bottom-centre point and the inner-apex point. Without this, the
         // F6 desk floor had a central gap where the layer-B SubViewport
         // showed through (bug observed 2026-05-23, the cause of the
-        // "maquette qui déborde" report).
+        // "maquette qui déborde" report). The lateral-edge overlap added
+        // on 2026-05-23 (third round) does NOT touch these two shared
+        // vertices — both wedges still meet exactly at centreX.
         var wedges = DeskTrianglePlaceholderLogic.Build(
             ViewportSize, OriginX, OriginY);
 
@@ -78,6 +91,9 @@ public sealed class DeskTrianglePlaceholderLogicTests
     [Fact]
     public void The_two_wedges_are_mirror_symmetric_about_the_viewport_centre()
     {
+        // Both lateral-edge vertices (BottomCorner, SideShoulder) shift
+        // outward by the same LateralEdgeOverlapPx (left wedge: −, right
+        // wedge: +), so mirror symmetry about centreX is preserved.
         var wedges = DeskTrianglePlaceholderLogic.Build(
             ViewportSize, OriginX, OriginY);
 
@@ -143,14 +159,46 @@ public sealed class DeskTrianglePlaceholderLogicTests
     }
 
     [Fact]
+    public void The_side_shoulder_X_is_pushed_outward_by_the_lateral_overlap()
+    {
+        // The SideShoulder X — the top end of the wedge's lateral edge —
+        // is shifted OUTWARD by LateralEdgeOverlapPx (left wedge: −, right
+        // wedge: +), exactly like BottomCorner. This keeps the lateral
+        // edge vertical (SideShoulder.X == BottomCorner.X within a wedge),
+        // so the edge runs parallel to the screen border one overlap step
+        // outside it, fully under decor D's lateral lip taper.
+        var wedges = DeskTrianglePlaceholderLogic.Build(
+            ViewportSize, OriginX, OriginY);
+
+        float left = OriginX;
+        float right = OriginX + ViewportSize.X;
+        float overlap = DeskTrianglePlaceholderLogic.LateralEdgeOverlapPx;
+
+        Assert.Equal(left - overlap, wedges.Left.SideShoulder.X, precision: 3);
+        Assert.Equal(right + overlap, wedges.Right.SideShoulder.X, precision: 3);
+        // Lateral edge is vertical within each wedge.
+        Assert.Equal(
+            wedges.Left.BottomCorner.X,
+            wedges.Left.SideShoulder.X, precision: 3);
+        Assert.Equal(
+            wedges.Right.BottomCorner.X,
+            wedges.Right.SideShoulder.X, precision: 3);
+    }
+
+    [Fact]
     public void The_V_edge_overlap_preserves_the_V_slope()
     {
         // The whole point of pulling InnerApex AND SideShoulder up by the
-        // same VEdgeOverlapPx : the V edge stays parallel to decor A's V
-        // edge, so the wedge's V boundary still runs edge-to-edge with A's
-        // V (just shifted up). If a future refactor shifted one vertex but
-        // not the other, the wedge's V slope would diverge from A's V slope
+        // same VEdgeOverlapPx : the V edge's vertical rise stays unchanged,
+        // so the V edge stays parallel to decor A's V edge (just shifted up
+        // and outward). If a future refactor shifted one vertex's Y but not
+        // the other's, the wedge's V slope would diverge from A's V slope
         // and a sliver would re-open lower down where they used to coincide.
+        // The lateral overlap only changes SideShoulder.X (not InnerApex.X),
+        // which slightly extends the V edge's run — the slope drops from
+        // 0.5 to rise/(run+LateralEdgeOverlapPx), a sub-percent change on
+        // a ~960 px run — but the rise-equal-on-both-V-vertices invariant
+        // is what this test pins.
         var wedges = DeskTrianglePlaceholderLogic.Build(
             ViewportSize, OriginX, OriginY);
 
@@ -180,13 +228,29 @@ public sealed class DeskTrianglePlaceholderLogicTests
     }
 
     [Fact]
+    public void Lateral_edge_overlap_is_positive_so_the_wedge_actually_over_extends_outward()
+    {
+        // Pinning the contract : the lateral overlap is strictly positive
+        // — a zero or negative value would mean the wedge's lateral edge
+        // stops AT or INSIDE the screen border, re-opening the C↔D sliver
+        // along the lateral side of the screen (the bug Didier reported
+        // 2026-05-23 after the first VEdgeOverlapPx fix closed only the
+        // central V seam).
+        Assert.True(DeskTrianglePlaceholderLogic.LateralEdgeOverlapPx > 0f,
+            "LateralEdgeOverlapPx must be strictly positive ; a non-positive " +
+            "value re-opens the lateral C↔D-lip sliver.");
+    }
+
+    [Fact]
     public void The_two_wedges_cover_the_whole_bottom_edge()
     {
         // The old placeholder used BottomEdgeFraction=0.38 — the two wedges
         // covered only 76% of the bottom edge, leaving a 24% central gap
         // where the layer-B SubViewport showed through. The alpha-aligned
         // wedges meet at the screen centre, so a point a hair above the
-        // bottom edge at ANY x is inside one of the two wedges.
+        // bottom edge at ANY x is inside one of the two wedges. The
+        // lateral overlap only extends the wedges further outward, so any
+        // point at or inside [left, right] is still covered.
         var wedges = DeskTrianglePlaceholderLogic.Build(
             ViewportSize, OriginX, OriginY);
 
