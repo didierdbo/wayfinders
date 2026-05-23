@@ -584,6 +584,20 @@
     <Compile Include="..\scripts\screens\DeskTrianglePlaceholderLogic.cs" Link="src\DeskTrianglePlaceholderLogic.cs" />
   </ItemGroup>
 
+  <!-- Desk wood wedge UV mapping (Rune, 2026-05-23 wedge-rendering round).
+       DeskWoodWedgeUvLogic is the pure-C# affine helper that maps a desk
+       wedge's pixel-space vertices to NORMALIZED [0,1] UVs against the floor
+       rect Mira's wf_e1_desk_wood_floor.png is registered onto. Closes the
+       F6 bug where IsoBoard.DrawDeskWoodWedge passed pixel-space UVs to
+       Godot 4's DrawColoredPolygon ; the sampler clamped to the edge texel
+       and the whole wedge read as a flat colour (the aplat marron +
+       transparency-bleed cluster). Godot-free by design (System.Numerics.Vector2)
+       so it pins here without an engine ; the Godot-bound wiring lives in
+       IsoBoard._Draw and is validated via the GameScreen.tscn F6 smoke. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\DeskWoodWedgeUvLogic.cs" Link="src\DeskWoodWedgeUvLogic.cs" />
+  </ItemGroup>
+
   <!-- J3c-1sexies maquette content centring (Rune, 2026-05-21).
        MaquetteContentLogic is the pure-C# geometry that returns the
        maquette content GEOMETRIC centre — the point the pannable

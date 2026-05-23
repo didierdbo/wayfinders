@@ -356,19 +356,20 @@ public partial class IsoBoard : Node2D
     /// </summary>
     private Texture2D? _deskWoodTexture;
 
-    // Placeholder-grid stroke colours — warm earth, Wayfinders visual DNA
+    // Placeholder-grid stroke colours -- warm earth, Wayfinders visual DNA
     // (terracotta / parchment / umber). Developer placeholder only.
     //
     // The desk floor carries Mira's wf_e1_desk_wood_floor bitmap. The debug
     // grid is KEPT (J3c-2 click placement still needs the cell lattice
-    // readable for development) but ATTENUATED, so it reads as a faint
-    // developer overlay on the wood rather than a paint layer competing
-    // with it. The fill alpha is 0 (the diamonds no longer tint the wood)
-    // and the line alpha is a thin dark hairline. Drop the whole grid (set
-    // DrawPlaceholderGrid = false on the desk board) once J3c-2 cell
+    // readable for development). The 2026-05-23 wedge-rendering round
+    // raised both alphas : the fill is a faint parchment tint (alpha 0.10)
+    // so each cell reads as a clearly visible iso diamond on the wood, and
+    // the line is a darker umber hairline (alpha 0.55) so the cell lattice
+    // is legible without overpowering Mira's wood grain. Drop the whole
+    // grid (set DrawPlaceholderGrid = false on the desk board) once cell
     // placement is self-evident from the wood + pawns.
-    private static readonly Color GridLineColor = new(0.20f, 0.13f, 0.08f, 0.30f);
-    private static readonly Color GridFillColor = new(0.91f, 0.85f, 0.72f, 0.0f);
+    private static readonly Color GridLineColor = new(0.20f, 0.13f, 0.08f, 0.55f);
+    private static readonly Color GridFillColor = new(0.91f, 0.85f, 0.72f, 0.10f);
 
     /// <summary>
     /// Placeholder desk-floor fill — a flat warm umber-brown table surface,
@@ -739,9 +740,21 @@ public partial class IsoBoard : Node2D
             // maquette shows through there.
             if (_deskWoodTexture is not null)
             {
-                // Mira's wood bitmap, carved to each wedge. The wood texture
-                // is authored at the desk floor-rect size, so a board-local
-                // point p maps to texture pixel (p - rect.TopLeft).
+                // Opaque underlay first : a flat FloorFillColor polygon per
+                // wedge guarantees structural opacity even if a wood-texture
+                // edge texel happens to carry a non-opaque alpha. The wood
+                // pass paints over it, so the underlay is invisible when the
+                // wood is opaque (the normal case) but blocks any bleed-
+                // through to the layer-B maquette otherwise.
+                DrawColoredPolygon(
+                    ToGodotPoly(DeskTrianglePlaceholderLogic.Vertices(tris.Left)),
+                    FloorFillColor);
+                DrawColoredPolygon(
+                    ToGodotPoly(DeskTrianglePlaceholderLogic.Vertices(tris.Right)),
+                    FloorFillColor);
+                // Mira's wood bitmap, carved to each wedge. UVs go through
+                // DeskWoodWedgeUvLogic so they land in the normalized [0,1]
+                // domain Godot's DrawColoredPolygon samples textures in.
                 DrawDeskWoodWedge(tris.Left, rect);
                 DrawDeskWoodWedge(tris.Right, rect);
             }
@@ -777,12 +790,14 @@ public partial class IsoBoard : Node2D
     /// <see cref="CanvasItem.DrawColoredPolygon"/> with per-vertex UVs.
     ///
     /// <para>
-    /// The wood texture (<see cref="_deskWoodTexture"/>) is authored at the
-    /// desk floor-rect size, registered onto the rect's top-left. A
-    /// board-local point <c>p</c> therefore samples the texture at pixel
-    /// <c>p - rect.TopLeft</c> — that is the UV for each wedge vertex.
-    /// Godot 4 <see cref="CanvasItem.DrawColoredPolygon"/> takes UVs in
-    /// texture pixels.
+    /// <b>UV space (2026-05-23 wedge-rendering round).</b> Godot 4's
+    /// <see cref="CanvasItem.DrawColoredPolygon"/> samples textures in the
+    /// normalized <c>[0,1]</c> UV domain, NOT in texture pixels. The wood
+    /// bitmap is authored at the floor rect's size and registered onto its
+    /// top-left, so a board-local vertex <c>v</c> maps to UV
+    /// <c>(v - rect.TopLeft) / rect.Size</c>. The conversion is in
+    /// <see cref="DeskWoodWedgeUvLogic.ComputeNormalizedUvs"/> (pure-C#,
+    /// xUnit-tested) so the formula is pinned and the seam stays Godot-free.
     /// </para>
     /// </summary>
     private void DrawDeskWoodWedge(
@@ -790,14 +805,15 @@ public partial class IsoBoard : Node2D
         DeskFloorRectLogic.FloorRect rect)
     {
         var verts = DeskTrianglePlaceholderLogic.Vertices(wedge);
+        var normalizedUvs = DeskWoodWedgeUvLogic.ComputeNormalizedUvs(
+            wedge, rect);
+
         var points = new Vector2[verts.Length];
         var uvs = new Vector2[verts.Length];
         for (int i = 0; i < verts.Length; i++)
         {
             points[i] = new Vector2(verts[i].X, verts[i].Y);
-            uvs[i] = new Vector2(
-                verts[i].X - rect.TopLeft.X,
-                verts[i].Y - rect.TopLeft.Y);
+            uvs[i] = new Vector2(normalizedUvs[i].X, normalizedUvs[i].Y);
         }
         // White modulate => the wood texture's own colour is shown unchanged.
         DrawColoredPolygon(points, Colors.White, uvs, _deskWoodTexture);
@@ -848,13 +864,17 @@ public partial class IsoBoard : Node2D
                     continue;
                 }
                 // When the desk floor is carved to the two bottom-corner
-                // wedges, only stripe a cell whose centre falls inside one
-                // of them — the grid then reads as "the desk lives in the
-                // corners", not a full-screen square lattice over the
-                // maquette.
+                // wedges, only stripe a cell whose diamond OVERLAPS one of
+                // the two wedges -- the grid then reads as "the desk lives
+                // in the corners", not a full-screen square lattice over
+                // the maquette. The previous test only checked the centre,
+                // which dropped edge cells whose centres fell just outside
+                // the V hypotenuse while their diamond clearly overlapped
+                // the wedge -- visible as missing cells along the V in F6.
+                // The relaxed test also includes a cell whose top / right /
+                // bottom / left apex sits inside a wedge ; cheap and robust.
                 if (DeskTrianglePlaceholderClip && _deskTriangles is { } tris
-                    && !DeskTrianglePlaceholderLogic.Contains(
-                        tris, new SysVec2(centre.X, centre.Y)))
+                    && !DiamondOverlapsWedges(tris, centre, halfW, halfH))
                 {
                     continue;
                 }
@@ -864,6 +884,38 @@ public partial class IsoBoard : Node2D
             }
         }
         return drawn;
+    }
+
+    /// <summary>
+    /// True when an iso cell diamond at <paramref name="centre"/> overlaps
+    /// either desk wedge. The diamond's four apexes (top / right / bottom /
+    /// left) plus the centre are sampled against the convex-wedge inside
+    /// test ; any inside vertex counts as an overlap. Cheap (5 inside tests),
+    /// robust against the V-edge boundary case the centre-only test missed
+    /// (cells along decor A's V hypotenuse whose centre sat just outside
+    /// while their diamond clearly intersected the wedge -- visible as
+    /// missing cells along the V in F6, 2026-05-23 wedge-rendering round).
+    /// </summary>
+    private static bool DiamondOverlapsWedges(
+        DeskTrianglePlaceholderLogic.DeskTriangles wedges,
+        Vector2 centre, float halfW, float halfH)
+    {
+        var samples = new[]
+        {
+            new SysVec2(centre.X, centre.Y),
+            new SysVec2(centre.X, centre.Y - halfH),  // top apex
+            new SysVec2(centre.X + halfW, centre.Y),  // right apex
+            new SysVec2(centre.X, centre.Y + halfH),  // bottom apex
+            new SysVec2(centre.X - halfW, centre.Y),  // left apex
+        };
+        foreach (var s in samples)
+        {
+            if (DeskTrianglePlaceholderLogic.Contains(wedges, s))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>
@@ -893,11 +945,11 @@ public partial class IsoBoard : Node2D
             centre + new Vector2(0f, halfH),      // bottom
             centre + new Vector2(-halfW, 0f),     // left
         };
-        // GridFillColor alpha is 0 — over the wood bitmap the diamonds no
-        // longer tint the floor; only the hairline outline is visible. The
-        // DrawColoredPolygon call is kept (cost negligible, and a future
-        // debug build can re-raise the fill alpha) but it paints nothing
-        // while the alpha stays 0.
+        // GridFillColor carries a faint parchment tint (alpha 0.10, raised
+        // from 0 by the 2026-05-23 wedge-rendering round) so each cell reads
+        // as a clearly visible iso diamond on the wood without overpowering
+        // Mira's grain. The alpha gate stays as a cheap kill-switch in case
+        // a future debug build drops the fill back to 0.
         if (GridFillColor.A > 0f)
         {
             DrawColoredPolygon(diamond, GridFillColor);
