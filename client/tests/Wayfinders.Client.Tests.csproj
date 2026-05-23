@@ -679,4 +679,16 @@
     <Compile Include="..\scripts\screens\MaquetteModeLogic.cs" Link="src\MaquetteModeLogic.cs" />
   </ItemGroup>
 
+  <!-- Étape C: recruit-on-eT PoC chain (Rune, 2026-05-23, roadmap J8).
+       Two pure-C# helpers : RecruitFlowLogic (resolve target NpcId from
+       mission DTO + resolve next free Company slot from desk occupancy)
+       and RecruitTargetLayerLogic (compute perso centre + click hit-test
+       on eT). Godot-free by design ; the Godot-bound RecruitTargetLayer +
+       RecruitFlowController + CompanyDeskRoster live in the client csproj
+       only and are validated via the GameScreen.tscn F6 smoke. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\RecruitFlowLogic.cs" Link="src\RecruitFlowLogic.cs" />
+    <Compile Include="..\scripts\screens\RecruitTargetLayerLogic.cs" Link="src\RecruitTargetLayerLogic.cs" />
+  </ItemGroup>
+
 </Project>
