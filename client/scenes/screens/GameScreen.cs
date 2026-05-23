@@ -324,6 +324,15 @@ public partial class GameScreen : Control
     private Camera2D _mapCamera = null!;
     private IsoBoard _maquette = null!;
 
+    /// <summary>
+    /// Étape A (2026-05-23) — the mission POI overlay riding under
+    /// the maquette <see cref="IsoBoard"/>. Owns one node per active
+    /// mission and emits <c>MissionPoiClicked</c> when a click on
+    /// the eM map resolves to one of its pins (see
+    /// <see cref="HandleMaquetteLeftClick"/> for the routing).
+    /// </summary>
+    private MissionPoiLayer _missionPoiLayer = null!;
+
     // --- Layer C: the interactive desk -------------------------------------
     // The floor and the pawns are split into two co-located SubViewports
     // sharing one camera frame so a pawn that overflows above the desk floor
@@ -367,6 +376,8 @@ public partial class GameScreen : Control
         _mapViewport = GetNode<SubViewport>("MapViewportContainer/MapViewport");
         _mapCamera = GetNode<Camera2D>("MapViewportContainer/MapViewport/MapCamera2D");
         _maquette = GetNode<IsoBoard>("MapViewportContainer/MapViewport/Maquette");
+        _missionPoiLayer = GetNode<MissionPoiLayer>(
+            "MapViewportContainer/MapViewport/Maquette/MissionPoiLayer");
 
         _deskFloorViewport = GetNode<SubViewport>("DeskFloorViewport");
         _deskFloorCamera = GetNode<Camera2D>("DeskFloorViewport/DeskFloorCamera2D");
@@ -479,8 +490,73 @@ public partial class GameScreen : Control
             return;
         }
 
+        // Étape A — try the maquette mission-POI cascade FIRST. If the click
+        // falls inside the maquette container AND resolves to a mission pin
+        // (closest-wins inside the pick radius), the mission POI consumes
+        // the event and the desk fallthrough never runs. A click inside the
+        // container that misses every pin is treated as "the player wanted
+        // the maquette, not the desk" — the event is still consumed so a
+        // missed maquette click does not accidentally deselect a desk pawn
+        // sitting underneath. Outside the container (over the HUD bands,
+        // for instance) the click falls through to the desk routing as
+        // before.
+        if (HandleMaquetteLeftClick(button.Position))
+        {
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+
         HandleDeskLeftClick(button.Position);
         GetViewport().SetInputAsHandled();
+    }
+
+    /// <summary>
+    /// Étape A maquette click router : convert <paramref name="screenPos"/>
+    /// to a maquette-board pixel via
+    /// <see cref="MapViewportInputRoutingLogic"/>, ask the
+    /// <see cref="MissionPoiLayer"/> for its current pin centres, and run
+    /// <see cref="MissionPoiLayerLogic.PickClosestPin"/>. Returns true when
+    /// the click is "owned by the maquette" — either it hit a pin (the
+    /// signal is emitted) or it fell inside the maquette container at all
+    /// (it should not bleed through to the desk in any case).
+    /// </summary>
+    /// <param name="screenPos">The click position in screen pixels.</param>
+    /// <returns>True if the maquette claims the click ; false to fall
+    /// through to the desk routing.</returns>
+    private bool HandleMaquetteLeftClick(Vector2 screenPos)
+    {
+        var containerOffset = new SysVec2(_mapContainer.Position.X, _mapContainer.Position.Y);
+        var containerSize = new SysVec2(_mapContainer.Size.X, _mapContainer.Size.Y);
+        if (!MapViewportInputRoutingLogic.IsInsideContainer(
+                ToSys(screenPos), containerOffset, containerSize))
+        {
+            return false;
+        }
+
+        var mapWorld = MapViewportInputRoutingLogic.ScreenToMaquetteWorld(
+            ToSys(screenPos),
+            containerOffset,
+            containerSize,
+            ToSys(_mapCamera.Position),
+            ToSys(_mapCamera.Zoom));
+
+        var pinCentres = _missionPoiLayer.SnapshotPinCentres();
+        var hitMissionId = MissionPoiLayerLogic.PickClosestPin(
+            mapWorld, pinCentres, _missionPoiLayer.PinPickRadiusPx);
+
+        if (hitMissionId is not null)
+        {
+            _missionPoiLayer.OnPinClicked(
+                hitMissionId, new Vector2(mapWorld.X, mapWorld.Y));
+            return true;
+        }
+
+        // Click landed in the maquette but missed every mission pin. We
+        // still consume it — a maquette click is a maquette click, even
+        // when it doesn't hit a POI. This avoids the surprising side
+        // effect of an "empty sea" click reaching the desk pawn under the
+        // maquette plane.
+        return true;
     }
 
     /// <summary>

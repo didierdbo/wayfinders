@@ -652,4 +652,18 @@
     <Compile Include="..\scripts\screens\WorldMapCalage.cs" Link="src\WorldMapCalage.cs" />
   </ItemGroup>
 
+  <!-- Étape A: missions affichées sur eM comme POI cliquables (Rune,
+       2026-05-23, roadmap J6 closeout). Three pure-C# helpers : the
+       mission position resolver (target_poi -> city slug -> centroid),
+       the screen->maquette-world input router (the pannable analogue of
+       DeskInputRoutingLogic), and the mission POI layer's reconcile-diff
+       / cluster-spiral / pick-closest-pin logic. Godot-free by design ;
+       the Godot-bound MissionPoiLayer node lives in the client csproj
+       only and is validated via the GameScreen.tscn F6 smoke. -->
+  <ItemGroup>
+    <Compile Include="..\scripts\screens\MissionPositionResolverLogic.cs" Link="src\MissionPositionResolverLogic.cs" />
+    <Compile Include="..\scripts\screens\MapViewportInputRoutingLogic.cs" Link="src\MapViewportInputRoutingLogic.cs" />
+    <Compile Include="..\scripts\screens\MissionPoiLayerLogic.cs" Link="src\MissionPoiLayerLogic.cs" />
+  </ItemGroup>
+
 </Project>

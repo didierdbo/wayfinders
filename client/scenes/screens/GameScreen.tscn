@@ -1,8 +1,9 @@
-[gd_scene load_steps=7 format=3 uid="uid://dgamescreenj3a0"]
+[gd_scene load_steps=8 format=3 uid="uid://dgamescreenj3a0"]
 
 [ext_resource type="Script" path="res://scenes/screens/GameScreen.cs" id="1_gamescreen"]
 [ext_resource type="PackedScene" uid="uid://b3iso0boardj3i" path="res://scenes/iso/IsoBoard.tscn" id="2_isoboard"]
 [ext_resource type="Script" path="res://scripts/screens/HalfgateMarkerLayer.cs" id="3_marker"]
+[ext_resource type="Script" path="res://scripts/screens/MissionPoiLayer.cs" id="4_missionpoi"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hudband"]
 bg_color = Color(0.83, 0.74, 0.56, 1)
@@ -55,6 +56,9 @@ BackgroundTexturePath = "res://assets/wayfinders_visual_assets/e2/wf_e2_world_ma
 
 [node name="HalfgateMarkerLayer" type="Node2D" parent="MapViewportContainer/MapViewport/Maquette"]
 script = ExtResource("3_marker")
+
+[node name="MissionPoiLayer" type="Node2D" parent="MapViewportContainer/MapViewport/Maquette"]
+script = ExtResource("4_missionpoi")
 
 [node name="DeskFloorViewport" type="SubViewport" parent="."]
 handle_input_locally = false
