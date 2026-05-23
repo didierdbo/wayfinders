@@ -852,17 +852,20 @@ public partial class GameScreen : Control
             new SysVec2(deskVisibleSize.X, deskVisibleSize.Y));
         _deskFloorBoard.SetDeskFloorFillRect(floorRect);
 
-        // The desk_triangle_clip shader is gone; until a decor that sits
+        // The desk_triangle_clip shader is gone ; until a decor that sits
         // ABOVE layer C carries the desk-floor shape lands, the desk floor
-        // is confined to the two bottom-corner wedges by a CPU draw-time
-        // clip. Layer A's two alpha holes CANNOT do this on their own — A
+        // is confined by a CPU draw-time clip to two wedges that tile
+        // decor A's alpha hole edge-to-edge (Rune 2026-05-23
+        // alpha-hole-aligned rebuild — superseded the placeholder
+        // fractions that left a central gap where the maquette leaked
+        // through). Layer A's alpha hole CANNOT do this on its own — A
         // is the BACK layer (drawn before C), so its alpha cannot mask C.
         // Without this clip the desk wood renders as a full opaque
         // rectangle that buries the layer-B maquette. The wedges are built
-        // in the desk board's local pixel space: the visible viewport
+        // in the desk board's local pixel space : the visible viewport
         // rect's top-left is cameraCentre - deskVisibleSize/2 (slack
         // excluded — the slack only pads the fill rect, the wedges hug the
-        // real viewport).
+        // real viewport so they line up with decor A pixel-exact).
         var deskVisibleTopLeft = new SysVec2(
             deskCameraPos.X - deskVisibleSize.X * 0.5f,
             deskCameraPos.Y - deskVisibleSize.Y * 0.5f);

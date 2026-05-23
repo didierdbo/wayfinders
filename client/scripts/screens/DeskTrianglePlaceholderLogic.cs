@@ -3,41 +3,77 @@ using SysVec2 = System.Numerics.Vector2;
 namespace Wayfinders.Client.Scripts.Screens;
 
 /// <summary>
-/// Pure-C# geometry for the <b>temporary</b> twin-corner desk-floor framing
-/// placeholder (Rune, 2026-05-22 — F6-readability fix, supersedes nothing,
-/// scaffolds the gap).
+/// Pure-C# geometry for the CPU draw-time desk-floor carve (Rune,
+/// 2026-05-23 alpha-hole-aligned rebuild). The name keeps the historical
+/// <c>...PlaceholderLogic</c> suffix for diff-traceability — it is no
+/// longer a "placeholder" in the original sense ; it is the production
+/// carve, calibrated against the shipped Mira back-decor alpha geometry.
 ///
 /// <para>
-/// <b>READ THIS — what this is, and what it is NOT.</b> This helper is a
-/// PLACEHOLDER. It exists ONLY to keep the F6 smoke interpretable in the gap
-/// between the removal of <c>desk_triangle_clip.gdshader</c> (the 4-layer
-/// rework, 2026-05-22) and the arrival of Mira's Blender decor — the decor
-/// whose two alpha holes will carry the desk-floor shape for real.
+/// <b>READ THIS — what this is, and what it is NOT.</b> The helper answers
+/// one question : "is this point inside the desk-floor mask region ?" — and
+/// returns the polygon vertices the engine seam paints to fill that region.
+/// <see cref="IsoBoard._Draw"/> uses both to decide which fragments of the
+/// desk wood and the iso grid to paint. It is a CPU draw-time framing — no
+/// shader, no material, no UV uniforms. It is NOT the removed
+/// <c>desk_triangle_clip.gdshader</c> returning.
 /// </para>
 ///
 /// <para>
-/// <b>It is NOT a return of the removed clip shader.</b> The removed scaffold
-/// was a GPU UV clip: a <c>.gdshader</c> on the floor <c>TextureRect</c> fed
-/// five UV uniforms by <c>DeskClipFrontierLogic</c>, carving a rectangular
-/// SubViewport <i>render target</i>. This helper instead just answers one
-/// question — "is this point inside one of the two bottom-corner triangles?"
-/// — and the <c>IsoBoard._Draw</c> pass uses that answer to <i>skip drawing</i>
-/// the floor aplat and the grid diamonds outside the triangles. It is a
-/// CPU draw-time framing, no shader, no material, no UV uniforms, no render
-/// target surgery. When Mira's decor lands, delete this file and the
-/// <c>IsoBoard.DeskTrianglePlaceholderClip</c> flag that consumes it; nothing
-/// else changes.
+/// <b>Why a CPU carve still exists, after Mira's decor landed (the
+/// stacking-order verdict, 2026-05-22).</b> Mira's back decor (layer A) is
+/// the BACK layer in the locked A → B → C → D draw order. A's alpha holes
+/// therefore CANNOT mask the desk floor (layer C, drawn AFTER A). The desk
+/// wood bitmap is authored as a full viewport-covering rectangle ; if it
+/// rendered unclipped it would cover the whole screen and bury the layer-B
+/// maquette. This CPU carve confines the live desk wood to the alpha-hole
+/// region. A fills the furniture around the hole ; the carve confines the
+/// desk wood INTO the hole. Complementary, not redundant.
 /// </para>
 ///
 /// <para>
-/// <b>The two triangles.</b> The desk reads as a cartographer's table seen
-/// from above: the map maquette occupies the centre, the desk wood shows
-/// only in the two BOTTOM corners of the screen — a bottom-left triangle and
-/// a bottom-right triangle, mirror-symmetric about the screen centre X. Each
-/// triangle's hypotenuse runs from a bottom corner up-and-inward to a point
-/// on the bottom edge near the centre and a point on the side edge. The exact
-/// painted decor will refine these edges; the placeholder just needs the two
-/// wedges to read as "the desk is down here in the corners".
+/// <b>The alpha-hole geometry (measured on
+/// <c>wf_e1_gamescreen_decor_back.png</c>, 1920×1080 RGBA).</b> The decor's
+/// opaque wood forms a chevron filling the upper half of the screen ; its
+/// bottom edge is an inverted-V with apex at <c>(960, 1060)</c> and
+/// shoulders at <c>(0, 580)</c> and <c>(1919, 580)</c>. The entire region
+/// below that V — down to the bottom edge of the screen — is transparent
+/// (alpha = 0), all the way across. So the alpha hole is ONE continuous
+/// V-shaped polygon, not two isolated corner triangles ; <see cref="Build"/>
+/// splits it at the screen-centre vertical axis into a LEFT and a RIGHT
+/// quadrilateral so the iso grid stripe pass stays trivially indexable by
+/// the screen-centre symmetry. The two quads share the screen-centre edge
+/// from <c>(960, 1060)</c> down to <c>(960, 1080)</c>, so they tile the
+/// alpha hole with no seam.
+/// </para>
+///
+/// <para>
+/// <b>The vertex order — and why the carve goes a few pixels BELOW A's V
+/// edge near the corners.</b> Each wedge is a 4-vertex convex polygon with
+/// these vertices, in clockwise order on the LEFT wedge :
+/// <list type="number">
+///   <item><c>BottomCorner</c> — the screen bottom-corner pixel
+///     (<c>(left, bottom)</c>). The desk-floor bitmap must cover the very
+///     bottom row of pixels (decor A is transparent there).</item>
+///   <item><c>BottomCentre</c> — the screen bottom-centre pixel
+///     (<c>(centreX, bottom)</c>). The two wedges meet here, so the desk
+///     wood is continuous along the bottom edge of the screen.</item>
+///   <item><c>InnerApex</c> — the V apex of decor A
+///     (<c>(centreX, bottom - InnerApexOffsetPx)</c>). Pixel-exact match to
+///     A's V apex.</item>
+///   <item><c>SideShoulder</c> — the V shoulder of decor A on the left side
+///     (<c>(left, bottom - SideShoulderOffsetPx)</c>). Pixel-exact match to
+///     A's V shoulder height.</item>
+/// </list>
+/// The hypotenuse <c>SideShoulder → InnerApex</c> has slope
+/// <c>(SideShoulderOffsetPx - InnerApexOffsetPx) / halfWidth</c>. Calibrated
+/// against the measured alpha, this is <i>parallel</i> to A's V edge — so
+/// the desk-wood polygon and A's opaque chevron meet edge-to-edge along the
+/// V, with no seam and no transparent sliver. The remaining edges
+/// (<c>BottomCorner → SideShoulder</c> along the side and
+/// <c>BottomCorner → BottomCentre</c> along the bottom) hug the screen
+/// border where A is fully transparent — so the desk floor solidly covers
+/// the alpha hole.
 /// </para>
 ///
 /// <para>
@@ -51,59 +87,109 @@ namespace Wayfinders.Client.Scripts.Screens;
 public static class DeskTrianglePlaceholderLogic
 {
     /// <summary>
-    /// One bottom-corner triangle, three vertices in this board's local
-    /// pixel space. Returned as a value type so the helper stays a pure
-    /// function.
+    /// One desk-floor wedge — a 4-vertex convex polygon in this board's
+    /// local pixel space. Vertex ordering documented on the type fields.
     /// </summary>
-    /// <param name="A">First vertex — the screen bottom corner.</param>
-    /// <param name="B">Second vertex — on the screen bottom edge.</param>
-    /// <param name="C">Third vertex — on the screen side edge.</param>
+    /// <param name="BottomCorner">
+    /// The screen bottom-corner vertex (bottom-left on the left wedge,
+    /// bottom-right on the right wedge).
+    /// </param>
+    /// <param name="BottomCentre">
+    /// The screen bottom-centre vertex (shared by both wedges along the
+    /// bottom edge).
+    /// </param>
+    /// <param name="InnerApex">
+    /// Decor A's V apex (centre-X, slightly above the bottom). Shared by
+    /// both wedges along the screen-centre vertical edge.
+    /// </param>
+    /// <param name="SideShoulder">
+    /// Decor A's V shoulder on the side edge of the screen.
+    /// </param>
+    public readonly record struct Wedge(
+        SysVec2 BottomCorner,
+        SysVec2 BottomCentre,
+        SysVec2 InnerApex,
+        SysVec2 SideShoulder);
+
+    /// <summary>
+    /// Back-compat alias for the historical name. Tests and one or two
+    /// outside callers still spell it <c>Triangle</c> ; the type is the
+    /// same 4-vertex convex polygon — only the name differs. Marked
+    /// obsolete to nudge callers to <see cref="Wedge"/>.
+    /// </summary>
+    [System.Obsolete("Use Wedge — this is a 4-vertex convex polygon, " +
+                     "not a triangle.")]
     public readonly record struct Triangle(SysVec2 A, SysVec2 B, SysVec2 C);
 
     /// <summary>
-    /// The two bottom-corner desk triangles for the placeholder framing.
+    /// The two desk-floor wedges that tile decor A's alpha hole.
     /// </summary>
-    /// <param name="Left">The bottom-left wedge.</param>
-    /// <param name="Right">The bottom-right wedge.</param>
-    public readonly record struct DeskTriangles(Triangle Left, Triangle Right);
+    /// <param name="Left">The left wedge.</param>
+    /// <param name="Right">The right wedge (mirror about the screen-X centre).</param>
+    public readonly record struct DeskTriangles(Wedge Left, Wedge Right);
 
     /// <summary>
-    /// How far along the screen bottom edge, from each bottom corner toward
-    /// the centre, the triangle's inner foot reaches — as a fraction of the
-    /// screen width. 0.38 leaves a small unpainted gap straddling the centre
-    /// (the maquette diamond shows through there) and gives each wedge a
-    /// believable table-corner footprint.
+    /// How far ABOVE the screen bottom decor A's V <b>apex</b> sits, in
+    /// pixels at the 1080-tall reference resolution. The two wedges meet at
+    /// this height on the screen-centre vertical axis. Measured on
+    /// <c>wf_e1_gamescreen_decor_back.png</c> : the last opaque row of A is
+    /// y=1060, so the apex offset above the bottom (y=1080) is <c>20</c>
+    /// pixels. Stored as a <i>fraction</i> of the viewport height so the
+    /// carve scales correctly under a future resolution change.
     /// </summary>
-    public const float BottomEdgeFraction = 0.38f;
+    public const float InnerApexFractionFromBottom = 20f / 1080f;
 
     /// <summary>
-    /// How far up the screen side edge, from each bottom corner, the
-    /// triangle's outer top vertex reaches — as a fraction of the screen
-    /// height. 0.46 keeps the wedge below the screen mid-line so it never
-    /// climbs into the maquette zone.
+    /// How far ABOVE the screen bottom decor A's V <b>shoulder</b> sits, in
+    /// pixels at the 1080-tall reference resolution. The wedge's
+    /// <c>SideShoulder</c> vertex lands on the side edge of the screen at
+    /// this height. Measured on <c>wf_e1_gamescreen_decor_back.png</c> : at
+    /// x=0 the last opaque row is y=580, so the shoulder offset above the
+    /// bottom is <c>500</c> pixels. Stored as a fraction of viewport height
+    /// so the carve scales under a future resolution change.
     /// </summary>
-    public const float SideEdgeFraction = 0.46f;
+    public const float SideShoulderFractionFromBottom = 500f / 1080f;
 
     /// <summary>
-    /// Build the two bottom-corner desk triangles for a viewport of the
-    /// given size, in that viewport's local pixel space (origin top-left,
-    /// +Y down).
+    /// <b>Deprecated name.</b> Historical placeholder constant — kept as a
+    /// thin alias so a stale grep still finds the symbol. Reads the new
+    /// alpha-aligned <see cref="SideShoulderFractionFromBottom"/>.
+    /// </summary>
+    [System.Obsolete("Use SideShoulderFractionFromBottom.")]
+    public const float SideEdgeFraction = SideShoulderFractionFromBottom;
+
+    /// <summary>
+    /// <b>Deprecated name.</b> Historical placeholder constant — the
+    /// alpha-aligned wedges meet at the screen centre by construction, so
+    /// this is now always <c>0.5</c>. Kept as a thin alias so a stale grep
+    /// still finds the symbol.
+    /// </summary>
+    [System.Obsolete("The wedges always meet at the screen centre now.")]
+    public const float BottomEdgeFraction = 0.5f;
+
+    /// <summary>
+    /// Build the two desk-floor wedges for a viewport of the given size, in
+    /// that viewport's local pixel space (origin top-left, +Y down).
     /// </summary>
     /// <param name="viewportSize">
-    /// The desk viewport size in pixels. Both components must be positive.
+    /// The desk viewport size in local pixels. Both components must be
+    /// positive. The fractions <see cref="InnerApexFractionFromBottom"/>
+    /// and <see cref="SideShoulderFractionFromBottom"/> are applied to
+    /// <paramref name="viewportSize"/>.Y to recover decor A's alpha-hole
+    /// geometry under the current camera zoom.
     /// </param>
     /// <param name="originX">
     /// The desk board's local-X of the viewport's left edge. The desk
-    /// board's <c>_Draw</c> runs in board-local pixels; the visible viewport
-    /// rect's top-left in that space is
-    /// <c>cameraCentre - viewportSize/2</c>, so the triangles must be built
+    /// board's <c>_Draw</c> runs in board-local pixels ; the visible
+    /// viewport rect's top-left in that space is
+    /// <c>cameraCentre - viewportSize/2</c>, so the wedges must be built
     /// against that, not against board origin (0,0).
     /// </param>
     /// <param name="originY">
     /// The desk board's local-Y of the viewport's top edge — see
     /// <paramref name="originX"/>.
     /// </param>
-    /// <returns>The bottom-left and bottom-right desk wedge triangles.</returns>
+    /// <returns>The left and right desk-floor wedges.</returns>
     /// <exception cref="System.ArgumentException">
     /// If either viewport dimension is non-positive — a caller bug, not a
     /// silent default.
@@ -121,43 +207,69 @@ public static class DeskTrianglePlaceholderLogic
         float left = originX;
         float right = originX + viewportSize.X;
         float bottom = originY + viewportSize.Y;
+        float centreX = originX + viewportSize.X * 0.5f;
 
-        float bottomReach = viewportSize.X * BottomEdgeFraction;
-        float sideReach = viewportSize.Y * SideEdgeFraction;
+        float innerApexY = bottom - viewportSize.Y * InnerApexFractionFromBottom;
+        float sideShoulderY = bottom - viewportSize.Y * SideShoulderFractionFromBottom;
 
-        // Bottom-left wedge: the bottom-left corner, a point along the bottom
-        // edge toward centre, and a point up the left edge.
-        var leftTri = new Triangle(
-            A: new SysVec2(left, bottom),
-            B: new SysVec2(left + bottomReach, bottom),
-            C: new SysVec2(left, bottom - sideReach));
+        // Left wedge — clockwise : bottom-left corner -> bottom-centre ->
+        // V apex -> left V shoulder. This tiles the LEFT half of decor A's
+        // alpha hole exactly.
+        var leftWedge = new Wedge(
+            BottomCorner: new SysVec2(left, bottom),
+            BottomCentre: new SysVec2(centreX, bottom),
+            InnerApex: new SysVec2(centreX, innerApexY),
+            SideShoulder: new SysVec2(left, sideShoulderY));
 
-        // Bottom-right wedge: the mirror about the viewport centre X.
-        var rightTri = new Triangle(
-            A: new SysVec2(right, bottom),
-            B: new SysVec2(right - bottomReach, bottom),
-            C: new SysVec2(right, bottom - sideReach));
+        // Right wedge — mirror about centreX.
+        var rightWedge = new Wedge(
+            BottomCorner: new SysVec2(right, bottom),
+            BottomCentre: new SysVec2(centreX, bottom),
+            InnerApex: new SysVec2(centreX, innerApexY),
+            SideShoulder: new SysVec2(right, sideShoulderY));
 
-        return new DeskTriangles(leftTri, rightTri);
+        return new DeskTriangles(leftWedge, rightWedge);
     }
 
     /// <summary>
-    /// True when <paramref name="point"/> lies inside either desk triangle
-    /// (inclusive of the edges). Uses the standard barycentric / sign-of-area
-    /// test — robust to either winding.
+    /// True when <paramref name="point"/> lies inside either desk wedge
+    /// (inclusive of the edges). Standard convex-polygon test : the point
+    /// is inside when it sits on the same side of every edge.
     /// </summary>
-    public static bool Contains(DeskTriangles triangles, SysVec2 point)
-        => PointInTriangle(triangles.Left, point)
-        || PointInTriangle(triangles.Right, point);
+    public static bool Contains(DeskTriangles wedges, SysVec2 point)
+        => PointInWedge(wedges.Left, point)
+        || PointInWedge(wedges.Right, point);
 
     /// <summary>
-    /// True when <paramref name="point"/> lies inside the single triangle
-    /// <paramref name="tri"/> (edges inclusive).
+    /// True when <paramref name="point"/> lies inside the convex polygon
+    /// <paramref name="wedge"/> (edges inclusive). Standard sign-of-edge
+    /// cross-product test, repeated for the four edges. Winding-agnostic :
+    /// the point is inside iff all four signs match (or are zero — on an
+    /// edge).
     /// </summary>
+    public static bool PointInWedge(Wedge wedge, SysVec2 point)
+    {
+        float d1 = EdgeSign(point, wedge.BottomCorner, wedge.BottomCentre);
+        float d2 = EdgeSign(point, wedge.BottomCentre, wedge.InnerApex);
+        float d3 = EdgeSign(point, wedge.InnerApex, wedge.SideShoulder);
+        float d4 = EdgeSign(point, wedge.SideShoulder, wedge.BottomCorner);
+
+        bool hasNeg = d1 < 0f || d2 < 0f || d3 < 0f || d4 < 0f;
+        bool hasPos = d1 > 0f || d2 > 0f || d3 > 0f || d4 > 0f;
+
+        return !(hasNeg && hasPos);
+    }
+
+    /// <summary>
+    /// Back-compat alias for the historical name. Some xUnit tests still
+    /// spell it <c>PointInTriangle</c> ; routes through the 3-vertex degenerate
+    /// case of the convex polygon test so its semantics are preserved.
+    /// </summary>
+    [System.Obsolete("Use PointInWedge — the carve polygon is a quadrilateral.")]
     public static bool PointInTriangle(Triangle tri, SysVec2 point)
     {
-        // Three edge cross-products; the point is inside when all three have
-        // the same sign (or are zero — on an edge). Winding-agnostic.
+        // Three edge cross-products ; same convex-polygon test, restricted
+        // to three edges.
         float d1 = EdgeSign(point, tri.A, tri.B);
         float d2 = EdgeSign(point, tri.B, tri.C);
         float d3 = EdgeSign(point, tri.C, tri.A);
@@ -165,15 +277,25 @@ public static class DeskTrianglePlaceholderLogic
         bool hasNeg = d1 < 0f || d2 < 0f || d3 < 0f;
         bool hasPos = d1 > 0f || d2 > 0f || d3 > 0f;
 
-        // Inside (or on an edge) iff the signs are not mixed.
         return !(hasNeg && hasPos);
     }
 
     /// <summary>
-    /// The four vertices of one triangle, ready for an engine-side polygon
-    /// fill. Exposed so the engine seam converts one short array rather than
+    /// The four vertices of one wedge, ready for an engine-side polygon
+    /// fill, in clockwise order :
+    /// <c>BottomCorner → BottomCentre → InnerApex → SideShoulder</c>.
+    /// Exposed so the engine seam converts one short array rather than
     /// re-deriving the vertices.
     /// </summary>
+    public static SysVec2[] Vertices(Wedge wedge)
+        => new[] { wedge.BottomCorner, wedge.BottomCentre, wedge.InnerApex, wedge.SideShoulder };
+
+    /// <summary>
+    /// Back-compat alias for the historical 3-vertex name. Returns three
+    /// vertices in the historical order ; new callers go through the
+    /// 4-vertex <see cref="Vertices(Wedge)"/> overload above.
+    /// </summary>
+    [System.Obsolete("Use the Wedge overload — returns 4 vertices.")]
     public static SysVec2[] Vertices(Triangle tri)
         => new[] { tri.A, tri.B, tri.C };
 

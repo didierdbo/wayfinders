@@ -639,7 +639,7 @@ public partial class IsoBoard : Node2D
     /// <b>Floor.</b> On a placeholder-floor board: if the twin-corner clip
     /// is on and Mira's wood texture is loaded
     /// (<see cref="_deskWoodTexture"/>), the wood is painted as TWO textured
-    /// triangles (<see cref="DrawDeskWoodTriangle"/>). If the wood rides the
+    /// wedges (<see cref="DrawDeskWoodWedge"/>). If the wood rides the
     /// full-rect layer-1 sprite (<see cref="_hasFloorBitmap"/>, clip OFF)
     /// nothing is drawn here — the sprite IS the floor. Only with no
     /// texture at all is the flat <see cref="FloorFillColor"/> aplat
@@ -727,18 +727,23 @@ public partial class IsoBoard : Node2D
     {
         if (DeskTrianglePlaceholderClip && _deskTriangles is { } tris)
         {
-            // The desk floor is confined to the two bottom-corner wedges,
-            // NOT the whole viewport rect — filling the full rect is exactly
-            // what would bury the layer-B maquette (decor A, the BACK layer,
-            // cannot mask C). The screen centre is left unpainted so the
-            // maquette shows through.
+            // The desk floor is confined to the two alpha-hole-aligned
+            // wedges (DeskTrianglePlaceholderLogic.Build, tuned against the
+            // measured decor-A back-pass alpha geometry), NOT the whole
+            // viewport rect — filling the full rect is exactly what would
+            // bury the layer-B maquette (decor A is the BACK layer ; it
+            // cannot mask C). The two wedges tile decor A's alpha hole edge-
+            // to-edge along its V boundary, so no transparent sliver is
+            // left between A's opaque wood and C's wood — and the
+            // screen centre above the V apex stays unpainted so the
+            // maquette shows through there.
             if (_deskWoodTexture is not null)
             {
                 // Mira's wood bitmap, carved to each wedge. The wood texture
                 // is authored at the desk floor-rect size, so a board-local
                 // point p maps to texture pixel (p - rect.TopLeft).
-                DrawDeskWoodTriangle(tris.Left, rect);
-                DrawDeskWoodTriangle(tris.Right, rect);
+                DrawDeskWoodWedge(tris.Left, rect);
+                DrawDeskWoodWedge(tris.Right, rect);
             }
             else
             {
@@ -766,24 +771,25 @@ public partial class IsoBoard : Node2D
     }
 
     /// <summary>
-    /// Paint Mira's desk wood bitmap inside one bottom-corner wedge
-    /// triangle, via <see cref="CanvasItem.DrawColoredPolygon"/> with
-    /// per-vertex UVs.
+    /// Paint Mira's desk wood bitmap inside one desk-floor wedge (a 4-vertex
+    /// convex polygon tiled against decor A's alpha hole, see
+    /// <see cref="DeskTrianglePlaceholderLogic.Wedge"/>) via
+    /// <see cref="CanvasItem.DrawColoredPolygon"/> with per-vertex UVs.
     ///
     /// <para>
     /// The wood texture (<see cref="_deskWoodTexture"/>) is authored at the
     /// desk floor-rect size, registered onto the rect's top-left. A
     /// board-local point <c>p</c> therefore samples the texture at pixel
-    /// <c>p - rect.TopLeft</c> — that is the UV for each triangle vertex.
+    /// <c>p - rect.TopLeft</c> — that is the UV for each wedge vertex.
     /// Godot 4 <see cref="CanvasItem.DrawColoredPolygon"/> takes UVs in
     /// texture pixels.
     /// </para>
     /// </summary>
-    private void DrawDeskWoodTriangle(
-        DeskTrianglePlaceholderLogic.Triangle tri,
+    private void DrawDeskWoodWedge(
+        DeskTrianglePlaceholderLogic.Wedge wedge,
         DeskFloorRectLogic.FloorRect rect)
     {
-        var verts = DeskTrianglePlaceholderLogic.Vertices(tri);
+        var verts = DeskTrianglePlaceholderLogic.Vertices(wedge);
         var points = new Vector2[verts.Length];
         var uvs = new Vector2[verts.Length];
         for (int i = 0; i < verts.Length; i++)
