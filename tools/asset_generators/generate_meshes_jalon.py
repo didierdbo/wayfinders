@@ -3,6 +3,19 @@
 # ----------------------------------------------------------------------------
 #  Author : Mira (AI Media Generation Specialist)
 #  Date   : 2026-05-22  (jalon "meshes" -- eM world map + eT district meshes)
+#  Patch  : Quill 2026-05-23 -- Option C (Eevee Next 4096x2048 world map)
+#  Patch  : Quill 2026-05-23 -- Option A (save .blend snapshot before render
+#           so Didier can re-open the exact scene in GUI for tweaks).
+#  Patch  : Quill 2026-05-24 -- v2 silhouette override flags (Option A clean).
+#           New CLI flags --silhouette-path / --silhouette-w / --silhouette-h /
+#           --world-out-dir / --world-out-png / --world-blend-path override
+#           ONLY the "world" target so we can re-mesh from a new binarized
+#           silhouette (e.g. 4096x2048 v2) without touching the default config
+#           or the district targets.
+#  Patch  : Quill 2026-05-24 -- new flag --land-height <float> (default 0.015).
+#           Overrides the world target LAND_HEIGHT (was 0.16). Districts are
+#           unaffected. New default 0.015 = subtle continent relief locked
+#           after v4 photobash validation. Pass --land-height 0.16 to revert.
 #
 #  WHAT THIS DOES
 #  --------------
@@ -19,9 +32,38 @@
 #
 #  3 TARGETS
 #  ---------
-#    A. eM world map   -- continent silhouette  (2944x1648 src -> 2048x1024 iso)
+#    A. eM world map   -- continent silhouette  (2944x1648 src -> 2048x1024 iso
+#                         OR 4096x2048 via --world-res 4k)
 #    B. eT lower_quays -- district, COMMON-FRAME composite 200x250 px
 #    C. eT high_wall   -- district, COMMON-FRAME composite 200x250 px
+#
+#  RENDER ENGINE (Quill 2026-05-23, Option C)
+#  ------------------------------------------
+#  Default engine for ALL targets is now Eevee Next (USE_CYCLES = False),
+#  forced explicitly in setup_eevee_engine(). Rationale: 4 GB VRAM budget on
+#  the dev laptop (RTX A2000 Laptop) -- Cycles risks OOM / silent CPU fallback
+#  at 4K. Flat shadeless slabs do not need Cycles. Eevee Next default samples
+#  (64) are kept; raise via RENDER_SAMPLES_OVERRIDE only if banding appears.
+#
+#  CLI FLAG --world-res {2k,4k}
+#  ----------------------------
+#  Controls ONLY the eM world map render size. Default = 2k (back-compat with
+#  the v1 2048x1024 render Rune has wired). 4k -> 4096x2048, written as a
+#  parallel file alongside the 2k one. Districts are unchanged.
+#
+#  CLI FLAGS --silhouette-* / --world-out-* (Quill 2026-05-24)
+#  -----------------------------------------------------------
+#  When re-meshing from a new binarized silhouette, pass:
+#    --silhouette-path <path>   : source bitmap (overrides WORLD_SRC)
+#    --silhouette-w / -h <int>  : source bitmap dimensions (overrides 2944/1648).
+#                                 Required when the new silhouette is not at the
+#                                 native 2944x1648 aspect.
+#    --world-out-dir <dir>      : where to write the PNG + .blend snapshot
+#                                 (overrides EM_OUT_DIR)
+#    --world-out-png  <name>    : output PNG filename (overrides default)
+#    --world-blend-path <path>  : extra .blend snapshot copy (in addition to the
+#                                 one written next to the PNG)
+#  These ONLY affect the "world" target; districts ignore them.
 #
 #  THE CALAGE / PUZZLE FIX
 #  -----------------------
@@ -50,14 +92,17 @@
 #  ---------------------
 #    1. python composite_district_frame.py        (builds the composites)
 #    2. "C:\Program Files\Blender Foundation\Blender 5.1\blender.exe" ^
-#         --background --python "...\generate_meshes_jalon.py"
+#         --background --python "...\generate_meshes_jalon.py" -- --world-res 4k
 #
+#  The bare " -- " separates Blender args from script args (argparse pattern).
 #  Re-runnable: each target rebuilds from a clean factory scene.
 # ============================================================================
 
+import argparse
 import importlib.util
 import json
 import math
+import shutil
 import sys
 from pathlib import Path
 
@@ -84,6 +129,76 @@ DISTRICT_FRAME_W_M = 400
 DISTRICT_FRAME_H_M = 500
 DISTRICT_FRAME_W_PX = 200
 DISTRICT_FRAME_H_PX = 250
+
+
+# ----------------------------------------------------------------------------
+#  CLI parsing  (Blender forwards args after "--" to the script)
+# ----------------------------------------------------------------------------
+
+
+def parse_cli_args():
+    """Parse ONLY args after the bare '--' separator Blender uses."""
+    argv = sys.argv
+    script_args = argv[argv.index("--") + 1 :] if "--" in argv else []
+    parser = argparse.ArgumentParser(prog="generate_meshes_jalon.py")
+    parser.add_argument(
+        "--world-res",
+        choices=("2k", "4k"),
+        default="2k",
+        help="eM world map render size: 2k = 2048x1024 (default, back-compat), "
+        "4k = 4096x2048 (Option C, Eevee Next).",
+    )
+    parser.add_argument(
+        "--only",
+        choices=("world", "districts", "all"),
+        default="all",
+        help="Subset of targets to build. Default = all 3.",
+    )
+    # --- Quill 2026-05-24: v2 silhouette overrides (world target only) ------
+    parser.add_argument(
+        "--silhouette-path",
+        default=None,
+        help="Override source bitmap for the 'world' target (default: WORLD_SRC).",
+    )
+    parser.add_argument(
+        "--silhouette-w",
+        type=int,
+        default=None,
+        help="Override source bitmap width in px. Required when the silhouette "
+        "is NOT at the native 2944x1648 aspect (e.g. v2 4096x2048).",
+    )
+    parser.add_argument(
+        "--silhouette-h",
+        type=int,
+        default=None,
+        help="Override source bitmap height in px (see --silhouette-w).",
+    )
+    parser.add_argument(
+        "--world-out-dir",
+        default=None,
+        help="Override output directory for the 'world' target (default: EM_OUT_DIR).",
+    )
+    parser.add_argument(
+        "--world-out-png",
+        default=None,
+        help="Override output PNG filename for the 'world' target.",
+    )
+    parser.add_argument(
+        "--world-blend-path",
+        default=None,
+        help="If set, copy the rendered .blend snapshot to this extra path "
+        "(in addition to the one written next to the PNG).",
+    )
+    parser.add_argument(
+        "--land-height",
+        type=float,
+        default=0.015,
+        help="Override LAND_HEIGHT for the 'world' target only. Default 0.015 "
+        "(subtle relief, locked 2026-05-24). The historic value was 0.16; "
+        "pass --land-height 0.16 to reproduce the v1 blocky extrusion. "
+        "Districts are NOT affected by this flag.",
+    )
+    return parser.parse_args(script_args)
 
 
 # ----------------------------------------------------------------------------
@@ -119,59 +234,83 @@ def reset_scene():
 #  Target configuration
 # ----------------------------------------------------------------------------
 
-TARGETS = [
-    {
+
+def build_targets(world_res: str, world_overrides: dict | None = None):
+    """Materialize the TARGETS list with the chosen world-map resolution.
+
+    `world_overrides` (Quill 2026-05-24) lets the CLI swap the world target's
+    silhouette source, dimensions, output paths and LAND_HEIGHT without
+    touching the default config or the district targets. Recognized keys:
+        bitmap        (Path)  -- overrides WORLD_SRC
+        bitmap_w/h    (int)   -- overrides 2944/1648
+        out_dir       (Path)  -- overrides EM_OUT_DIR
+        out_png       (str)   -- overrides default filename
+        land_height   (float) -- overrides world target LAND_HEIGHT (was 0.16)
+    """
+    world_overrides = world_overrides or {}
+
+    if world_res == "4k":
+        world_render_w, world_render_h = 4096, 2048
+        world_out_png_default = "wf_e2_world_map_mesh_iso_4096x2048.png"
+    else:
+        world_render_w, world_render_h = 2048, 1024
+        world_out_png_default = "wf_e2_world_map_mesh_iso_2048x1024.png"
+
+    world_target = {
         "key": "world",
-        "label": "eM world map (continent)",
-        "bitmap": WORLD_SRC,
-        "bitmap_w": 2944,
-        "bitmap_h": 1648,
-        "render_w": 2048,
-        "render_h": 1024,  # locked iso render (spec 1.2)
-        "land_height": 0.16,
-        "out_dir": EM_OUT_DIR,
-        "out_png": "wf_e2_world_map_mesh_iso_2048x1024.png",
+        "label": f"eM world map (continent) [{world_res}]",
+        "bitmap": world_overrides.get("bitmap", WORLD_SRC),
+        "bitmap_w": world_overrides.get("bitmap_w", 2944),
+        "bitmap_h": world_overrides.get("bitmap_h", 1648),
+        "render_w": world_render_w,
+        "render_h": world_render_h,
+        "land_height": world_overrides.get("land_height", 0.015),
+        "out_dir": world_overrides.get("out_dir", EM_OUT_DIR),
+        "out_png": world_overrides.get("out_png", world_out_png_default),
         "world_m_x": 500000,
         "world_m_y": 250000,
         "anchor_m": {"x": 0, "y": 0},
         "ignore_holes": True,
         "transparent": False,  # keep the opaque sea
-    },
-    {
-        "key": "lower_quays",
-        "label": "eT district -- Lower Quays (common frame)",
-        "bitmap": LOWER_QUAYS_SRC,
-        "bitmap_w": DISTRICT_FRAME_W_PX,
-        "bitmap_h": DISTRICT_FRAME_H_PX,
-        "render_w": 1600,
-        "render_h": 800,  # 2:1 iso, 8x frame upscale
-        "land_height": 0.18,
-        "out_dir": ET_OUT_DIR,
-        "out_png": "wf_e3_district_lower_quays_mesh_iso_1600x800.png",
-        "world_m_x": DISTRICT_FRAME_W_M,
-        "world_m_y": DISTRICT_FRAME_H_M,
-        "anchor_m": dict(DISTRICT_FRAME_SW),
-        "ignore_holes": True,
-        "transparent": True,  # only the L-shape is opaque
-    },
-    {
-        "key": "high_wall",
-        "label": "eT district -- High Wall (common frame)",
-        "bitmap": HIGH_WALL_SRC,
-        "bitmap_w": DISTRICT_FRAME_W_PX,
-        "bitmap_h": DISTRICT_FRAME_H_PX,
-        "render_w": 1600,
-        "render_h": 800,
-        "land_height": 0.18,
-        "out_dir": ET_OUT_DIR,
-        "out_png": "wf_e3_district_high_wall_mesh_iso_1600x800.png",
-        "world_m_x": DISTRICT_FRAME_W_M,
-        "world_m_y": DISTRICT_FRAME_H_M,
-        "anchor_m": dict(DISTRICT_FRAME_SW),
-        "ignore_holes": True,
-        "transparent": True,
-    },
-]
+    }
+
+    return [
+        world_target,
+        {
+            "key": "lower_quays",
+            "label": "eT district -- Lower Quays (common frame)",
+            "bitmap": LOWER_QUAYS_SRC,
+            "bitmap_w": DISTRICT_FRAME_W_PX,
+            "bitmap_h": DISTRICT_FRAME_H_PX,
+            "render_w": 1600,
+            "render_h": 800,  # 2:1 iso, 8x frame upscale
+            "land_height": 0.18,
+            "out_dir": ET_OUT_DIR,
+            "out_png": "wf_e3_district_lower_quays_mesh_iso_1600x800.png",
+            "world_m_x": DISTRICT_FRAME_W_M,
+            "world_m_y": DISTRICT_FRAME_H_M,
+            "anchor_m": dict(DISTRICT_FRAME_SW),
+            "ignore_holes": True,
+            "transparent": True,
+        },
+        {
+            "key": "high_wall",
+            "label": "eT district -- High Wall (common frame)",
+            "bitmap": HIGH_WALL_SRC,
+            "bitmap_w": DISTRICT_FRAME_W_PX,
+            "bitmap_h": DISTRICT_FRAME_H_PX,
+            "render_w": 1600,
+            "render_h": 800,
+            "land_height": 0.18,
+            "out_dir": ET_OUT_DIR,
+            "out_png": "wf_e3_district_high_wall_mesh_iso_1600x800.png",
+            "world_m_x": DISTRICT_FRAME_W_M,
+            "world_m_y": DISTRICT_FRAME_H_M,
+            "anchor_m": dict(DISTRICT_FRAME_SW),
+            "ignore_holes": True,
+            "transparent": True,
+        },
+    ]
 
 
 # ----------------------------------------------------------------------------
@@ -199,8 +338,11 @@ def configure_pipeline(pipeline, target):
 
     pipeline.RENDER_W = target["render_w"]
     pipeline.RENDER_H = target["render_h"]
-    pipeline.RENDER_SAMPLES = 96
-    pipeline.USE_CYCLES = True
+    # Eevee Next default = 64 render samples; sufficient for flat shadeless
+    # slabs. The pipeline module ignores RENDER_SAMPLES when USE_CYCLES is
+    # False, so we set Eevee samples explicitly in setup_eevee_engine().
+    pipeline.RENDER_SAMPLES = 64
+    pipeline.USE_CYCLES = False  # Option C: Eevee Next, 4 GB VRAM budget.
     pipeline.CAM_ORTHO_SCALE = pipeline.PLANE_WIDTH * 1.10
 
     # DNA Wayfinders -- terracotta / ochre / parchment / umber.
@@ -208,6 +350,30 @@ def configure_pipeline(pipeline, target):
     pipeline.LAND_COLOR_SIDE = (0.55, 0.35, 0.22, 1.0)
     pipeline.SEA_COLOR = (0.10, 0.18, 0.28, 1.0)
     pipeline.SHADOW_COLOR = (0.18, 0.14, 0.11, 1.0)
+
+
+def setup_eevee_engine(target):
+    """Force Eevee Next as the active engine + samples.
+
+    The pipeline module's setup_render() only configures Cycles when
+    USE_CYCLES=True; with USE_CYCLES=False it does nothing engine-side, so we
+    must set engine + Eevee samples explicitly here. Called AFTER pipeline.build()
+    so the engine override sticks.
+    """
+    scn = bpy.context.scene
+    # Quill 2026-05-23 (update): Blender 5.x renamed the enum -- legacy Eevee
+    # was dropped, so Eevee Next is now exposed as "BLENDER_EEVEE" (no _NEXT).
+    # Didier runs Blender 5.1.1; using the 4.x name raises a TypeError.
+    scn.render.engine = "BLENDER_EEVEE"
+    try:
+        scn.eevee.taa_render_samples = 64  # Eevee Next default; keep.
+    except AttributeError:
+        # Older Eevee API fallback.
+        scn.eevee.samples = 64
+    # Ensure resolution is locked even if the pipeline forgot to refresh it.
+    scn.render.resolution_x = target["render_w"]
+    scn.render.resolution_y = target["render_h"]
+    scn.render.resolution_percentage = 100
 
 
 def add_lighting():
@@ -239,7 +405,8 @@ def strip_sea_and_shadow(pipeline):
 
 
 # ----------------------------------------------------------------------------
-#  Calage sidecar
+#  Calage sidecar (v1 flat -- kept for back-compat; v2 lives in a separate
+#  script: write_calage_sidecar_v2.py)
 # ----------------------------------------------------------------------------
 
 
@@ -343,8 +510,13 @@ def write_calage_sidecar(target, png_path: Path) -> Path:
 # ----------------------------------------------------------------------------
 
 
-def build_one(pipeline, target) -> Path:
-    """Build the scene, render the iso PNG, emit the calage sidecar."""
+def build_one(pipeline, target, extra_blend_path: Path | None = None) -> Path:
+    """Build the scene, render the iso PNG, emit the calage sidecar.
+
+    `extra_blend_path` (Quill 2026-05-24): if provided, copy the .blend
+    snapshot to this additional location AFTER writing it next to the PNG.
+    Used so the world re-mesh can land a copy under Owner's Inbox\\Blender\\.
+    """
     print(f"\n[Mira] ===== TARGET: {target['label']} =====")
     reset_scene()
     configure_pipeline(pipeline, target)
@@ -355,6 +527,7 @@ def build_one(pipeline, target) -> Path:
         strip_sea_and_shadow(pipeline)
 
     add_lighting()
+    setup_eevee_engine(target)  # Quill 2026-05-23: force Eevee Next + samples.
 
     out_dir = Path(target["out_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -364,7 +537,28 @@ def build_one(pipeline, target) -> Path:
     scn.render.image_settings.file_format = "PNG"
     scn.render.image_settings.color_mode = "RGBA"
     scn.render.film_transparent = bool(target["transparent"])
-    print(f"[Mira] Rendering (transparent={target['transparent']}) -> {png_path}")
+
+    # Quill 2026-05-23 (Option A): snapshot the exact scene we are about to
+    # render as a .blend sidecar -- saved BEFORE bpy.ops.render.render() so
+    # the .blend captures the precise state the PNG was rendered from.
+    # In GUI mode Blender stays open afterwards: Didier can tweak materials,
+    # lighting, camera, then File > Save to overwrite this .blend.
+    # compress=False -> stays fast on 4K scenes, avoids zlib stall.
+    blend_path = png_path.with_suffix(".blend")
+    print(f"[Quill] Saving .blend snapshot -> {blend_path}")
+    bpy.ops.wm.save_as_mainfile(filepath=str(blend_path), compress=False)
+
+    if extra_blend_path is not None:
+        extra_blend_path = Path(extra_blend_path)
+        extra_blend_path.parent.mkdir(parents=True, exist_ok=True)
+        print(f"[Quill] Copying .blend snapshot -> {extra_blend_path}")
+        shutil.copy2(blend_path, extra_blend_path)
+
+    print(
+        f"[Mira] Rendering engine={scn.render.engine} "
+        f"size={scn.render.resolution_x}x{scn.render.resolution_y} "
+        f"transparent={target['transparent']} -> {png_path}"
+    )
     bpy.ops.render.render(write_still=True)
 
     write_calage_sidecar(target, png_path)
@@ -373,14 +567,50 @@ def build_one(pipeline, target) -> Path:
 
 
 def main() -> None:
+    args = parse_cli_args()
+    print(
+        f"[Mira] CLI: world_res={args.world_res} only={args.only} "
+        f"silhouette_path={args.silhouette_path} "
+        f"silhouette_size={args.silhouette_w}x{args.silhouette_h} "
+        f"world_out_dir={args.world_out_dir} world_out_png={args.world_out_png} "
+        f"land_height={args.land_height}"
+    )
     print("[Mira] Loading existing pipeline as a library...")
     pipeline = load_pipeline_module()
     print("[Mira] Pipeline loaded (map_terrain_mesh_script v3.1).")
 
+    # --- Quill 2026-05-24: collect world overrides from CLI -----------------
+    world_overrides: dict = {}
+    if args.silhouette_path:
+        world_overrides["bitmap"] = Path(args.silhouette_path)
+    if args.silhouette_w is not None:
+        world_overrides["bitmap_w"] = args.silhouette_w
+    if args.silhouette_h is not None:
+        world_overrides["bitmap_h"] = args.silhouette_h
+    if args.world_out_dir:
+        world_overrides["out_dir"] = Path(args.world_out_dir)
+    if args.world_out_png:
+        world_overrides["out_png"] = args.world_out_png
+    # Quill 2026-05-24: --land-height has a default (0.015), so always forward
+    # it. The world target now uses 0.015 unless the CLI explicitly overrides.
+    world_overrides["land_height"] = args.land_height
+
+    all_targets = build_targets(args.world_res, world_overrides=world_overrides)
+    if args.only == "world":
+        targets = [t for t in all_targets if t["key"] == "world"]
+    elif args.only == "districts":
+        targets = [t for t in all_targets if t["key"] != "world"]
+    else:
+        targets = all_targets
+
+    extra_blend = Path(args.world_blend_path) if args.world_blend_path else None
+
     results = []
-    for target in TARGETS:
+    for target in targets:
         try:
-            png = build_one(pipeline, target)
+            # Only the world target receives the extra-blend copy.
+            extra = extra_blend if target["key"] == "world" else None
+            png = build_one(pipeline, target, extra_blend_path=extra)
             results.append((target["key"], str(png), "OK"))
         except Exception as exc:
             import traceback

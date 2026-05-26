@@ -23,8 +23,9 @@ ticks efficiently without HTTP overhead.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -680,3 +681,84 @@ class TestWorldTickDegradedMode:
         # tick 0 is always a cadence window → must have a mission even in degraded mode.
         assert body["mission"] is not None
         assert body["mission"]["type"] in _MISSION_TYPES
+
+
+# ---------------------------------------------------------------------------
+# 7. Debug mode — WAYFINDERS_DEBUG_TICKS + WAYFINDERS_DEBUG_TARGET_POI
+# ---------------------------------------------------------------------------
+
+
+class TestWorldTickDebugMode:
+    """Sanity checks for the two debug env vars.
+
+    These flags are temporary milestone aids — not prod features.
+    Tests run the engine directly (no HTTP) for speed.
+    """
+
+    def test_debug_ticks_emits_only_at_listed_ticks(self) -> None:
+        """When WAYFINDERS_DEBUG_TICKS=1,3, only ticks 1 and 3 emit a mission."""
+        mock = _make_predictor(ready=True, delta=1.5)
+        engine = EmergenceEngine(predictor=mock)
+
+        env = {"WAYFINDERS_DEBUG_TICKS": "1,3"}
+        with patch.dict(os.environ, env, clear=False):
+            for tick in range(10):
+                req = WorldTickRequest(tick=tick, seed=42, context_prose=_CONTEXT_PROSE)
+                resp = engine.process_tick(req)
+                if tick in (1, 3):
+                    assert resp.mission is not None, f"tick={tick}: expected mission, got None"
+                else:
+                    assert resp.mission is None, (
+                        f"tick={tick}: expected None outside debug tick list, got mission"
+                    )
+
+    def test_debug_target_poi_forces_poi_on_emitted_mission(self) -> None:
+        """When WAYFINDERS_DEBUG_TARGET_POI=e1.halfgate, every emitted mission has that poi."""
+        mock = _make_predictor(ready=True, delta=1.5)
+        engine = EmergenceEngine(predictor=mock)
+
+        forced_poi = "e1.halfgate"
+        # tick=0 is always in cadence window — guaranteed to emit.
+        env = {"WAYFINDERS_DEBUG_TARGET_POI": forced_poi}
+        with patch.dict(os.environ, env, clear=False):
+            req = WorldTickRequest(tick=0, seed=42, context_prose=_CONTEXT_PROSE)
+            resp = engine.process_tick(req)
+
+        assert resp.mission is not None
+        assert resp.mission.target_poi == forced_poi
+
+    def test_both_debug_flags_compose(self) -> None:
+        """Both flags active: tick filter + poi override both apply."""
+        mock = _make_predictor(ready=True, delta=1.5)
+        engine = EmergenceEngine(predictor=mock)
+
+        forced_poi = "e1.halfgate"
+        env = {"WAYFINDERS_DEBUG_TICKS": "1,3", "WAYFINDERS_DEBUG_TARGET_POI": forced_poi}
+        with patch.dict(os.environ, env, clear=False):
+            # tick=1 → in list → mission emitted → poi forced
+            req1 = WorldTickRequest(tick=1, seed=42, context_prose=_CONTEXT_PROSE)
+            resp1 = engine.process_tick(req1)
+            assert resp1.mission is not None
+            assert resp1.mission.target_poi == forced_poi
+
+            # tick=2 → not in list → no mission
+            req2 = WorldTickRequest(tick=2, seed=42, context_prose=_CONTEXT_PROSE)
+            resp2 = engine.process_tick(req2)
+            assert resp2.mission is None
+
+    def test_normal_mode_unchanged_without_debug_flags(self) -> None:
+        """Without the env vars, stochastic cadence is untouched."""
+        mock = _make_predictor(ready=True, delta=1.5)
+        engine = EmergenceEngine(predictor=mock)
+
+        # Explicitly absent from env (patch.dict with clear=False; remove if present).
+        env_patch = {}
+        for var in ("WAYFINDERS_DEBUG_TICKS", "WAYFINDERS_DEBUG_TARGET_POI"):
+            env_patch[var] = ""  # empty string → flags treat as inactive
+
+        with patch.dict(os.environ, env_patch, clear=False):
+            # tick=1 is Varn-locked unconditional first window → must emit.
+            req = WorldTickRequest(tick=1, seed=42, context_prose=_CONTEXT_PROSE)
+            resp = engine.process_tick(req)
+
+        assert resp.mission is not None, "tick=1 must always emit in normal mode"

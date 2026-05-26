@@ -39,6 +39,15 @@ always produces the same mission.
 Dev flag: ``WAYFINDERS_DEV_MISSION_SEED`` env var.  When set, the cadence
 gate is bypassed (any tick is a window).  Free-form string for M1.
 
+Debug flags (temporary, milestone-validation only):
+  ``WAYFINDERS_DEBUG_TICKS`` — comma-separated tick list (e.g. "1,3").
+    When set, missions only emit at those exact ticks; all other ticks
+    return ``mission=None`` regardless of the stochastic cadence.
+  ``WAYFINDERS_DEBUG_TARGET_POI`` — PoiId string (e.g. "e1.halfgate").
+    When set, overrides ``target_poi`` on every emitted mission.
+    MissionType, narrative_hook, NPC pick, and all other fields are
+    unchanged.  Both flags are independent and composable.
+
 OPEN — Varn-flagged items:
   - ``region`` is derived from ``context_prose`` by a heuristic in M1 that
     normalises matches against the Varn-locked RegionId closed lookup and
@@ -633,6 +642,47 @@ class EmergenceEngine:
         if already_targeted_npc_ids is None:
             already_targeted_npc_ids = frozenset()
 
+        # --- Debug tick filter (WAYFINDERS_DEBUG_TICKS) ---
+        # When set: only the listed ticks are mission windows; stochastic cadence
+        # is bypassed entirely.  Ticks not in the list return mission=None.
+        # Format: comma-separated integers, e.g. "1,3".  Whitespace is stripped.
+        # This flag is independent of WAYFINDERS_DEV_MISSION_SEED.
+        debug_ticks_raw = os.environ.get("WAYFINDERS_DEBUG_TICKS", "")
+        debug_ticks_active = bool(debug_ticks_raw.strip())
+        if debug_ticks_active:
+            try:
+                debug_tick_set: frozenset[int] = frozenset(
+                    int(t.strip()) for t in debug_ticks_raw.split(",") if t.strip()
+                )
+            except ValueError:
+                logger.error(
+                    "world_tick: WAYFINDERS_DEBUG_TICKS=%r is malformed — "
+                    "expected comma-separated integers; ignoring debug tick filter",
+                    debug_ticks_raw,
+                )
+                debug_ticks_active = False
+                debug_tick_set = frozenset()
+            else:
+                logger.debug(
+                    "world_tick: WAYFINDERS_DEBUG_TICKS=%r active — "
+                    "cadence bypassed, only ticks %s are windows",
+                    debug_ticks_raw,
+                    sorted(debug_tick_set),
+                )
+        else:
+            debug_tick_set = frozenset()
+
+        # --- Debug target POI override (WAYFINDERS_DEBUG_TARGET_POI) ---
+        # When set: overrides target_poi on every emitted mission.
+        # MissionType, NPC pick, narrative_hook, and all other fields are unchanged.
+        debug_target_poi = os.environ.get("WAYFINDERS_DEBUG_TARGET_POI", "").strip() or None
+        if debug_target_poi:
+            logger.debug(
+                "world_tick: WAYFINDERS_DEBUG_TARGET_POI=%r active — "
+                "target_poi will be forced on any emitted mission",
+                debug_target_poi,
+            )
+
         # --- Dev seed override (WAYFINDERS_DEV_MISSION_SEED) ---
         # When set: bypass cadence gate, use the env-var string as an
         # additional seed component for reproducible dev/visual-regression
@@ -656,7 +706,12 @@ class EmergenceEngine:
             )
 
         # --- 1. Cadence gate ---
-        in_window = dev_seed_active or _in_cadence_window(tick, seed)
+        # Priority: debug tick filter > dev seed > stochastic cadence.
+        if debug_ticks_active:
+            in_window = tick in debug_tick_set
+        else:
+            in_window = dev_seed_active or _in_cadence_window(tick, seed)
+
         if not in_window:
             logger.debug("world_tick: tick=%d seed=%d — outside cadence window", tick, seed)
             return WorldTickResponse(mission=None, tick=tick)
@@ -683,6 +738,17 @@ class EmergenceEngine:
                 seed,
             )
             return WorldTickResponse(mission=None, tick=tick)
+
+        # --- 4. Debug target_poi override (WAYFINDERS_DEBUG_TARGET_POI) ---
+        # Rebuild the mission with the forced POI.  All other fields are
+        # preserved verbatim — only target_poi is replaced.
+        if debug_target_poi:
+            mission = mission.model_copy(update={"target_poi": debug_target_poi})
+            logger.debug(
+                "world_tick: WAYFINDERS_DEBUG_TARGET_POI=%r — target_poi forced on mission %s",
+                debug_target_poi,
+                mission.id,
+            )
 
         logger.info(
             "world_tick: tick=%d seed=%d → mission %s type=%s npc=%s region=%s poi=%s",
