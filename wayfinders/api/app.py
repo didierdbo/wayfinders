@@ -15,6 +15,10 @@ Endpoints:
   (emergent mission or None). Always returns 200; degrades gracefully to
   uniform sampling when the predictor is not ready.  Side-effect: adds the
   emitted mission to the session-scoped MissionStore (if a mission emerged).
+* ``POST /api/world/reset`` — Session reset. Clears the MissionStore and resets
+  all per-session state. Call at scene startup (e.g. E1 _Ready) so that
+  repeated debug runs start with a clean slate without restarting uvicorn.
+  Always returns 200 ``{"status": "reset", "missions_cleared": int}``.
 * ``GET /api/missions/active`` — Active mission list (Varn-lock 2026-05-17 §A).
   Returns ``list[EmergentMission]`` ordered by spawn tick ascending.  Missions
   remain active until resolved or concluded.  Session-scoped (clears on restart).
@@ -339,6 +343,42 @@ def missions_active(request: Request) -> list[EmergentMission]:
     """
     mission_store: MissionStore = request.app.state.mission_store
     return mission_store.active()
+
+
+class WorldResetResponse(BaseModel):
+    """Response for POST /api/world/reset."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: str  # always "reset"
+    missions_cleared: int
+
+
+@app.post(
+    "/api/world/reset",
+    response_model=WorldResetResponse,
+    tags=["world"],
+    summary="Session reset — clear mission store",
+)
+def world_reset(request: Request) -> WorldResetResponse:
+    """Clear the session-scoped MissionStore and return the count of cleared missions.
+
+    The backend holds no persistent state (NPC-autonomy lock 2026-05-09): this
+    endpoint merely empties the in-process MissionStore so that a new game run
+    (or a repeated debug run) starts with a clean slate without requiring a full
+    uvicorn restart.
+
+    Call this from the Godot client at scene startup (e.g. E1WorldMap._Ready)
+    before the first POST /api/world/tick.  The client's own GameState is the
+    authoritative mission store; this server store is a convenience mirror.
+
+    Always returns HTTP 200.
+    """
+    mission_store: MissionStore = request.app.state.mission_store
+    missions_cleared = len(mission_store)
+    mission_store.clear()
+    logger.info("world_reset: cleared %d active mission(s) from store", missions_cleared)
+    return WorldResetResponse(status="reset", missions_cleared=missions_cleared)
 
 
 @app.get(
