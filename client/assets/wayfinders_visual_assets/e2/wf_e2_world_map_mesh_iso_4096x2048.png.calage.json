@@ -1,0 +1,44 @@
+{
+  "_comment": "Calage sidecar for the Wayfinders 'meshes' jalon. Tells Rune how this iso-render PNG registers onto a Godot IsoBoard at J5. Produced by Mira 2026-05-22. Regeneratable -- do not hand-edit.",
+  "_generator": "tools/asset_generators/generate_meshes_jalon.py",
+  "target": "world",
+  "layer": "eM",
+  "render_png": "wf_e2_world_map_mesh_iso_4096x2048.png",
+  "render_size_px": {
+    "w": 4096,
+    "h": 2048
+  },
+  "background_transparent": false,
+  "iso_projection": {
+    "ratio": "2:1",
+    "camera": "orthographic, rot_x=60deg, rot_z=45deg",
+    "note": "Render canvas is 2:1 (w = 2*h). The PNG is an iso view of a flat extruded slab -- the silhouette IS the land/district outline."
+  },
+  "world_frame_m": {
+    "size_x_m": 500000,
+    "size_y_m": 250000,
+    "frame_sw_anchor_m": {
+      "x": 0,
+      "y": 0
+    },
+    "anchor_note": "SW corner of the rendered world frame, in world meters (world.yaml convention: origin SW, X east, Y north)."
+  },
+  "ground_scale": {
+    "meters_per_src_px_x": 169.83695652173913,
+    "meters_per_src_px_y": 151.6990291262136,
+    "src_bitmap_size_px": {
+      "w": 2944,
+      "h": 1648
+    }
+  },
+  "render_scale": {
+    "render_px_per_world_m_x": 0.008192,
+    "render_px_per_world_m_y": 0.008192,
+    "note": "Pixels of the RENDERED PNG per world meter. Use this to size the Sprite2D against the eT/eM camera."
+  },
+  "godot_placement": {
+    "sprite_centered": false,
+    "background_texture_path_target": "IsoBoard.BackgroundTexturePath",
+    "note": "eM backdrop. Wire as IsoBoard.BackgroundTexturePath; Sprite2D Centered=false, top-left at the board origin. Cities pin as POIs via city.position (world meters) -> render pixels using render_scale. Halfgate placeholder (92000,38000) is tunable until this coastline render is signed off (Varn spec section 7)."
+  }
+}

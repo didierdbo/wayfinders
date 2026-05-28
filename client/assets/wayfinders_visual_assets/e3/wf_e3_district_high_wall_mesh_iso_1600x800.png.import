@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cwfe3highwall1"
-path="res://.godot/imported/wf_e3_district_high_wall_mesh_iso_1600x800.png-e3highwalliso1600.ctex"
+uid="uid://bi02v7bowmg6g"
+path="res://.godot/imported/wf_e3_district_high_wall_mesh_iso_1600x800.png-664ce5631dc20ebd9c28d7481e4ed40b.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/wayfinders_visual_assets/e3/wf_e3_district_high_wall_mesh_iso_1600x800.png"
-dest_files=["res://.godot/imported/wf_e3_district_high_wall_mesh_iso_1600x800.png-e3highwalliso1600.ctex"]
+dest_files=["res://.godot/imported/wf_e3_district_high_wall_mesh_iso_1600x800.png-664ce5631dc20ebd9c28d7481e4ed40b.ctex"]
 
 [params]
 

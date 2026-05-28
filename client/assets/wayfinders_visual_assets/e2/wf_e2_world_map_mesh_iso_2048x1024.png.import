@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cwfe2worldmesh1"
-path="res://.godot/imported/wf_e2_world_map_mesh_iso_2048x1024.png-e2worldmeshiso2048.ctex"
+uid="uid://ikrv0olq1qkm"
+path="res://.godot/imported/wf_e2_world_map_mesh_iso_2048x1024.png-785aa3f5a19ad04dbae5ce74ccdb542e.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/wayfinders_visual_assets/e2/wf_e2_world_map_mesh_iso_2048x1024.png"
-dest_files=["res://.godot/imported/wf_e2_world_map_mesh_iso_2048x1024.png-e2worldmeshiso2048.ctex"]
+dest_files=["res://.godot/imported/wf_e2_world_map_mesh_iso_2048x1024.png-785aa3f5a19ad04dbae5ce74ccdb542e.ctex"]
 
 [params]
 
