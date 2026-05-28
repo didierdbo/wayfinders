@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://cgmstng0001"]
-
-[ext_resource type="Script" path="res://services/GameSettings.cs" id="1_gmstn"]
-
-[node name="GameSettings" type="Node"]
-script = ExtResource("1_gmstn")

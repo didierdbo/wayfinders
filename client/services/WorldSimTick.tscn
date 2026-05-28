@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://cwrldsmt0001"]
-
-[ext_resource type="Script" path="res://services/WorldSimTick.cs" id="1_wrldsm"]
-
-[node name="WorldSimTick" type="Node"]
-script = ExtResource("1_wrldsm")

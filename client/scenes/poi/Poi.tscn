@@ -1,7 +1,0 @@
-[gd_scene load_steps=2 format=3 uid="uid://b8x7poi3pr3mvp"]
-
-[ext_resource type="Script" path="res://scripts/poi/Poi.cs" id="1_poi"]
-
-[node name="Poi" type="Sprite2D"]
-centered = false
-script = ExtResource("1_poi")

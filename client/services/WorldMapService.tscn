@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://cwrldmap001"]
-
-[ext_resource type="Script" path="res://services/WorldMapService.cs" id="1_wrldm"]
-
-[node name="WorldMapService" type="Node"]
-script = ExtResource("1_wrldm")

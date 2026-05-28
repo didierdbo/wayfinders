@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://b04at6v4tvb6o"]
-
-[ext_resource type="Script" uid="uid://dohswa3vx6nf1" path="res://scenes/probes/PoiFootprintProbe.cs" id="1_1c11d"]
-
-[node name="PoiFootprintProbe" type="Node" unique_id=1796419305]
-script = ExtResource("1_1c11d")

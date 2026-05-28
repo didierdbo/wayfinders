@@ -1,7 +1,0 @@
-placeholder = true
-expected_asset = wf_e1_halfgate_poi.png
-type = poi
-dimensions = 1024x512
-generated_at = 2026-05-13T09:21:36
-generator = mira.placeholder_generator
-framework_version = 1.0

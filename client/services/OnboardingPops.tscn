@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://conbpps0001"]
-
-[ext_resource type="Script" path="res://services/OnboardingPops.cs" id="1_onbpp"]
-
-[node name="OnboardingPops" type="Node"]
-script = ExtResource("1_onbpp")

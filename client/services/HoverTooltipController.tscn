@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://chovtltpc0001"]
-
-[ext_resource type="Script" path="res://services/HoverTooltipController.cs" id="1_hovctl"]
-
-[node name="HoverTooltipController" type="Node"]
-script = ExtResource("1_hovctl")

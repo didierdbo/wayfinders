@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://cknwmtx0001"]
-
-[ext_resource type="Script" path="res://services/KnowledgeMatrix.cs" id="1_knwmt"]
-
-[node name="KnowledgeMatrix" type="Node"]
-script = ExtResource("1_knwmt")

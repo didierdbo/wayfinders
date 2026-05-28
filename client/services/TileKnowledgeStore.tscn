@@ -1,6 +1,0 @@
-[gd_scene load_steps=2 format=3 uid="uid://cwf_tilestore0001"]
-
-[ext_resource type="Script" path="res://services/TileKnowledgeStore.cs" id="1_tkstore"]
-
-[node name="TileKnowledgeStore" type="Node"]
-script = ExtResource("1_tkstore")

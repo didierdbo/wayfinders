@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://casstrslv001"]
-
-[ext_resource type="Script" path="res://services/AssetResolver.cs" id="1_assrs"]
-
-[node name="AssetResolver" type="Node"]
-script = ExtResource("1_assrs")

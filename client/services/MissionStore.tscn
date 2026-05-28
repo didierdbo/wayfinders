@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://cmisnst017"]
-
-[ext_resource type="Script" path="res://services/MissionStore.cs" id="1_misst"]
-
-[node name="MissionStore" type="Node"]
-script = ExtResource("1_misst")

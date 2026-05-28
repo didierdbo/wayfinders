@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://cgmstate0001"]
-
-[ext_resource type="Script" path="res://services/GameState.cs" id="1_gmst"]
-
-[node name="GameState" type="Node"]
-script = ExtResource("1_gmst")

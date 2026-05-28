@@ -1,7 +1,0 @@
-placeholder = true
-expected_asset = wf_e1_tooltip_parchment.png
-type = tooltip
-dimensions = 320x180
-generated_at = 2026-05-13T09:35:36
-generator = mira.placeholder_generator
-framework_version = 1.0

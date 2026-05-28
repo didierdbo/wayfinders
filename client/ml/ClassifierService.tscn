@@ -1,6 +1,0 @@
-[gd_scene load_steps=2 format=3 uid="uid://cclassif000l1"]
-
-[ext_resource type="Script" path="res://ml/ClassifierService.cs" id="1_clsvc"]
-
-[node name="Classifier" type="Node"]
-script = ExtResource("1_clsvc")

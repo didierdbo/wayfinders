@@ -1,7 +1,0 @@
-placeholder = true
-expected_asset = wf_e1_seal_wax.png
-type = seal
-dimensions = 64x64
-generated_at = 2026-05-13T09:35:40
-generator = mira.placeholder_generator
-framework_version = 1.0
